@@ -5,22 +5,20 @@
     const urlParams = new URLSearchParams(window.location.search);
     const currentScreen = urlParams.get('screen');
     const currentView = urlParams.get('view');
-    const currentMode = urlParams.get('mode');
 
     // ==========================================
     // 0. REDIRECIONAMENTO INTELIGENTE
     // ==========================================
-    // O script agora opera exclusivamente na lista de relatórios
     if (currentScreen !== 'report' || currentView) {
         if (currentScreen === 'info_command' && urlParams.get('id')) {
-            renderVillageNotes(); // Mantém a capacidade de ler a nota no ecrã de comandos
+            renderVillageNotes(); 
             return;
         }
         
         if (typeof window.UI !== 'undefined') {
-            window.UI.InfoMessage('A redirecionar para a lista de relatórios...', 2000, 'success');
+            window.UI.InfoMessage('A redirecionar para a lista de relatórios...', 1500, 'success');
         }
-        setTimeout(() => { window.location.href = gameData.link_base_pure + 'report'; }, 800);
+        setTimeout(() => { window.location.href = gameData.link_base_pure + 'report'; }, 600);
         return;
     }
 
@@ -33,7 +31,7 @@
         FAKE_LIMIT: 250,
         HIGH_THREAT_POP: 18000,
         FARM_CAPACITY: 24000,
-        DELAYS: { MIN: 200, MAX: 350 }, // Pausa cirúrgica para não bloquear o servidor (AJAX)
+        DELAYS: { MIN: 150, MAX: 300 }, 
         STORAGE: {
             HISTORY: `tw_notas_history_${gameData.world}`,
             STATE: `tw_notas_running_${gameData.world}`,
@@ -263,11 +261,8 @@
                 return;
             }
 
-            // Seleciona todas as linhas de relatório (ignorando o cabeçalho e o footer)
             const rows = Array.from(reportTable.querySelectorAll('tr')).filter(tr => tr.querySelector('a[href*="view="]'));
-            
             const limitHours = parseFloat(localStorage.getItem(CFG.STORAGE.LIMIT_HOURS) || '36');
-            let reportsProcessed = 0;
 
             for (let i = 0; i < rows.length; i++) {
                 if (!DB.isRunning()) break;
@@ -280,28 +275,24 @@
                 if (!reportIdMatch) continue;
                 const reportId = reportIdMatch[1];
 
-                // Atualizar UI
                 const progressText = document.getElementById('ra-progress-text');
-                if(progressText) progressText.innerHTML = `A ler relatório <b>${i+1}</b> de ${rows.length}...`;
+                if(progressText) progressText.textContent = `A analisar relatório ${i + 1} de ${rows.length}...`;
 
-                // Verificar Limite de Horas
                 const reportTimestamp = Utils.parseTWDate(dateElem);
                 const elapsedHours = (Date.now() - reportTimestamp) / 3600000;
 
                 if (elapsedHours > limitHours) {
                     DB.setState(false);
                     UI.toggleAuto(false);
-                    if(progressText) progressText.innerHTML = `<span style="color:#a52a2a;">Concluído. Relatórios mais antigos que ${limitHours}h ignorados.</span>`;
+                    if(progressText) progressText.textContent = `Concluído. Relatórios mais antigos que o limite configurado foram ignorados.`;
                     return;
                 }
 
-                // Skip se já processado
                 if (DB.getHistory().includes(reportId)) {
                     row.style.opacity = '0.5';
                     continue;
                 }
 
-                // Extração em Background (AJAX)
                 try {
                     const res = await fetch(linkElem.href);
                     if (!res.ok) throw new Error('Falha de rede');
@@ -310,7 +301,7 @@
 
                     await Engine.analyzeReportHTML(doc, reportId, dateElem);
                     
-                    row.style.backgroundColor = '#e8f4e8'; // Feedback visual de sucesso
+                    row.style.backgroundColor = '#e8f4e8'; 
                 } catch (e) {
                     console.warn(`Erro no relatório ${reportId}:`, e);
                 }
@@ -319,18 +310,23 @@
             }
 
             if (DB.isRunning()) {
-                // Procurar próxima página
-                const nextBtn = document.querySelector('.paged-nav-item:contains(">")') || Array.from(document.querySelectorAll('.paged-nav-item')).find(el => el.textContent.includes('>'));
+                // Correção da paginação (O que causou o crash anterior)
+                let nextUrl = null;
+                const activePageNode = document.querySelector('.vis td[align="center"] strong');
                 
-                if (nextBtn && nextBtn.href) {
+                if (activePageNode && activePageNode.nextElementSibling && activePageNode.nextElementSibling.classList.contains('paged-nav-item')) {
+                    nextUrl = activePageNode.nextElementSibling.href;
+                }
+
+                if (nextUrl) {
                     const progressText = document.getElementById('ra-progress-text');
-                    if(progressText) progressText.innerHTML = `A avançar para a próxima página...`;
-                    setTimeout(() => { window.location.href = nextBtn.href; }, 500);
+                    if(progressText) progressText.textContent = `A carregar a próxima página...`;
+                    setTimeout(() => { window.location.href = nextUrl; }, 500);
                 } else {
                     DB.setState(false);
                     UI.toggleAuto(false);
                     const progressText = document.getElementById('ra-progress-text');
-                    if(progressText) progressText.innerHTML = `<span style="color:#008200;">Todas as páginas lidas com sucesso.</span>`;
+                    if(progressText) progressText.textContent = `Leitura concluída. Todas as páginas analisadas.`;
                 }
             }
         },
@@ -389,7 +385,6 @@
             } else if (DB.getKnownEnemies().includes(focusVillageId)) {
                 focusIsOurs = false;
             } else {
-                // Verificação Assíncrona do Dono
                 focusIsOurs = await new Promise(resolve => {
                     fetch(`/game.php?screen=info_village&id=${focusVillageId}`)
                         .then(r => r.text())
@@ -560,25 +555,26 @@
 
             const savedLimit = localStorage.getItem(CFG.STORAGE.LIMIT_HOURS) || '36';
 
+            // Interface limpa, usando o layout nativo da InnoGames ("vis")
             const html = `
-                <table id="ra-notas-dashboard" class="vis" style="width: 100%; margin-bottom: 15px; border: 2px solid #7d510f;">
+                <table id="ra-notas-dashboard" class="vis" style="width: 100%; margin-bottom: 15px;">
                     <tbody>
                         <tr>
-                            <th style="background-color: #c1a264; padding: 6px;">
-                                <div style="display: flex; justify-content: space-between; align-items: center;">
-                                    <span style="font-size: 13px;">Gestor de Notas TW (Leitura em Background)</span>
-                                </div>
-                            </th>
+                            <th colspan="2">Gestor de Notas TW</th>
                         </tr>
                         <tr>
-                            <td style="padding: 12px; display: flex; flex-direction: column; gap: 10px; align-items: center; background-color: #f4e4bc;">
-                                <div style="display: flex; align-items: center; gap: 8px;">
-                                    <label for="ra-hour-limit" style="font-weight: bold;">Limite de Horas:</label>
-                                    <input type="number" id="ra-hour-limit" value="${savedLimit}" style="width: 50px; padding: 4px; text-align: center; border: 1px solid #ccc;">
-                                </div>
-                                <button id="btn-auto-start" class="btn" style="padding: 8px 16px; font-weight: bold;">▶ Iniciar Extração Invisível</button>
-                                <button id="btn-auto-stop" class="btn btn-cancel" style="display: none; padding: 8px 16px; font-weight: bold;">⏹ Parar Bot</button>
-                                <div id="ra-progress-text" style="font-weight: bold; margin-top: 5px; color: #005eb2;">Pronto para iniciar.</div>
+                            <td style="width: 50%; text-align: center; padding: 10px;">
+                                <label style="font-weight: bold; margin-right: 5px;">Limite (Horas):</label>
+                                <input type="number" id="ra-hour-limit" value="${savedLimit}" style="width: 50px; text-align: center; padding: 2px;">
+                            </td>
+                            <td style="width: 50%; text-align: center; padding: 10px;">
+                                <button id="btn-auto-start" class="btn">Iniciar Leitura</button>
+                                <button id="btn-auto-stop" class="btn btn-cancel" style="display: none;">Parar</button>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td colspan="2" style="text-align: center; padding: 8px; font-weight: bold; color: #555;" id="ra-progress-text">
+                                Pronto a iniciar.
                             </td>
                         </tr>
                     </tbody>
@@ -601,7 +597,7 @@
             document.getElementById('btn-auto-stop')?.addEventListener('click', () => {
                 DB.setState(false); 
                 UI.toggleAuto(false);
-                document.getElementById('ra-progress-text').innerHTML = `<span style="color:#a52a2a;">Extração interrompida manualmente.</span>`;
+                document.getElementById('ra-progress-text').textContent = 'Extração interrompida manualmente.';
             });
 
             if (DB.isRunning()) {
@@ -613,8 +609,8 @@
         toggleAuto: (isRunning) => {
             const startBtn = document.getElementById('btn-auto-start');
             const stopBtn = document.getElementById('btn-auto-stop');
-            if(startBtn) startBtn.style.display = isRunning ? 'none' : 'block';
-            if(stopBtn) stopBtn.style.display = isRunning ? 'block' : 'none';
+            if(startBtn) startBtn.style.display = isRunning ? 'none' : 'inline-block';
+            if(stopBtn) stopBtn.style.display = isRunning ? 'inline-block' : 'none';
         }
     };
 
@@ -634,7 +630,7 @@
                     const container = `
                         <table class="vis" style="width: 100%; margin-top: 15px;">
                             <tbody>
-                                <tr><th>Dados Registados (Gestor de Notas)</th></tr>
+                                <tr><th>Gestor de Notas TW</th></tr>
                                 <tr><td style="padding: 10px;">${noteHtml.children[1].innerHTML}</td></tr>
                             </tbody>
                         </table>
