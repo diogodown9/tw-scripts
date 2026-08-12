@@ -5,32 +5,26 @@
     const urlParams = new URLSearchParams(window.location.search);
     const currentScreen = urlParams.get('screen');
     const currentView = urlParams.get('view');
+    const currentMode = urlParams.get('mode');
 
     // ==========================================
-    // 0. REDIRECIONAMENTO INTELIGENTE (ACESSO RÁPIDO)
+    // 0. REDIRECIONAMENTO INTELIGENTE
     // ==========================================
-    if (currentScreen !== 'report' && currentScreen !== 'info_command') {
+    // O script agora opera exclusivamente na lista de relatórios
+    if (currentScreen !== 'report' || currentView) {
+        if (currentScreen === 'info_command' && urlParams.get('id')) {
+            renderVillageNotes(); // Mantém a capacidade de ler a nota no ecrã de comandos
+            return;
+        }
+        
         if (typeof window.UI !== 'undefined') {
-            window.UI.InfoMessage('A redirecionar para a página de relatórios...', 2000, 'success');
+            window.UI.InfoMessage('A redirecionar para a lista de relatórios...', 2000, 'success');
         }
         setTimeout(() => { window.location.href = gameData.link_base_pure + 'report'; }, 800);
         return;
     }
 
-    if (currentScreen === 'report' && !currentView) {
-        const firstReport = document.querySelector('a[href*="screen=report"][href*="&view="]');
-        if (firstReport) {
-            if (typeof window.UI !== 'undefined') {
-                window.UI.InfoMessage('A abrir o relatório mais recente... Clica no script novamente quando abrir!', 3000, 'success');
-            }
-            setTimeout(() => { window.location.href = firstReport.href; }, 1000);
-        } else {
-            if (typeof window.UI !== 'undefined') {
-                window.UI.ErrorMessage('Nenhum relatório encontrado nesta página.', 3000);
-            }
-        }
-        return;
-    }
+    const domParser = new DOMParser();
 
     // ==========================================
     // 1. CONFIGURAÇÕES BASE
@@ -39,7 +33,7 @@
         FAKE_LIMIT: 250,
         HIGH_THREAT_POP: 18000,
         FARM_CAPACITY: 24000,
-        DELAYS: { MIN: 50, MAX: 150 }, 
+        DELAYS: { MIN: 200, MAX: 350 }, // Pausa cirúrgica para não bloquear o servidor (AJAX)
         STORAGE: {
             HISTORY: `tw_notas_history_${gameData.world}`,
             STATE: `tw_notas_running_${gameData.world}`,
@@ -63,7 +57,7 @@
         getHistory: () => JSON.parse(localStorage.getItem(CFG.STORAGE.HISTORY) || '[]'),
         saveHistory: (id) => {
             const h = DB.getHistory();
-            if (!h.includes(id)) { h.push(id); if (h.length > 3000) h.shift(); localStorage.setItem(CFG.STORAGE.HISTORY, JSON.stringify(h)); }
+            if (!h.includes(id)) { h.push(id); if (h.length > 5000) h.shift(); localStorage.setItem(CFG.STORAGE.HISTORY, JSON.stringify(h)); }
         },
         clearHistory: () => { localStorage.removeItem(CFG.STORAGE.HISTORY); location.reload(); },
         
@@ -150,18 +144,13 @@
             return new Date(y, mo, d, hr, min, sec).getTime();
         },
 
-        parseVillageFromTable: (tableId) => {
-            const tbl = document.getElementById(tableId);
-            if (!tbl) return null;
-            const text = tbl.rows[1]?.cells[1]?.textContent.trim() || '';
-            const match = text.match(/(.+?)\s*\((\d{3}\|\d{3})\)\s*K\d{2}/);
-            return { name: match ? match[1].trim() : text, raw: text, coord: match ? match[2] : '---' };
-        },
-
-        extractBuildings: () => {
+        extractBuildings: (doc) => {
             let wall = '?', farm = '?', tower = '?', hq = '?';
-            const html = document.getElementById('content_value').innerHTML;
-            const text = document.getElementById('content_value').innerText;
+            const content = doc.getElementById('content_value');
+            if (!content) return { wall, farm, tower, hq, loyalty: null, troopsOutside: false, hasInfo: false };
+            
+            const html = content.innerHTML;
+            const text = content.innerText;
 
             const wallMatch = html.match(/building wall.*?(\d+)/i) || text.match(/Muralha\s*(?:Nível\s*)?(\d+)/i);
             const farmMatch = html.match(/building farm.*?(\d+)/i) || text.match(/Fazenda\s*(?:Nível\s*)?(\d+)/i);
@@ -178,12 +167,15 @@
             if (loyaltyMatch) loyalty = parseInt(loyaltyMatch[1]);
 
             let troopsOutside = false;
-            const $awayTable = jQuery('#attack_spy_away');
-            if ($awayTable.length) {
-                $awayTable.find('tr').eq(1).find('td').each(function() {
-                    const count = parseInt(jQuery(this).text().trim().replace(/\./g, '')) || 0;
-                    if (count > 0) { troopsOutside = true; return false; }
-                });
+            const awayTable = doc.getElementById('attack_spy_away');
+            if (awayTable) {
+                const cells = awayTable.rows[1]?.cells;
+                if (cells) {
+                    Array.from(cells).forEach(td => {
+                        const count = parseInt(td.textContent.trim().replace(/\./g, '')) || 0;
+                        if (count > 0) troopsOutside = true;
+                    });
+                }
             }
 
             const hasInfo = html.includes('Espionagem') || html.includes('attack_spy');
@@ -202,6 +194,14 @@
                 finalNote += `[b][u]ATAQUES LANÇADOS CONTRA NÓS[/u][/b]\n` + vData.outgoing.map(a => a.text || a).join('\n\n---\n\n') + '\n\n';
             }
             return finalNote.trim();
+        },
+
+        saveNoteRequest: (villageId, noteStr) => {
+            return new Promise(resolve => {
+                TribalWars.post('info_village', { ajaxaction: 'edit_notes', id: villageId }, { note: noteStr }, () => {
+                    resolve();
+                });
+            });
         }
     };
 
@@ -209,7 +209,7 @@
     // 4. CLASSIFICADOR DE ALDEIAS
     // ==========================================
     const TacticalEngine = {
-        analyzeDefense: () => {
+        analyzeDefense: (doc) => {
             let offPop = 0, defPop = 0, totalPop = 0, hasSnob = false;
 
             const countPop = (idx, countText) => {
@@ -224,19 +224,19 @@
                 }
             };
 
-            jQuery('#attack_info_def tr').each(function() {
-                const $row = jQuery(this);
-                if ($row.find('td').eq(0).text().toLowerCase().includes('quantidade')) {
-                    $row.find('td').each(function(idx) {
+            const defRows = doc.querySelectorAll('#attack_info_def tr');
+            defRows.forEach(row => {
+                if (row.cells[0]?.textContent.toLowerCase().includes('quantidade')) {
+                    Array.from(row.cells).forEach((td, idx) => {
                         if (idx === 0) return;
-                        countPop(idx - 1, jQuery(this).text().trim());
+                        countPop(idx - 1, td.textContent.trim());
                     });
                 }
             });
 
-            const $spyTbl = jQuery('#attack_spy_def_troops');
-            if ($spyTbl.length) {
-                $spyTbl.find('tr').eq(1).find('td').each(function(idx) { countPop(idx, jQuery(this).text().trim()); });
+            const spyTbl = doc.getElementById('attack_spy_def_troops');
+            if (spyTbl && spyTbl.rows[1]) {
+                Array.from(spyTbl.rows[1].cells).forEach((td, idx) => countPop(idx, td.textContent.trim()));
             }
 
             const tags = [];
@@ -252,172 +252,103 @@
     };
 
     // ==========================================
-    // 5. INTERFACE DO UTILIZADOR
-    // ==========================================
-    const UI = {
-        setupSidebarLayout: () => {
-            if (document.getElementById('ra-sidebar-wrapper')) return document.getElementById('ra-sidebar-wrapper');
-            const contentValue = document.getElementById('content_value');
-            if (!contentValue) return null;
-
-            contentValue.style.display = 'flex';
-            contentValue.style.alignItems = 'flex-start';
-            contentValue.style.gap = '15px';
-
-            const leftWrapper = document.createElement('div');
-            leftWrapper.style.flex = '1';
-            leftWrapper.style.minWidth = '0';
-
-            while (contentValue.firstChild) leftWrapper.appendChild(contentValue.firstChild);
-
-            const rightWrapper = document.createElement('div');
-            rightWrapper.id = 'ra-sidebar-wrapper';
-            rightWrapper.style.width = '320px';
-            rightWrapper.style.flexShrink = '0';
-            rightWrapper.style.marginTop = '65px';
-
-            contentValue.appendChild(leftWrapper);
-            contentValue.appendChild(rightWrapper);
-
-            return rightWrapper;
-        },
-
-        renderDashboard: (reportId, isSaved) => {
-            if (document.getElementById('ra-notas-dashboard')) return;
-
-            const sidebar = UI.setupSidebarLayout();
-            if (!sidebar) return;
-
-            const statusBadge = isSaved
-                ? `<span style="color: green; font-weight: bold;">✔ Processado</span>`
-                : `<button id="btn-manual" class="btn" style="width:100%;">Extrair Nota</button>`;
-                
-            const savedLimit = localStorage.getItem(CFG.STORAGE.LIMIT_HOURS) || '36';
-
-            const html = `
-                <table id="ra-notas-dashboard" class="vis" style="width: 100%; margin-bottom: 15px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
-                    <tbody>
-                        <tr>
-                            <th>
-                                <div style="display: flex; justify-content: space-between;">
-                                    <span>Gestor de Notas TW</span>
-                                </div>
-                            </th>
-                        </tr>
-                        <tr>
-                            <td style="text-align: center; padding: 10px;">
-                                <strong>Estado da Leitura:</strong><br>
-                                <div id="action-container" style="margin-top: 5px;">${statusBadge}</div>
-                            </td>
-                        </tr>
-                        <tr>
-                            <th style="text-align: center;">Navegação Automática</th>
-                        </tr>
-                        <tr>
-                            <td style="padding: 10px; display: flex; flex-direction: column; gap: 8px;">
-                                <div style="display: flex; justify-content: center; align-items: center; gap: 5px;">
-                                    <label for="ra-hour-limit" style="font-size: 11px;">Parar após relatórios mais antigos que (Horas):</label>
-                                    <input type="number" id="ra-hour-limit" value="${savedLimit}" style="width: 45px; padding: 2px; text-align: center;">
-                                </div>
-                                <button id="btn-auto-start" class="btn">▶ Iniciar Leitura Automática</button>
-                                <button id="btn-auto-stop" class="btn btn-cancel" style="display: none;">⏹ Parar Bot</button>
-                            </td>
-                        </tr>
-                        <tr>
-                            <td style="text-align: center; padding: 8px;">
-                                <a href="#" id="btn-clear" style="font-size: 10px; color: #a52a2a;">🗑️ Limpar Memória de Leitura</a>
-                            </td>
-                        </tr>
-                    </tbody>
-                </table>
-            `;
-
-            sidebar.innerHTML = html;
-
-            document.getElementById('ra-hour-limit')?.addEventListener('change', (e) => {
-                localStorage.setItem(CFG.STORAGE.LIMIT_HOURS, e.target.value);
-            });
-
-            document.getElementById('btn-manual')?.addEventListener('click', async (e) => {
-                e.target.disabled = true; e.target.textContent = 'A processar...'; await Engine.process(false);
-            });
-            
-            document.getElementById('btn-auto-start')?.addEventListener('click', async () => {
-                DB.clearSession();
-                DB.setState(true); 
-                UI.toggleAuto(true); 
-                await Engine.process(true);
-            });
-            
-            document.getElementById('btn-auto-stop')?.addEventListener('click', () => {
-                DB.setState(false); UI.toggleAuto(false);
-            });
-            
-            document.getElementById('btn-clear')?.addEventListener('click', (e) => {
-                e.preventDefault(); if (confirm("Redefinir memória de relatórios lidos?")) DB.clearHistory();
-            });
-
-            if (DB.isRunning()) UI.toggleAuto(true);
-        },
-
-        toggleAuto: (isRunning) => {
-            const startBtn = document.getElementById('btn-auto-start');
-            const stopBtn = document.getElementById('btn-auto-stop');
-            if(startBtn) startBtn.style.display = isRunning ? 'none' : 'block';
-            if(stopBtn) stopBtn.style.display = isRunning ? 'block' : 'none';
-        }
-    };
-
-    // ==========================================
-    // 6. MOTOR DE PROCESSAMENTO
+    // 5. MOTOR DE PROCESSAMENTO EM BACKGROUND
     // ==========================================
     const Engine = {
-        next: async () => {
-            const nextBtn = document.getElementById('report-previous') || document.getElementById('report-prev');
-            if (nextBtn) {
-                await Utils.delay(CFG.DELAYS.MIN, CFG.DELAYS.MAX);
-                nextBtn.click();
-            } else {
+        processList: async () => {
+            const reportTable = document.getElementById('report_list');
+            if (!reportTable) {
                 DB.setState(false);
-                UI.toggleAuto(false);
-                if (window.UI) window.UI.SuccessMessage('Leitura da pasta concluída.');
+                if(window.UI) window.UI.ErrorMessage('Tabela de relatórios não encontrada.');
+                return;
+            }
+
+            // Seleciona todas as linhas de relatório (ignorando o cabeçalho e o footer)
+            const rows = Array.from(reportTable.querySelectorAll('tr')).filter(tr => tr.querySelector('a[href*="view="]'));
+            
+            const limitHours = parseFloat(localStorage.getItem(CFG.STORAGE.LIMIT_HOURS) || '36');
+            let reportsProcessed = 0;
+
+            for (let i = 0; i < rows.length; i++) {
+                if (!DB.isRunning()) break;
+
+                const row = rows[i];
+                const linkElem = row.querySelector('a[href*="view="]');
+                const dateElem = row.cells[2] ? row.cells[2].textContent.trim() : row.cells[1].textContent.trim();
+                const reportIdMatch = linkElem.href.match(/view=(\d+)/);
+                
+                if (!reportIdMatch) continue;
+                const reportId = reportIdMatch[1];
+
+                // Atualizar UI
+                const progressText = document.getElementById('ra-progress-text');
+                if(progressText) progressText.innerHTML = `A ler relatório <b>${i+1}</b> de ${rows.length}...`;
+
+                // Verificar Limite de Horas
+                const reportTimestamp = Utils.parseTWDate(dateElem);
+                const elapsedHours = (Date.now() - reportTimestamp) / 3600000;
+
+                if (elapsedHours > limitHours) {
+                    DB.setState(false);
+                    UI.toggleAuto(false);
+                    if(progressText) progressText.innerHTML = `<span style="color:#a52a2a;">Concluído. Relatórios mais antigos que ${limitHours}h ignorados.</span>`;
+                    return;
+                }
+
+                // Skip se já processado
+                if (DB.getHistory().includes(reportId)) {
+                    row.style.opacity = '0.5';
+                    continue;
+                }
+
+                // Extração em Background (AJAX)
+                try {
+                    const res = await fetch(linkElem.href);
+                    if (!res.ok) throw new Error('Falha de rede');
+                    const html = await res.text();
+                    const doc = domParser.parseFromString(html, 'text/html');
+
+                    await Engine.analyzeReportHTML(doc, reportId, dateElem);
+                    
+                    row.style.backgroundColor = '#e8f4e8'; // Feedback visual de sucesso
+                } catch (e) {
+                    console.warn(`Erro no relatório ${reportId}:`, e);
+                }
+
+                await Utils.delay(CFG.DELAYS.MIN, CFG.DELAYS.MAX);
+            }
+
+            if (DB.isRunning()) {
+                // Procurar próxima página
+                const nextBtn = document.querySelector('.paged-nav-item:contains(">")') || Array.from(document.querySelectorAll('.paged-nav-item')).find(el => el.textContent.includes('>'));
+                
+                if (nextBtn && nextBtn.href) {
+                    const progressText = document.getElementById('ra-progress-text');
+                    if(progressText) progressText.innerHTML = `A avançar para a próxima página...`;
+                    setTimeout(() => { window.location.href = nextBtn.href; }, 500);
+                } else {
+                    DB.setState(false);
+                    UI.toggleAuto(false);
+                    const progressText = document.getElementById('ra-progress-text');
+                    if(progressText) progressText.innerHTML = `<span style="color:#008200;">Todas as páginas lidas com sucesso.</span>`;
+                }
             }
         },
 
-        process: async (isAuto) => {
-            const reportId = currentView;
+        analyzeReportHTML: async (doc, reportId, reportTimeText) => {
             const reportIdNum = parseInt(reportId, 10);
-
-            if (isAuto && DB.getHistory().includes(reportId)) {
-                DB.setState(false); return;
-            }
-
-            const $attTable = jQuery('table#attack_info_att');
-            const $defTable = jQuery('table#attack_info_def');
-            if (!$defTable.length || !$attTable.length) {
-                if (isAuto) return Engine.next();
-                if (window.UI) window.UI.ErrorMessage("Sem informações de batalha válidas.");
-                return;
-            }
-
-            const reportTimeText = $defTable.closest('table').find('tr:eq(1) td:eq(1)').text().trim();
-            const reportTimestamp = Utils.parseTWDate(reportTimeText);
-            const limitHours = parseFloat(localStorage.getItem(CFG.STORAGE.LIMIT_HOURS) || '36');
-            const elapsedHours = (Date.now() - reportTimestamp) / 3600000;
-
-            if (isAuto && elapsedHours > limitHours) {
-                DB.setState(false);
-                UI.toggleAuto(false);
-                document.getElementById('action-container').innerHTML = `<span style="color: #a52a2a; font-weight: bold;">⏹ Parado (Limite de Horas Atingido)</span>`;
-                if (window.UI) window.UI.SuccessMessage(`Leitura parada automaticamente: Encontrado relatório com mais de ${limitHours}h.`);
-                return;
-            }
-
-            const attVillageId = $attTable.find('span[data-id]').first().attr('data-id');
-            const defVillageId = $defTable.find('span[data-id]').first().attr('data-id');
             
-            const attackerName = $attTable[0].rows[0].cells[1].textContent.trim();
-            const defenderName = $defTable[0].rows[0].cells[1].textContent.trim();
+            const attTable = doc.getElementById('attack_info_att');
+            const defTable = doc.getElementById('attack_info_def');
+            if (!attTable || !defTable) {
+                DB.saveHistory(reportId);
+                return;
+            }
+
+            const attVillageId = attTable.querySelector('span[data-id]')?.getAttribute('data-id');
+            const defVillageId = defTable.querySelector('span[data-id]')?.getAttribute('data-id');
+            const attackerName = attTable.rows[0].cells[1].textContent.trim();
+            const defenderName = defTable.rows[0].cells[1].textContent.trim();
             const isSelfAttack = (attackerName === gameData.player.name && defenderName === gameData.player.name);
 
             let focusVillageId = null;
@@ -432,28 +363,21 @@
                 focusVillageId = defVillageId;
             }
 
-            if (!focusVillageId) {
-                if (isAuto) return Engine.next();
-                return;
-            }
+            if (!focusVillageId) return;
 
-            if (isAuto && DB.getSessionCache().includes(focusVillageId)) {
+            if (DB.getSessionCache().includes(focusVillageId)) {
                 DB.saveHistory(reportId);
-                document.getElementById('action-container').innerHTML = `<span style="color: gray; font-weight: bold;">⏩ Pulo Rápido (Já tratada nesta sessão)</span>`;
-                return Engine.next();
+                return;
             }
 
             if (isSelfAttack) {
                 if (attVillageId) DB.addOwned(attVillageId);
                 if (defVillageId) DB.addOwned(defVillageId);
-                
                 DB.saveHistory(reportId);
-                if (isAuto) return Engine.next();
-                document.getElementById('action-container').innerHTML = `<span style="color: gray; font-weight: bold;">Ignorado (Auto-Ataque)</span>`;
                 return;
             }
 
-            const dataExt = Utils.extractBuildings();
+            const dataExt = Utils.extractBuildings(doc);
             const isConquest = (attackerName === gameData.player.name && dataExt.loyalty !== null && dataExt.loyalty <= 0);
             let focusIsOurs = false;
 
@@ -465,16 +389,22 @@
             } else if (DB.getKnownEnemies().includes(focusVillageId)) {
                 focusIsOurs = false;
             } else {
+                // Verificação Assíncrona do Dono
                 focusIsOurs = await new Promise(resolve => {
-                    jQuery.get(`/game.php?screen=info_village&id=${focusVillageId}`, (html) => {
-                        const $html = jQuery(html);
-                        const ownerLink = $html.find('#content_value table.vis:first tr:contains("Jogador:") a').attr('href');
-                        if (ownerLink && ownerLink.includes(`id=${gameData.player.id}`)) {
-                            resolve(true);
-                        } else {
-                            resolve(false);
-                        }
-                    }).fail(() => resolve(false));
+                    fetch(`/game.php?screen=info_village&id=${focusVillageId}`)
+                        .then(r => r.text())
+                        .then(html => {
+                            const vDoc = domParser.parseFromString(html, 'text/html');
+                            const trs = vDoc.querySelectorAll('#content_value table.vis tr');
+                            let isMine = false;
+                            Array.from(trs).forEach(tr => {
+                                if (tr.textContent.includes('Jogador:')) {
+                                    const a = tr.querySelector('a');
+                                    if (a && a.href.includes(`id=${gameData.player.id}`)) isMine = true;
+                                }
+                            });
+                            resolve(isMine);
+                        }).catch(() => resolve(false));
                 });
                 
                 if (focusIsOurs) DB.addOwned(focusVillageId);
@@ -483,42 +413,44 @@
 
             if (focusIsOurs) {
                 if (!DB.isCleaned(focusVillageId)) {
-                    await new Promise((resolve) => {
-                        jQuery.get(`/game.php?screen=info_village&id=${focusVillageId}`, (html) => {
-                            DB.markCleaned(focusVillageId);
-                            if (html.includes('TIPO DE ALDEIA') || html.includes('HISTÓRICO DE ATAQUES') || html.includes('ATAQUES LANÇADOS') || html.includes('ÚLTIMA ESPIONAGEM')) {
-                                DB.deleteVillage(focusVillageId);
-                                TribalWars.post('info_village', { ajaxaction: 'edit_notes', id: focusVillageId }, { note: "" }, () => resolve());
-                            } else {
+                    await new Promise(resolve => {
+                        fetch(`/game.php?screen=info_village&id=${focusVillageId}`)
+                            .then(r => r.text())
+                            .then(async html => {
+                                DB.markCleaned(focusVillageId);
+                                if (html.includes('TIPO DE ALDEIA') || html.includes('HISTÓRICO DE ATAQUES') || html.includes('ATAQUES LANÇADOS') || html.includes('ÚLTIMA ESPIONAGEM')) {
+                                    DB.deleteVillage(focusVillageId);
+                                    await Utils.saveNoteRequest(focusVillageId, "");
+                                }
                                 resolve();
-                            }
-                        }).fail(() => resolve());
+                            }).catch(() => resolve());
                     });
                 }
-                
                 DB.saveHistory(reportId);
                 DB.addToSession(focusVillageId);
-                if (isAuto) return Engine.next();
-                document.getElementById('action-container').innerHTML = `<span style="color: #005eb2; font-weight: bold;">🏰 Aldeia Nossa (Limpa e Ignorada)</span>`;
                 return; 
             }
 
             let nonSpyPopAtt = 0, offPopAtt = 0, defPopAtt = 0;
-            jQuery('#attack_info_att_units tr:eq(1) td.unit-item').each(function(idx) {
-                const count = parseInt(this.textContent.trim().replace(/\./g, '')) || 0;
-                const unit = gameData.units[idx];
-                if (!unit || count === 0) return;
+            const attUnitsRow = doc.querySelector('#attack_info_att_units')?.rows[1];
+            if (attUnitsRow) {
+                Array.from(attUnitsRow.querySelectorAll('td.unit-item')).forEach((td, idx) => {
+                    const count = parseInt(td.textContent.trim().replace(/\./g, '')) || 0;
+                    const unit = gameData.units[idx];
+                    if (!unit || count === 0) return;
 
-                const pop = count * CFG.UNITS.POP[unit];
-                if (unit !== 'spy') nonSpyPopAtt += pop;
-                if (CFG.UNITS.OFF.includes(unit)) offPopAtt += pop;
-                if (CFG.UNITS.DEF.includes(unit)) defPopAtt += pop;
-            });
+                    const pop = count * CFG.UNITS.POP[unit];
+                    if (unit !== 'spy') nonSpyPopAtt += pop;
+                    if (CFG.UNITS.OFF.includes(unit)) offPopAtt += pop;
+                    if (CFG.UNITS.DEF.includes(unit)) defPopAtt += pop;
+                });
+            }
+            
             const isFake = nonSpyPopAtt < CFG.FAKE_LIMIT;
 
             if (isCounterIntel) {
-                const defData = Utils.parseVillageFromTable('attack_info_def');
-                let block = `[b]Data:[/b] ${reportTimeText} | [b]Alvo:[/b] [coord]${defData ? defData.coord : '---'}[/coord]\n`;
+                const defData = { coord: defTable.rows[1]?.cells[1]?.textContent.match(/(\d{3}\|\d{3})/) ? defTable.rows[1].cells[1].textContent.match(/(\d{3}\|\d{3})/)[1] : '---' };
+                let block = `[b]Data:[/b] ${reportTimeText} | [b]Alvo:[/b] [coord]${defData.coord}[/coord]\n`;
 
                 if (isFake) {
                     block += `[i]🤡 Fake enviado contra nós[/i]\n`;
@@ -545,15 +477,13 @@
                 const finalNote = Utils.buildFinalNote(vData);
                 DB.saveVillage(focusVillageId, vData);
 
-                TribalWars.post('info_village', { ajaxaction: 'edit_notes', id: focusVillageId }, { note: finalNote }, () => {
-                    DB.saveHistory(reportId);
-                    DB.addToSession(focusVillageId);
-                    if (isAuto) Engine.next();
-                    else document.getElementById('action-container').innerHTML = `<span style="color: green; font-weight: bold;">✔ Counter-Intel Guardada</span>`;
-                });
+                await Utils.saveNoteRequest(focusVillageId, finalNote);
+                DB.saveHistory(reportId);
+                DB.addToSession(focusVillageId);
+
             } else {
                 const hasSpyInfo = dataExt.hasInfo;
-                const tacticalData = TacticalEngine.analyzeDefense();
+                const tacticalData = TacticalEngine.analyzeDefense(doc);
                 const playerBB = Utils.wrapBB(defenderName, 'player');
 
                 let block = `[b]Data:[/b] ${reportTimeText} | [b]Dono:[/b] ${playerBB}\n`;
@@ -575,8 +505,8 @@
                     block += `[b]📉 Lealdade:[/b] ${dataExt.loyalty}\n`;
                 }
 
-                const $export = $('#report_export_code');
-                if ($export.length) block += '\n' + $export.html().trim() + '\n';
+                const exportElem = doc.getElementById('report_export_code');
+                if (exportElem) block += '\n' + exportElem.innerHTML.trim() + '\n';
                 block += `[url="${window.location.origin}/game.php?screen=report&mode=all&view=${reportId}"]Link do Relatório[/url]`;
 
                 const vData = DB.getVillage(focusVillageId);
@@ -607,54 +537,116 @@
 
                 if (!finalNote.trim() || (isFake && !hasSpyInfo)) {
                     DB.saveHistory(reportId);
-                    if (isAuto) return Engine.next();
-                    document.getElementById('action-container').innerHTML = `<span style="color: gray; font-weight: bold;">Lido (Sem info relevante)</span>`;
                     return;
                 }
 
                 DB.saveVillage(focusVillageId, vData);
-
-                TribalWars.post('info_village', { ajaxaction: 'edit_notes', id: focusVillageId }, { note: finalNote }, () => {
-                    DB.saveHistory(reportId);
-                    DB.addToSession(focusVillageId);
-                    if (isAuto) Engine.next();
-                    else document.getElementById('action-container').innerHTML = `<span style="color: green; font-weight: bold;">✔ Nota Guardada</span>`;
-                });
+                await Utils.saveNoteRequest(focusVillageId, finalNote);
+                DB.saveHistory(reportId);
+                DB.addToSession(focusVillageId);
             }
         }
     };
 
     // ==========================================
-    // 7. RENDERIZAR NOTAS (Ecrã de Comando)
+    // 6. INTERFACE DO UTILIZADOR
+    // ==========================================
+    const UI = {
+        renderDashboard: () => {
+            if (document.getElementById('ra-notas-dashboard')) return;
+
+            const header = document.querySelector('h2');
+            if (!header) return;
+
+            const savedLimit = localStorage.getItem(CFG.STORAGE.LIMIT_HOURS) || '36';
+
+            const html = `
+                <table id="ra-notas-dashboard" class="vis" style="width: 100%; margin-bottom: 15px; border: 2px solid #7d510f;">
+                    <tbody>
+                        <tr>
+                            <th style="background-color: #c1a264; padding: 6px;">
+                                <div style="display: flex; justify-content: space-between; align-items: center;">
+                                    <span style="font-size: 13px;">Gestor de Notas TW (Leitura em Background)</span>
+                                </div>
+                            </th>
+                        </tr>
+                        <tr>
+                            <td style="padding: 12px; display: flex; flex-direction: column; gap: 10px; align-items: center; background-color: #f4e4bc;">
+                                <div style="display: flex; align-items: center; gap: 8px;">
+                                    <label for="ra-hour-limit" style="font-weight: bold;">Limite de Horas:</label>
+                                    <input type="number" id="ra-hour-limit" value="${savedLimit}" style="width: 50px; padding: 4px; text-align: center; border: 1px solid #ccc;">
+                                </div>
+                                <button id="btn-auto-start" class="btn" style="padding: 8px 16px; font-weight: bold;">▶ Iniciar Extração Invisível</button>
+                                <button id="btn-auto-stop" class="btn btn-cancel" style="display: none; padding: 8px 16px; font-weight: bold;">⏹ Parar Bot</button>
+                                <div id="ra-progress-text" style="font-weight: bold; margin-top: 5px; color: #005eb2;">Pronto para iniciar.</div>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            `;
+
+            header.insertAdjacentHTML('afterend', html);
+
+            document.getElementById('ra-hour-limit')?.addEventListener('change', (e) => {
+                localStorage.setItem(CFG.STORAGE.LIMIT_HOURS, e.target.value);
+            });
+            
+            document.getElementById('btn-auto-start')?.addEventListener('click', () => {
+                DB.clearSession();
+                DB.setState(true); 
+                UI.toggleAuto(true); 
+                Engine.processList();
+            });
+            
+            document.getElementById('btn-auto-stop')?.addEventListener('click', () => {
+                DB.setState(false); 
+                UI.toggleAuto(false);
+                document.getElementById('ra-progress-text').innerHTML = `<span style="color:#a52a2a;">Extração interrompida manualmente.</span>`;
+            });
+
+            if (DB.isRunning()) {
+                UI.toggleAuto(true);
+                Engine.processList();
+            }
+        },
+
+        toggleAuto: (isRunning) => {
+            const startBtn = document.getElementById('btn-auto-start');
+            const stopBtn = document.getElementById('btn-auto-stop');
+            if(startBtn) startBtn.style.display = isRunning ? 'none' : 'block';
+            if(stopBtn) stopBtn.style.display = isRunning ? 'block' : 'none';
+        }
+    };
+
+    // ==========================================
+    // 7. INICIALIZAÇÃO E NOTAS (COMANDOS)
     // ==========================================
     const renderVillageNotes = () => {
         const anchor = document.querySelector('.village_anchor a');
         if (!anchor) return;
 
-        jQuery.get(anchor.getAttribute('href'), (html) => {
-            const noteHtml = jQuery(html).find('#own_village_note .village-note');
-            if (noteHtml.length) {
-                const container = `
-                    <table class="vis" style="width: 100%; margin-top: 15px;">
-                        <tbody>
-                            <tr><th>Dados Registados (Gestor de Notas)</th></tr>
-                            <tr><td style="padding: 10px;">${noteHtml[0].children[1].innerHTML}</td></tr>
-                        </tbody>
-                    </table>
-                `;
-                document.querySelector('#content_value table').insertAdjacentHTML('afterend', container);
-            }
-        });
+        fetch(anchor.getAttribute('href'))
+            .then(res => res.text())
+            .then(html => {
+                const doc = domParser.parseFromString(html, 'text/html');
+                const noteHtml = doc.querySelector('#own_village_note .village-note');
+                if (noteHtml && noteHtml.children.length > 1) {
+                    const container = `
+                        <table class="vis" style="width: 100%; margin-top: 15px;">
+                            <tbody>
+                                <tr><th>Dados Registados (Gestor de Notas)</th></tr>
+                                <tr><td style="padding: 10px;">${noteHtml.children[1].innerHTML}</td></tr>
+                            </tbody>
+                        </table>
+                    `;
+                    const tbl = document.querySelector('#content_value table');
+                    if (tbl) tbl.insertAdjacentHTML('afterend', container);
+                }
+            });
     };
 
-    // ==========================================
-    // 8. INICIALIZAÇÃO
-    // ==========================================
-    if (currentScreen === 'report' && currentView) {
-        UI.renderDashboard(currentView, DB.getHistory().includes(currentView));
-        if (DB.isRunning()) setTimeout(() => Engine.process(true), Math.floor(Math.random() * 100) + 50);
-    } else if (currentScreen === 'info_command' && urlParams.get('id')) {
-        renderVillageNotes();
+    if (currentScreen === 'report' && !currentView) {
+        UI.renderDashboard();
     }
 
 })();
