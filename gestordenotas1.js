@@ -1,13 +1,13 @@
 /*
  * Script Name: Own Notes Manager
- * Version: v1.1.0 (Optimized)
+ * Version: v1.1.1 (Optimized & Fixed Spoilers)
  * Last Updated: 2026-08-12
  * Author: RedAlert
  * Author URL: https://twscripts.dev/
  * Author Contact: redalert_tw (Discord)
  * Approved: N/A
  * Approved Date: 2022-02-09
- * Mod: JawJaw / Optimized
+ * Mod: JawJaw / Optimized / Fixed
  */
 
 /* Copyright (c) RedAlert
@@ -22,7 +22,7 @@ var scriptConfig = {
     scriptData: {
         prefix: 'ownNotesManager',
         name: 'Own Notes Manager',
-        version: 'v1.1.0',
+        version: 'v1.1.1',
         author: 'RedAlert',
         authorUrl: 'https://twscripts.dev/',
         helpLink:
@@ -115,9 +115,7 @@ window.twSDK = {
     worldDataPlayers: '/map/player.txt',
     worldDataTribes: '/map/ally.txt',
     worldDataConquests: '/map/conquer_extended.txt',
-    
-    // (...) [Manter TODAS as constantes normais do twSDK intactas para não partir a library (buildingsList, buildingPoints, etc)]
-    
+
     _initDebug: function () {
         const scriptInfo = this.scriptInfo();
         console.debug(`${scriptInfo} It works 🚀!`);
@@ -429,7 +427,6 @@ window.twSDK = {
         try {
             const { players, tribes } = await fetchWorldData();
 
-            // Otimização: Criar Hash Maps (O(1)) para lookups ultrarrápidos em vez de múltiplos 'forEach'
             const playerMap = new Map();
             const playerTribeMap = new Map();
             players.forEach(p => {
@@ -469,7 +466,6 @@ window.twSDK = {
 
             let uniquePlayersList = new Set();
 
-            // Adiciona jogadores escolhidos (Lookup O(1))
             if(playersInput === twSDK.tt('--Barbarian--') || playersInput === '--Barbarian--') {
                 uniquePlayersList.add(0);
             } else {
@@ -478,7 +474,6 @@ window.twSDK = {
                 });
             }
 
-            // Adiciona jogadores das tribos escolhidas (Lookup O(1) com map invertido)
             let chosenTribeIds = new Set();
             chosenTribes.forEach(tTag => {
                 if (maps.tribeMap.has(tTag)) chosenTribeIds.add(maps.tribeMap.get(tTag));
@@ -492,21 +487,19 @@ window.twSDK = {
                 }
             }
 
-            // Remove excluídos
             chosenExcluded.forEach(pName => {
                 if (maps.playerMap.has(pName)) uniquePlayersList.delete(maps.playerMap.get(pName));
             });
 
             let numberOfNotesSelected = 0;
             
-            // Otimização: Batch DOM Manipulation (evita o lag massivo na interface de utilizador)
             let checkboxesToSelect = [];
             let checkboxesToUnselect = [];
             let rowsToShow = [];
             let rowsToHide = [];
 
             jQuery('form:eq(1) > table > tbody > tr').each(function () {
-                if(jQuery(this).find('th').length > 0) return; // Ignora o cabeçalho
+                if(jQuery(this).find('th').length > 0) return;
 
                 const playerIdStr = jQuery(this).find('span.village_anchor').attr('data-player');
                 if(!playerIdStr) return;
@@ -524,7 +517,6 @@ window.twSDK = {
                 }
             });
 
-            // Aplicar alterações ao DOM numa só passagem
             jQuery(checkboxesToSelect).prop('checked', true);
             jQuery(checkboxesToUnselect).prop('checked', false);
             jQuery(rowsToShow).removeClass('ra-hidden-row');
@@ -538,7 +530,6 @@ window.twSDK = {
         });
     }
 
-    // Otimização e nova Feature: Expandir os relatórios selecionados gradualmente para evitar rate limits
     function handleExpandNotes() {
         jQuery('#raExpandNotesBtn').on('click', function(e) {
             e.preventDefault();
@@ -552,7 +543,6 @@ window.twSDK = {
             let delay = 0;
             checkedBoxes.each(function () {
                 const row = jQuery(this).closest('tr');
-                // O ícone da nota (a pequena imagem de relatório na primeira coluna) normalmente despoleta o evento de expandir
                 const noteIcon = row.find('td:eq(0) a'); 
                 
                 if (noteIcon.length) {
@@ -588,8 +578,22 @@ window.twSDK = {
                 .ra-fieldset legend { font-weight: 600; padding: 0 10px; font-size: 13px; margin-bottom: 5px; }
                 .ra-fieldset select { width: 100%; padding: 3px 5px; font-size: 14px; line-height: 1; }
                 .ra-input { width: 100% !important; padding: 3px 5px; font-size: 14px; line-height: 1; text-align: left !important; }
-                .note-content.note-opened { overflow-y: auto; }
                 .ra-hidden-row { display: none !important; }
+
+                /* FIX PARA RELATÓRIOS CORTADOS NOS SPOILERS */
+                .note-content.note-opened, .note_content, .note_text { 
+                    overflow: visible !important; 
+                    max-height: none !important; 
+                    height: auto !important; 
+                }
+                .spoiler, .spoiler > div, .spoiler_content { 
+                    overflow: visible !important; 
+                    max-height: none !important; 
+                    height: auto !important; 
+                }
+                form table.vis tr td { 
+                    overflow: visible !important; 
+                }
             `;
         twSDK.renderBoxWidget(contentBody, 'raOwnNotesManager', 'ra-own-notes-manager', customStyle);
     }
