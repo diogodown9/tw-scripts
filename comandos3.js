@@ -23,7 +23,42 @@
 
     const domParser = new DOMParser();
 
-    // --- INTERFACE DE UTILIZADOR & ESTILOS DO TOOLTIP ---
+    // --- INICIALIZAÇÃO DO MOTOR GLOBAL DE TOOLTIPS ---
+    if (!document.getElementById('gemini-global-tooltip')) {
+        const tooltipDiv = document.createElement('div');
+        tooltipDiv.id = 'gemini-global-tooltip';
+        tooltipDiv.style.cssText = 'visibility:hidden; opacity:0; transition:opacity 0.15s; position:absolute; z-index:999999; background:#f4e4bc; border:1px solid #7d510f; border-radius:4px; padding:4px; box-shadow:0 4px 10px rgba(0,0,0,0.5); pointer-events:none; width:max-content;';
+        document.body.appendChild(tooltipDiv);
+
+        window.geminiTooltipData = {}; // Guarda os dados dos tooltips em memória
+
+        document.addEventListener('mouseover', function(e) {
+            const target = e.target.closest('.gemini-hover-trigger');
+            if (target) {
+                const tId = target.getAttribute('data-tooltip-id');
+                const htmlData = window.geminiTooltipData[tId];
+                if (htmlData) {
+                    tooltipDiv.innerHTML = htmlData;
+                    tooltipDiv.style.visibility = 'visible';
+                    tooltipDiv.style.opacity = '1';
+                    
+                    const rect = target.getBoundingClientRect();
+                    tooltipDiv.style.left = (rect.left + window.scrollX + (rect.width / 2) - (tooltipDiv.offsetWidth / 2)) + 'px';
+                    tooltipDiv.style.top = (rect.top + window.scrollY - tooltipDiv.offsetHeight - 8) + 'px'; // 8px de margem acima
+                }
+            }
+        });
+
+        document.addEventListener('mouseout', function(e) {
+            const target = e.target.closest('.gemini-hover-trigger');
+            if (target) {
+                tooltipDiv.style.visibility = 'hidden';
+                tooltipDiv.style.opacity = '0';
+            }
+        });
+    }
+
+    // --- INTERFACE DE UTILIZADOR ---
     const uiContainer = document.createElement('div');
     uiContainer.className = 'vis';
     uiContainer.style.padding = '12px';
@@ -33,26 +68,10 @@
 
     uiContainer.innerHTML = `
         <style>
-            .gemini-badge-wrapper { position: relative; display: inline-block; cursor: help; }
-            .gemini-tooltip { 
-                visibility: hidden; opacity: 0; transition: opacity 0.2s; 
-                position: absolute; bottom: 120%; left: 50%; transform: translateX(-50%); 
-                background: #f4e4bc; border: 1px solid #7d510f; padding: 4px; 
-                border-radius: 4px; box-shadow: 0 4px 8px rgba(0,0,0,0.5); 
-                z-index: 999999; pointer-events: none; width: max-content; 
-            }
-            .gemini-tooltip::after { 
-                content: ''; position: absolute; top: 100%; left: 50%; 
-                margin-left: -6px; border-width: 6px; border-style: solid; 
-                border-color: #7d510f transparent transparent transparent; 
-            }
-            .gemini-badge-wrapper:hover .gemini-tooltip { visibility: visible; opacity: 1; }
-            .gemini-tooltip table.vis { border-collapse: collapse; margin: 0; }
-            .gemini-tooltip table.vis th { background-color: #c1a264; background-image: url(https://dspt.innogamescdn.com/asset/1057e93c/graphic/screen/tableheader_bg3.png); text-align: center; padding: 3px 6px; border: 1px solid #7d510f; }
-            .gemini-tooltip table.vis td { text-align: center; padding: 4px 6px; border: 1px solid #7d510f; background: #fff5da; }
+            .gemini-hover-trigger { cursor: help; display: inline-block; }
         </style>
         <h4 style="margin-top:0; border-bottom: 1px solid #7d510f; padding-bottom: 6px; background-color: #c1a264; background-image: url(https://dspt.innogamescdn.com/asset/1057e93c/graphic/screen/tableheader_bg3.png); padding: 5px; border-radius: 2px 2px 0 0;">Analisador de Comandos</h4>
-        <p style="font-size: 11px; margin: 10px 0;">Insere o nome do jogador alvo e prime <b>Enter</b> para extrair a informação. Passa o rato nas etiquetas para ver a tabela exata de tropas do comando.</p>
+        <p style="font-size: 11px; margin: 10px 0;">Insere o nome do jogador alvo e prime <b>Enter</b> para extrair a informação. Passa o rato nas etiquetas de Classificação para ver a tabela exata de tropas.</p>
         <div style="display: flex; align-items: center; gap: 10px;">
             <input type="text" id="gemini-player-name" placeholder="Nome do Jogador" style="padding: 6px; width: 220px; border: 1px solid #ccc; border-radius: 3px; outline: none;">
             <a id="gemini-start-btn" class="btn" style="cursor: pointer; font-weight:bold; padding: 6px 12px;">Iniciar Análise</a>
@@ -191,25 +210,26 @@
         return { coord, points };
     }
 
-    // EXTRATOR METICULOSO DE TROPAS NATIVAS
+    // Extrator Agressivo de Tropas - Encontra qualquer tabela válida
     function parseTroopsFromHtml(htmlContent) {
         let found = false, noble = false, pop = 0, spyOnly = true;
         let units = {}; 
         const doc = domParser.parseFromString(htmlContent, 'text/html');
 
-        const headerRows = doc.querySelectorAll('tr');
-        for (let i = 0; i < headerRows.length; i++) {
-            const headerRow = headerRows[i];
-            const imgs = headerRow.querySelectorAll('img[src*="unit_"]');
+        const rows = doc.querySelectorAll('tr');
+        for (let i = 0; i < rows.length; i++) {
+            const row = rows[i];
+            const imgs = row.querySelectorAll('img[src*="unit_"]');
             
-            if (imgs.length > 0) {
-                const dataRow = headerRow.nextElementSibling;
-                // Asseguramos que encontramos a linha dos dados (os números)
-                if (dataRow && !dataRow.querySelector('img[src*="unit_"]') && dataRow.cells.length === headerRow.cells.length) {
-                    const headers = Array.from(headerRow.cells);
-                    const dataCells = Array.from(dataRow.cells);
+            // Uma tabela de tropas tem de ter múltiplas unidades lado a lado
+            if (imgs.length >= 4) {
+                const dataRow = row.nextElementSibling;
+                if (dataRow && dataRow.cells.length >= imgs.length) {
                     let tableHasUnits = false;
-
+                    
+                    const headers = Array.from(row.cells);
+                    const dataCells = Array.from(dataRow.cells);
+                    
                     headers.forEach((th, idx) => {
                         const img = th.querySelector('img[src*="unit_"]');
                         if (img && dataCells[idx]) {
@@ -221,9 +241,10 @@
 
                                 if (!isNaN(val)) {
                                     tableHasUnits = true;
-                                    units[unit] = val; // Extraímos o número (mesmo que seja 0)
+                                    units[unit] = val; // Extrai o número (mesmo que seja 0)
                                     
                                     if (val > 0) {
+                                        found = true;
                                         if (unit !== 'spy') spyOnly = false;
                                         if (unit === 'snob') noble = true;
                                         pop += val * (unitsMap[unit] || 0);
@@ -233,10 +254,7 @@
                         }
                     });
                     
-                    if (tableHasUnits) {
-                        found = true;
-                        break;
-                    }
+                    if (tableHasUnits) break;
                 }
             }
         }
@@ -322,7 +340,6 @@
         const serverTimeSeconds = Math.floor((window.Timing ? window.Timing.getCurrentServerTime() : Date.now()) / 1000);
 
         try {
-            // Este fetch puxa os dados diretos da página do comando (idêntico à tua imagem)
             const res = await fetch(`${gameData.link_base_pure}info_command&id=${partialCmd.id}`);
             const html = await res.text();
             const doc = domParser.parseFromString(html, 'text/html');
@@ -359,10 +376,8 @@
                 }
             }
 
-            // O nosso parser modificado puxa a tabela inteira 
             let finalTroops = parseTroopsFromHtml(html);
             
-            // Fallback para o tooltip se o HTML base não os tiver
             if (!finalTroops.found && partialCmd.tooltipTroops.found) {
                 finalTroops = partialCmd.tooltipTroops;
             }
@@ -436,7 +451,7 @@
                 player: player,
                 endTime: endTime,
                 arrivalStr: arrivalStr,
-                units: finalTroops.units // Contagem exata em memória
+                units: finalTroops.units // Tabela exata em memória
             };
         } catch (e) {
             return null;
@@ -469,7 +484,6 @@
             const tableWrapper = document.createElement('div');
             tableWrapper.style.marginBottom = '6px';
             tableWrapper.style.borderRadius = '3px';
-            // Removido o maldito overflow: hidden que cortava os tooltips!
 
             const totalCmds = groupedCommands[destCoord].length;
             const priorCount = groupedCommands[destCoord].filter(c => c.isPriority).length;
@@ -545,30 +559,33 @@
                 const cmdUrl = `${gameData.link_base_pure}info_command&id=${cmd.id}`;
                 const btnHtml = `<a href="${cmdUrl}" target="_blank" style="margin-left: 6px; font-size: 9px; background: #e3d5b3; border: 1px solid #c9a565; padding: 2px 4px; border-radius: 2px; text-decoration: none; color: #000;" title="Ver Comando In-game">🔍</a>`;
 
-                // Construção da Estrutura do Tooltip
-                let badgeWithTooltip = cmd.scaleHtml;
+                // Construção Segura do Tooltip
+                let finalBadgeHtml = cmd.scaleHtml;
+                
                 if (cmd.units && Object.keys(cmd.units).length > 0) {
                     const unitOrder = ['spear', 'sword', 'axe', 'archer', 'spy', 'light', 'marcher', 'heavy', 'ram', 'catapult', 'knight', 'snob'];
                     let ths = '', tds = '';
                     
                     unitOrder.forEach(u => {
                         if (cmd.units[u] !== undefined) {
-                            ths += `<th><img src="https://dspt.innogamescdn.com/asset/1057e93c/graphic/unit/unit_${u}.png"></th>`;
+                            ths += `<th style="background-color:#c1a264; background-image:url(https://dspt.innogamescdn.com/asset/1057e93c/graphic/screen/tableheader_bg3.png); text-align:center; padding:3px 6px; border:1px solid #7d510f;"><img src="https://dspt.innogamescdn.com/asset/1057e93c/graphic/unit/unit_${u}.png"></th>`;
                             
-                            // Emula o estilo nativo: Zeros ficam cinzentos
-                            let opacityStyle = cmd.units[u] === 0 ? 'color: #a59b8b;' : 'font-weight: bold; color: #000;';
-                            tds += `<td style="${opacityStyle}">${cmd.units[u]}</td>`;
+                            let opacityStyle = cmd.units[u] === 0 ? 'color:#a59b8b;' : 'font-weight:bold; color:#000;';
+                            tds += `<td style="text-align:center; padding:4px 6px; border:1px solid #7d510f; background:#fff5da; ${opacityStyle}">${cmd.units[u]}</td>`;
                         }
                     });
 
-                    // O Wrapper que injeta o CSS Hover
-                    const tooltipHtml = `<div class="gemini-tooltip"><table class="vis" style="width: max-content;"><tbody><tr>${ths}</tr><tr>${tds}</tr></tbody></table></div>`;
-                    badgeWithTooltip = `<div class="gemini-badge-wrapper">${cmd.scaleHtml}${tooltipHtml}</div>`;
+                    const tooltipHtmlContent = `<table class="vis" style="border-collapse:collapse; margin:0;"><tbody><tr>${ths}</tr><tr>${tds}</tr></tbody></table>`;
+                    
+                    const tId = 'tt_' + Math.random().toString(36).substr(2, 9);
+                    window.geminiTooltipData[tId] = tooltipHtmlContent;
+                    
+                    finalBadgeHtml = `<span class="gemini-hover-trigger" data-tooltip-id="${tId}">${cmd.scaleHtml}</span>`;
                 }
 
                 tr.innerHTML = `
                     <td style="padding:5px;">${iconHtml} <b style="color:#000;">${cmd.text}</b>${btnHtml}</td>
-                    <td style="text-align:center; padding:5px; overflow:visible;">${badgeWithTooltip}</td>
+                    <td style="text-align:center; padding:5px;">${finalBadgeHtml}</td>
                     <td style="text-align:center; padding:5px;">${cmd.origin}</td>
                     <td style="text-align:center; padding:5px;">${cmd.player}</td>
                     <td style="text-align:center; padding:5px; color:#555;">${cmd.arrivalStr}</td>
