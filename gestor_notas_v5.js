@@ -31,7 +31,7 @@
         FAKE_LIMIT: 250,
         HIGH_THREAT_POP: 18000,
         FARM_CAPACITY: 24000,
-        DELAYS: { MIN: 400, MAX: 800 }, 
+        DELAYS: { MIN: 50, MAX: 150 }, 
         STORAGE: {
             HISTORY: `tw_notas_history_${gameData.world}`,
             STATE: `tw_notas_running_${gameData.world}`,
@@ -117,7 +117,6 @@
         delay: (min, max) => new Promise(res => setTimeout(res, Math.floor(Math.random() * (max - min + 1)) + min)),
         wrapBB: (text, type) => `[${type}]${text}[/${type}]`,
 
-        // LEITOR DE DATAS CORRIGIDO PARA O FORMATO TW PT
         parseTWDate: (dateStr) => {
             const now = new Date();
             let d = now.getDate(), mo = now.getMonth(), y = now.getFullYear();
@@ -135,9 +134,7 @@
             } else {
                 const ptMonths = {'jan':0, 'fev':1, 'mar':2, 'abr':3, 'mai':4, 'jun':5, 'jul':6, 'ago':7, 'set':8, 'out':9, 'nov':10, 'dez':11};
                 
-                // Formato PT (ex: 12/ago./2026)
                 const textMatch = strLower.match(/(\d{1,2})\/([a-z]{3})\.?\/(\d{2,4})/);
-                // Formato Internacional/Antigo (ex: 12.08.26)
                 const numMatch = strLower.match(/(\d{1,2})[\.\/](\d{1,2})[\.\/]?(\d{2,4})?/);
 
                 if (textMatch) {
@@ -292,7 +289,6 @@
                 const reportTimestamp = Utils.parseTWDate(dateElem);
                 const elapsedHours = (Date.now() - reportTimestamp) / 3600000;
 
-                // VERIFICAÇÃO DE TEMPO AGORA FUNCIONA
                 if (elapsedHours > limitHours) {
                     DB.setState(false);
                     UI.toggleAuto(false);
