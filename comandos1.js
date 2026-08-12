@@ -23,7 +23,7 @@
 
     const domParser = new DOMParser();
 
-    // --- INTERFACE DE UTILIZADOR ---
+    // --- INTERFACE DE UTILIZADOR & ESTILOS DO TOOLTIP ---
     const uiContainer = document.createElement('div');
     uiContainer.className = 'vis';
     uiContainer.style.padding = '12px';
@@ -33,13 +33,16 @@
 
     uiContainer.innerHTML = `
         <style>
-            .g-tooltip-container { position: relative; cursor: help; display: inline-block; }
-            .g-tooltip { visibility: hidden; opacity: 0; transition: opacity 0.2s; position: absolute; bottom: 130%; left: 50%; transform: translateX(-50%); background: #e3d5b3; border: 1px solid #7d510f; padding: 4px; border-radius: 3px; box-shadow: 0 3px 6px rgba(0,0,0,0.5); z-index: 9999; white-space: nowrap; pointer-events: none; }
-            .g-tooltip::after { content: ''; position: absolute; top: 100%; left: 50%; margin-left: -6px; border-width: 6px; border-style: solid; border-color: #7d510f transparent transparent transparent; }
-            .g-tooltip-container:hover .g-tooltip { visibility: visible; opacity: 1; }
+            .gemini-badge-wrapper { position: relative; display: inline-block; cursor: help; }
+            .gemini-tooltip { visibility: hidden; opacity: 0; transition: opacity 0.2s; position: absolute; bottom: 130%; left: 50%; transform: translateX(-50%); background: #f4e4bc; border: 1px solid #7d510f; padding: 4px; border-radius: 4px; box-shadow: 0 4px 8px rgba(0,0,0,0.5); z-index: 9999; pointer-events: none; }
+            .gemini-tooltip::after { content: ''; position: absolute; top: 100%; left: 50%; margin-left: -6px; border-width: 6px; border-style: solid; border-color: #7d510f transparent transparent transparent; }
+            .gemini-badge-wrapper:hover .gemini-tooltip { visibility: visible; opacity: 1; }
+            .gemini-tooltip table.vis { border-collapse: collapse; margin: 0; }
+            .gemini-tooltip table.vis th { background-color: #c1a264; background-image: url(https://dspt.innogamescdn.com/asset/1057e93c/graphic/screen/tableheader_bg3.png); text-align: center; padding: 3px 6px; border: 1px solid #7d510f; }
+            .gemini-tooltip table.vis td { text-align: center; padding: 4px 6px; border: 1px solid #7d510f; background: #fff5da; }
         </style>
         <h4 style="margin-top:0; border-bottom: 1px solid #7d510f; padding-bottom: 6px; background-color: #c1a264; background-image: url(https://dspt.innogamescdn.com/asset/1057e93c/graphic/screen/tableheader_bg3.png); padding: 5px; border-radius: 2px 2px 0 0;">Analisador de Comandos</h4>
-        <p style="font-size: 11px; margin: 10px 0;">Insere o nome do jogador alvo e prime <b>Enter</b> para extrair a informação. Passa o rato nas etiquetas para veres as tropas detalhadas.</p>
+        <p style="font-size: 11px; margin: 10px 0;">Insere o nome do jogador alvo e prime <b>Enter</b> para extrair a informação. Passa o rato nas etiquetas para ver a tabela exata de tropas do comando.</p>
         <div style="display: flex; align-items: center; gap: 10px;">
             <input type="text" id="gemini-player-name" placeholder="Nome do Jogador" style="padding: 6px; width: 220px; border: 1px solid #ccc; border-radius: 3px; outline: none;">
             <a id="gemini-start-btn" class="btn" style="cursor: pointer; font-weight:bold; padding: 6px 12px;">Iniciar Análise</a>
@@ -178,21 +181,24 @@
         return { coord, points };
     }
 
+    // NOVA LÓGICA DE EXTRAÇÃO DE TROPAS PARA CAPTURAR TABELAS COMPLETAS (INCLUINDO 0s)
     function parseTroopsFromHtml(htmlContent) {
         let found = false, noble = false, pop = 0, spyOnly = true;
         let units = {}; 
         const doc = domParser.parseFromString(htmlContent, 'text/html');
 
-        const tables = doc.querySelectorAll('table.vis');
+        const tables = doc.querySelectorAll('table');
         for (let t = 0; t < tables.length; t++) {
             const table = tables[t];
             const headerRow = Array.from(table.rows).find(row => row.querySelector('img[src*="unit_"]'));
 
             if (headerRow) {
                 const dataRow = headerRow.nextElementSibling;
-                if (dataRow) {
+                // Garante que a linha seguinte não é outro cabeçalho, mas sim a linha dos números
+                if (dataRow && !dataRow.querySelector('img[src*="unit_"]')) {
                     const headers = Array.from(headerRow.cells);
                     const dataCells = Array.from(dataRow.cells);
+                    let tableHasUnits = false;
 
                     headers.forEach((th, i) => {
                         const img = th.querySelector('img[src*="unit_"]');
@@ -203,17 +209,25 @@
                                 const valStr = dataCells[i].textContent.replace(/\./g, '').trim();
                                 const val = parseInt(valStr);
 
-                                if (!isNaN(val) && val > 0) {
-                                    found = true;
-                                    if (unit !== 'spy') spyOnly = false;
-                                    if (unit === 'snob') noble = true;
-                                    pop += val * (unitsMap[unit] || 0);
-                                    units[unit] = val; 
+                                // Adiciona à lista de unidades independentemente de ser 0 ou maior
+                                if (!isNaN(val)) {
+                                    tableHasUnits = true;
+                                    units[unit] = val;
+                                    
+                                    if (val > 0) {
+                                        if (unit !== 'spy') spyOnly = false;
+                                        if (unit === 'snob') noble = true;
+                                        pop += val * (unitsMap[unit] || 0);
+                                    }
                                 }
                             }
                         }
                     });
-                    if (found) break;
+                    
+                    if (tableHasUnits) {
+                        found = true;
+                        break;
+                    }
                 }
             }
         }
@@ -299,6 +313,7 @@
         const serverTimeSeconds = Math.floor((window.Timing ? window.Timing.getCurrentServerTime() : Date.now()) / 1000);
 
         try {
+            // É AQUI que o script vai buscar o HTML exato do link que me enviaste na imagem!
             const res = await fetch(`${gameData.link_base_pure}info_command&id=${partialCmd.id}`);
             const html = await res.text();
             const doc = domParser.parseFromString(html, 'text/html');
@@ -335,7 +350,10 @@
                 }
             }
 
+            // O nosso parser modificado puxa a tabela inteira do info_command
             let finalTroops = parseTroopsFromHtml(html);
+            
+            // Se o jogo ocultar as tropas na página do comando, puxa os dados do TollTip
             if (!finalTroops.found && partialCmd.tooltipTroops.found) {
                 finalTroops = partialCmd.tooltipTroops;
             }
@@ -409,7 +427,7 @@
                 player: player,
                 endTime: endTime,
                 arrivalStr: arrivalStr,
-                units: finalTroops.units // Guarda a contagem exata das tropas
+                units: finalTroops.units // Guarda a contagem exata de tropas (com zeros)
             };
         } catch (e) {
             return null;
@@ -518,25 +536,30 @@
                 const cmdUrl = `${gameData.link_base_pure}info_command&id=${cmd.id}`;
                 const btnHtml = `<a href="${cmdUrl}" target="_blank" style="margin-left: 6px; font-size: 9px; background: #e3d5b3; border: 1px solid #c9a565; padding: 2px 4px; border-radius: 2px; text-decoration: none; color: #000;" title="Ver Comando In-game">🔍</a>`;
 
-                // Construção do Tooltip de Tropas
-                let tooltipHtml = '';
-                let cellClass = '';
+                // Construção do Tooltip de Tropas Nativo
+                let badgeWithTooltip = cmd.scaleHtml;
                 if (cmd.units && Object.keys(cmd.units).length > 0) {
-                    cellClass = 'class="g-tooltip-container"';
                     const unitOrder = ['spear', 'sword', 'axe', 'archer', 'spy', 'light', 'marcher', 'heavy', 'ram', 'catapult', 'knight', 'snob'];
                     let ths = '', tds = '';
+                    
                     unitOrder.forEach(u => {
-                        if (cmd.units[u]) {
-                            ths += `<th style="text-align:center; padding:2px;"><img src="https://dspt.innogamescdn.com/asset/1057e93c/graphic/unit/unit_${u}.png"></th>`;
-                            tds += `<td style="text-align:center; padding:2px 4px;">${cmd.units[u]}</td>`;
+                        if (cmd.units[u] !== undefined) {
+                            ths += `<th><img src="https://dspt.innogamescdn.com/asset/1057e93c/graphic/unit/unit_${u}.png"></th>`;
+                            
+                            // Se a tropa for 0, fica mais transparente como no TW original
+                            let opacityStyle = cmd.units[u] === 0 ? 'color: #a59b8b;' : 'font-weight: bold; color: #000;';
+                            tds += `<td style="${opacityStyle}">${cmd.units[u]}</td>`;
                         }
                     });
-                    tooltipHtml = `<div class="g-tooltip"><table class="vis" style="margin:0; border-collapse:collapse;"><tbody><tr>${ths}</tr><tr>${tds}</tr></tbody></table></div>`;
+
+                    // Injeta a tabela TW dentro da nossa estrutura flutuante
+                    const tooltipHtml = `<div class="gemini-tooltip"><table class="vis"><tbody><tr>${ths}</tr><tr>${tds}</tr></tbody></table></div>`;
+                    badgeWithTooltip = `<div class="gemini-badge-wrapper">${cmd.scaleHtml}${tooltipHtml}</div>`;
                 }
 
                 tr.innerHTML = `
                     <td style="padding:5px;">${iconHtml} <b style="color:#000;">${cmd.text}</b>${btnHtml}</td>
-                    <td style="text-align:center; padding:5px; position:relative; overflow:visible;" ${cellClass}>${cmd.scaleHtml}${tooltipHtml}</td>
+                    <td style="text-align:center; padding:5px; overflow:visible;">${badgeWithTooltip}</td>
                     <td style="text-align:center; padding:5px;">${cmd.origin}</td>
                     <td style="text-align:center; padding:5px;">${cmd.player}</td>
                     <td style="text-align:center; padding:5px; color:#555;">${cmd.arrivalStr}</td>
