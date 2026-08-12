@@ -32,8 +32,14 @@
     uiContainer.style.borderRadius = '3px';
 
     uiContainer.innerHTML = `
+        <style>
+            .g-tooltip-container { position: relative; cursor: help; display: inline-block; }
+            .g-tooltip { visibility: hidden; opacity: 0; transition: opacity 0.2s; position: absolute; bottom: 130%; left: 50%; transform: translateX(-50%); background: #e3d5b3; border: 1px solid #7d510f; padding: 4px; border-radius: 3px; box-shadow: 0 3px 6px rgba(0,0,0,0.5); z-index: 9999; white-space: nowrap; pointer-events: none; }
+            .g-tooltip::after { content: ''; position: absolute; top: 100%; left: 50%; margin-left: -6px; border-width: 6px; border-style: solid; border-color: #7d510f transparent transparent transparent; }
+            .g-tooltip-container:hover .g-tooltip { visibility: visible; opacity: 1; }
+        </style>
         <h4 style="margin-top:0; border-bottom: 1px solid #7d510f; padding-bottom: 6px; background-color: #c1a264; background-image: url(https://dspt.innogamescdn.com/asset/1057e93c/graphic/screen/tableheader_bg3.png); padding: 5px; border-radius: 2px 2px 0 0;">Analisador de Comandos</h4>
-        <p style="font-size: 11px; margin: 10px 0;">Insere o nome do jogador alvo e prime <b>Enter</b> para extrair a informação.</p>
+        <p style="font-size: 11px; margin: 10px 0;">Insere o nome do jogador alvo e prime <b>Enter</b> para extrair a informação. Passa o rato nas etiquetas para veres as tropas detalhadas.</p>
         <div style="display: flex; align-items: center; gap: 10px;">
             <input type="text" id="gemini-player-name" placeholder="Nome do Jogador" style="padding: 6px; width: 220px; border: 1px solid #ccc; border-radius: 3px; outline: none;">
             <a id="gemini-start-btn" class="btn" style="cursor: pointer; font-weight:bold; padding: 6px 12px;">Iniciar Análise</a>
@@ -174,6 +180,7 @@
 
     function parseTroopsFromHtml(htmlContent) {
         let found = false, noble = false, pop = 0, spyOnly = true;
+        let units = {}; 
         const doc = domParser.parseFromString(htmlContent, 'text/html');
 
         const tables = doc.querySelectorAll('table.vis');
@@ -201,6 +208,7 @@
                                     if (unit !== 'spy') spyOnly = false;
                                     if (unit === 'snob') noble = true;
                                     pop += val * (unitsMap[unit] || 0);
+                                    units[unit] = val; 
                                 }
                             }
                         }
@@ -209,7 +217,7 @@
                 }
             }
         }
-        return { found, noble, pop, spyOnly };
+        return { found, noble, pop, spyOnly, units };
     }
 
     async function scanVillagesAndTooltips(villageIds) {
@@ -400,7 +408,8 @@
                 origin: origin,
                 player: player,
                 endTime: endTime,
-                arrivalStr: arrivalStr
+                arrivalStr: arrivalStr,
+                units: finalTroops.units // Guarda a contagem exata das tropas
             };
         } catch (e) {
             return null;
@@ -509,9 +518,25 @@
                 const cmdUrl = `${gameData.link_base_pure}info_command&id=${cmd.id}`;
                 const btnHtml = `<a href="${cmdUrl}" target="_blank" style="margin-left: 6px; font-size: 9px; background: #e3d5b3; border: 1px solid #c9a565; padding: 2px 4px; border-radius: 2px; text-decoration: none; color: #000;" title="Ver Comando In-game">🔍</a>`;
 
+                // Construção do Tooltip de Tropas
+                let tooltipHtml = '';
+                let cellClass = '';
+                if (cmd.units && Object.keys(cmd.units).length > 0) {
+                    cellClass = 'class="g-tooltip-container"';
+                    const unitOrder = ['spear', 'sword', 'axe', 'archer', 'spy', 'light', 'marcher', 'heavy', 'ram', 'catapult', 'knight', 'snob'];
+                    let ths = '', tds = '';
+                    unitOrder.forEach(u => {
+                        if (cmd.units[u]) {
+                            ths += `<th style="text-align:center; padding:2px;"><img src="https://dspt.innogamescdn.com/asset/1057e93c/graphic/unit/unit_${u}.png"></th>`;
+                            tds += `<td style="text-align:center; padding:2px 4px;">${cmd.units[u]}</td>`;
+                        }
+                    });
+                    tooltipHtml = `<div class="g-tooltip"><table class="vis" style="margin:0; border-collapse:collapse;"><tbody><tr>${ths}</tr><tr>${tds}</tr></tbody></table></div>`;
+                }
+
                 tr.innerHTML = `
                     <td style="padding:5px;">${iconHtml} <b style="color:#000;">${cmd.text}</b>${btnHtml}</td>
-                    <td style="text-align:center; padding:5px;">${cmd.scaleHtml}</td>
+                    <td style="text-align:center; padding:5px; position:relative; overflow:visible;" ${cellClass}>${cmd.scaleHtml}${tooltipHtml}</td>
                     <td style="text-align:center; padding:5px;">${cmd.origin}</td>
                     <td style="text-align:center; padding:5px;">${cmd.player}</td>
                     <td style="text-align:center; padding:5px; color:#555;">${cmd.arrivalStr}</td>
