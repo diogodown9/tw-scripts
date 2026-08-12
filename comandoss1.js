@@ -226,7 +226,7 @@
 
     async function scanVillagesAndTooltips(villageIds) {
         const cmds = [];
-        const seenCmdIds = new Set(); // Otimização: Substitui o cmds.find (O(N) -> O(1))
+        const seenCmdIds = new Set(); 
 
         for (let i = 0; i < villageIds.length; i++) {
             statusDiv.innerHTML = `A extrair aldeia ${i + 1} de ${villageIds.length}...`;
@@ -391,20 +391,33 @@
                 scaleHtml = getBadgeHtml("🛡️ APOIO", "#008200", finalTroops.found ? finalTroops.pop : null);
             }
 
+            // CORREÇÃO: Leitura das datas em formato PT
             let endTime = 0;
-            const targetDate = new Date(serverTimeSeconds * 1000);
-            const timeMatch = arrivalStr.match(/(\d{2}):(\d{2}):(\d{2})/);
+            const now = new Date(serverTimeSeconds * 1000);
+            let targetDate = new Date(now.getTime());
+            
+            const strLower = arrivalStr.toLowerCase();
+            const timeMatch = strLower.match(/(\d{2}):(\d{2}):(\d{2})/);
             
             if (timeMatch) {
                 targetDate.setHours(parseInt(timeMatch[1], 10), parseInt(timeMatch[2], 10), parseInt(timeMatch[3], 10));
                 
-                if (arrivalStr.includes('amanhã')) {
+                if (strLower.includes('amanhã')) {
                     targetDate.setDate(targetDate.getDate() + 1);
-                } else if (!arrivalStr.includes('hoje')) {
-                    const dateMatch = arrivalStr.match(/(\d{2})\.(\d{2})\./);
-                    if (dateMatch) {
-                        targetDate.setDate(parseInt(dateMatch[1], 10));
-                        targetDate.setMonth(parseInt(dateMatch[2], 10) - 1);
+                } else if (!strLower.includes('hoje')) {
+                    const ptMonths = {'jan':0, 'fev':1, 'mar':2, 'abr':3, 'mai':4, 'jun':5, 'jul':6, 'ago':7, 'set':8, 'out':9, 'nov':10, 'dez':11};
+                    
+                    const textMatch = strLower.match(/(\d{1,2})\/([a-z]{3})\.?\/(\d{2,4})/);
+                    const numMatch = strLower.match(/(\d{1,2})[\.\/](\d{1,2})[\.\/]?(\d{2,4})?/);
+
+                    if (textMatch) {
+                        targetDate.setDate(parseInt(textMatch[1], 10));
+                        if (ptMonths[textMatch[2]] !== undefined) targetDate.setMonth(ptMonths[textMatch[2]]);
+                        if (textMatch[3]) targetDate.setFullYear(textMatch[3].length === 2 ? 2000 + parseInt(textMatch[3], 10) : parseInt(textMatch[3], 10));
+                    } else if (numMatch) {
+                        targetDate.setDate(parseInt(numMatch[1], 10));
+                        targetDate.setMonth(parseInt(numMatch[2], 10) - 1);
+                        if (numMatch[3]) targetDate.setFullYear(numMatch[3].length === 2 ? 2000 + parseInt(numMatch[3], 10) : parseInt(numMatch[3], 10));
                     }
                 }
                 endTime = Math.floor(targetDate.getTime() / 1000);
@@ -555,7 +568,6 @@
     function startCustomTimer() {
         if (window.geminiTimerInterval) clearInterval(window.geminiTimerInterval);
 
-        // OTIMIZAÇÃO: Procura os timers apenas uma vez, em vez de a cada segundo
         const timers = Array.from(document.querySelectorAll('.gemini-custom-timer'));
         if (timers.length === 0) return;
 
@@ -565,7 +577,7 @@
 
             timers.forEach(timer => {
                 const endTimeStr = timer.getAttribute('data-endtime');
-                if (!endTimeStr) return; // Se já chegou a 0, ignora
+                if (!endTimeStr) return; 
 
                 const endTime = parseInt(endTimeStr);
                 const remaining = endTime - serverTimeSeconds;
@@ -574,7 +586,7 @@
                     timer.textContent = "0:00:00";
                     timer.style.color = '#c00';
                     timer.style.borderColor = '#c00';
-                    timer.removeAttribute('data-endtime'); // Remove para não voltar a calcular
+                    timer.removeAttribute('data-endtime'); 
                 } else {
                     activeTimers++;
                     const h = Math.floor(remaining / 3600);
@@ -584,7 +596,6 @@
                 }
             });
 
-            // OTIMIZAÇÃO: Desliga o relógio automaticamente se todos os ataques já tiverem chegado
             if (activeTimers === 0) clearInterval(window.geminiTimerInterval);
 
         }, 1000);
