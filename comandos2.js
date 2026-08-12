@@ -34,8 +34,18 @@
     uiContainer.innerHTML = `
         <style>
             .gemini-badge-wrapper { position: relative; display: inline-block; cursor: help; }
-            .gemini-tooltip { visibility: hidden; opacity: 0; transition: opacity 0.2s; position: absolute; bottom: 130%; left: 50%; transform: translateX(-50%); background: #f4e4bc; border: 1px solid #7d510f; padding: 4px; border-radius: 4px; box-shadow: 0 4px 8px rgba(0,0,0,0.5); z-index: 9999; pointer-events: none; }
-            .gemini-tooltip::after { content: ''; position: absolute; top: 100%; left: 50%; margin-left: -6px; border-width: 6px; border-style: solid; border-color: #7d510f transparent transparent transparent; }
+            .gemini-tooltip { 
+                visibility: hidden; opacity: 0; transition: opacity 0.2s; 
+                position: absolute; bottom: 120%; left: 50%; transform: translateX(-50%); 
+                background: #f4e4bc; border: 1px solid #7d510f; padding: 4px; 
+                border-radius: 4px; box-shadow: 0 4px 8px rgba(0,0,0,0.5); 
+                z-index: 999999; pointer-events: none; width: max-content; 
+            }
+            .gemini-tooltip::after { 
+                content: ''; position: absolute; top: 100%; left: 50%; 
+                margin-left: -6px; border-width: 6px; border-style: solid; 
+                border-color: #7d510f transparent transparent transparent; 
+            }
             .gemini-badge-wrapper:hover .gemini-tooltip { visibility: visible; opacity: 1; }
             .gemini-tooltip table.vis { border-collapse: collapse; margin: 0; }
             .gemini-tooltip table.vis th { background-color: #c1a264; background-image: url(https://dspt.innogamescdn.com/asset/1057e93c/graphic/screen/tableheader_bg3.png); text-align: center; padding: 3px 6px; border: 1px solid #7d510f; }
@@ -181,38 +191,37 @@
         return { coord, points };
     }
 
-    // NOVA LÓGICA DE EXTRAÇÃO DE TROPAS PARA CAPTURAR TABELAS COMPLETAS (INCLUINDO 0s)
+    // EXTRATOR METICULOSO DE TROPAS NATIVAS
     function parseTroopsFromHtml(htmlContent) {
         let found = false, noble = false, pop = 0, spyOnly = true;
         let units = {}; 
         const doc = domParser.parseFromString(htmlContent, 'text/html');
 
-        const tables = doc.querySelectorAll('table');
-        for (let t = 0; t < tables.length; t++) {
-            const table = tables[t];
-            const headerRow = Array.from(table.rows).find(row => row.querySelector('img[src*="unit_"]'));
-
-            if (headerRow) {
+        const headerRows = doc.querySelectorAll('tr');
+        for (let i = 0; i < headerRows.length; i++) {
+            const headerRow = headerRows[i];
+            const imgs = headerRow.querySelectorAll('img[src*="unit_"]');
+            
+            if (imgs.length > 0) {
                 const dataRow = headerRow.nextElementSibling;
-                // Garante que a linha seguinte não é outro cabeçalho, mas sim a linha dos números
-                if (dataRow && !dataRow.querySelector('img[src*="unit_"]')) {
+                // Asseguramos que encontramos a linha dos dados (os números)
+                if (dataRow && !dataRow.querySelector('img[src*="unit_"]') && dataRow.cells.length === headerRow.cells.length) {
                     const headers = Array.from(headerRow.cells);
                     const dataCells = Array.from(dataRow.cells);
                     let tableHasUnits = false;
 
-                    headers.forEach((th, i) => {
+                    headers.forEach((th, idx) => {
                         const img = th.querySelector('img[src*="unit_"]');
-                        if (img && dataCells[i]) {
+                        if (img && dataCells[idx]) {
                             const m = img.src.match(/unit_([a-z]+)\.png/);
                             if (m) {
                                 const unit = m[1];
-                                const valStr = dataCells[i].textContent.replace(/\./g, '').trim();
+                                const valStr = dataCells[idx].textContent.replace(/\./g, '').trim();
                                 const val = parseInt(valStr);
 
-                                // Adiciona à lista de unidades independentemente de ser 0 ou maior
                                 if (!isNaN(val)) {
                                     tableHasUnits = true;
-                                    units[unit] = val;
+                                    units[unit] = val; // Extraímos o número (mesmo que seja 0)
                                     
                                     if (val > 0) {
                                         if (unit !== 'spy') spyOnly = false;
@@ -313,7 +322,7 @@
         const serverTimeSeconds = Math.floor((window.Timing ? window.Timing.getCurrentServerTime() : Date.now()) / 1000);
 
         try {
-            // É AQUI que o script vai buscar o HTML exato do link que me enviaste na imagem!
+            // Este fetch puxa os dados diretos da página do comando (idêntico à tua imagem)
             const res = await fetch(`${gameData.link_base_pure}info_command&id=${partialCmd.id}`);
             const html = await res.text();
             const doc = domParser.parseFromString(html, 'text/html');
@@ -350,10 +359,10 @@
                 }
             }
 
-            // O nosso parser modificado puxa a tabela inteira do info_command
+            // O nosso parser modificado puxa a tabela inteira 
             let finalTroops = parseTroopsFromHtml(html);
             
-            // Se o jogo ocultar as tropas na página do comando, puxa os dados do TollTip
+            // Fallback para o tooltip se o HTML base não os tiver
             if (!finalTroops.found && partialCmd.tooltipTroops.found) {
                 finalTroops = partialCmd.tooltipTroops;
             }
@@ -427,7 +436,7 @@
                 player: player,
                 endTime: endTime,
                 arrivalStr: arrivalStr,
-                units: finalTroops.units // Guarda a contagem exata de tropas (com zeros)
+                units: finalTroops.units // Contagem exata em memória
             };
         } catch (e) {
             return null;
@@ -460,7 +469,7 @@
             const tableWrapper = document.createElement('div');
             tableWrapper.style.marginBottom = '6px';
             tableWrapper.style.borderRadius = '3px';
-            tableWrapper.style.overflow = 'hidden';
+            // Removido o maldito overflow: hidden que cortava os tooltips!
 
             const totalCmds = groupedCommands[destCoord].length;
             const priorCount = groupedCommands[destCoord].filter(c => c.isPriority).length;
@@ -536,7 +545,7 @@
                 const cmdUrl = `${gameData.link_base_pure}info_command&id=${cmd.id}`;
                 const btnHtml = `<a href="${cmdUrl}" target="_blank" style="margin-left: 6px; font-size: 9px; background: #e3d5b3; border: 1px solid #c9a565; padding: 2px 4px; border-radius: 2px; text-decoration: none; color: #000;" title="Ver Comando In-game">🔍</a>`;
 
-                // Construção do Tooltip de Tropas Nativo
+                // Construção da Estrutura do Tooltip
                 let badgeWithTooltip = cmd.scaleHtml;
                 if (cmd.units && Object.keys(cmd.units).length > 0) {
                     const unitOrder = ['spear', 'sword', 'axe', 'archer', 'spy', 'light', 'marcher', 'heavy', 'ram', 'catapult', 'knight', 'snob'];
@@ -546,14 +555,14 @@
                         if (cmd.units[u] !== undefined) {
                             ths += `<th><img src="https://dspt.innogamescdn.com/asset/1057e93c/graphic/unit/unit_${u}.png"></th>`;
                             
-                            // Se a tropa for 0, fica mais transparente como no TW original
+                            // Emula o estilo nativo: Zeros ficam cinzentos
                             let opacityStyle = cmd.units[u] === 0 ? 'color: #a59b8b;' : 'font-weight: bold; color: #000;';
                             tds += `<td style="${opacityStyle}">${cmd.units[u]}</td>`;
                         }
                     });
 
-                    // Injeta a tabela TW dentro da nossa estrutura flutuante
-                    const tooltipHtml = `<div class="gemini-tooltip"><table class="vis"><tbody><tr>${ths}</tr><tr>${tds}</tr></tbody></table></div>`;
+                    // O Wrapper que injeta o CSS Hover
+                    const tooltipHtml = `<div class="gemini-tooltip"><table class="vis" style="width: max-content;"><tbody><tr>${ths}</tr><tr>${tds}</tr></tbody></table></div>`;
                     badgeWithTooltip = `<div class="gemini-badge-wrapper">${cmd.scaleHtml}${tooltipHtml}</div>`;
                 }
 
