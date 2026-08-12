@@ -31,7 +31,7 @@
         FAKE_LIMIT: 250,
         HIGH_THREAT_POP: 18000,
         FARM_CAPACITY: 24000,
-        DELAYS: { MIN: 150, MAX: 300 }, 
+        DELAYS: { MIN: 400, MAX: 800 }, 
         STORAGE: {
             HISTORY: `tw_notas_history_${gameData.world}`,
             STATE: `tw_notas_running_${gameData.world}`,
@@ -117,26 +117,37 @@
         delay: (min, max) => new Promise(res => setTimeout(res, Math.floor(Math.random() * (max - min + 1)) + min)),
         wrapBB: (text, type) => `[${type}]${text}[/${type}]`,
 
+        // LEITOR DE DATAS CORRIGIDO PARA O FORMATO TW PT
         parseTWDate: (dateStr) => {
             const now = new Date();
             let d = now.getDate(), mo = now.getMonth(), y = now.getFullYear();
             
-            const timeMatch = dateStr.match(/(\d{2}):(\d{2}):(\d{2})/);
+            const timeMatch = dateStr.match(/(\d{2}):(\d{2})(?::(\d{2}))?/);
             if (!timeMatch) return Date.now();
-            const hr = parseInt(timeMatch[1], 10), min = parseInt(timeMatch[2], 10), sec = parseInt(timeMatch[3], 10);
+            const hr = parseInt(timeMatch[1], 10), min = parseInt(timeMatch[2], 10), sec = parseInt(timeMatch[3] || '0', 10);
 
-            if (dateStr.toLowerCase().includes('hoje')) {
+            const strLower = dateStr.toLowerCase();
+            if (strLower.includes('hoje')) {
                 // Mantém hoje
-            } else if (dateStr.toLowerCase().includes('ontem')) {
+            } else if (strLower.includes('ontem')) {
                 const yesterday = new Date(now.getTime() - 86400000);
                 d = yesterday.getDate(); mo = yesterday.getMonth(); y = yesterday.getFullYear();
             } else {
-                const dateMatch = dateStr.match(/(\d{2})\.(\d{2})\./); 
-                if (dateMatch) {
-                    d = parseInt(dateMatch[1], 10);
-                    mo = parseInt(dateMatch[2], 10) - 1;
-                    const yearMatch = dateStr.match(/\d{2}\.\d{2}\.(\d{2})/);
-                    if (yearMatch) y = 2000 + parseInt(yearMatch[1], 10);
+                const ptMonths = {'jan':0, 'fev':1, 'mar':2, 'abr':3, 'mai':4, 'jun':5, 'jul':6, 'ago':7, 'set':8, 'out':9, 'nov':10, 'dez':11};
+                
+                // Formato PT (ex: 12/ago./2026)
+                const textMatch = strLower.match(/(\d{1,2})\/([a-z]{3})\.?\/(\d{2,4})/);
+                // Formato Internacional/Antigo (ex: 12.08.26)
+                const numMatch = strLower.match(/(\d{1,2})[\.\/](\d{1,2})[\.\/]?(\d{2,4})?/);
+
+                if (textMatch) {
+                    d = parseInt(textMatch[1], 10);
+                    if (ptMonths[textMatch[2]] !== undefined) mo = ptMonths[textMatch[2]];
+                    if (textMatch[3]) y = textMatch[3].length === 2 ? 2000 + parseInt(textMatch[3], 10) : parseInt(textMatch[3], 10);
+                } else if (numMatch) {
+                    d = parseInt(numMatch[1], 10);
+                    mo = parseInt(numMatch[2], 10) - 1;
+                    if (numMatch[3]) y = numMatch[3].length === 2 ? 2000 + parseInt(numMatch[3], 10) : parseInt(numMatch[3], 10);
                 }
             }
             return new Date(y, mo, d, hr, min, sec).getTime();
@@ -276,15 +287,16 @@
                 const reportId = reportIdMatch[1];
 
                 const progressText = document.getElementById('ra-progress-text');
-                if(progressText) progressText.textContent = `A analisar relatório ${i + 1} de ${rows.length}...`;
+                if(progressText) progressText.innerHTML = `A analisar relatório <b>${i + 1}</b> de ${rows.length}...`;
 
                 const reportTimestamp = Utils.parseTWDate(dateElem);
                 const elapsedHours = (Date.now() - reportTimestamp) / 3600000;
 
+                // VERIFICAÇÃO DE TEMPO AGORA FUNCIONA
                 if (elapsedHours > limitHours) {
                     DB.setState(false);
                     UI.toggleAuto(false);
-                    if(progressText) progressText.textContent = `Concluído. Relatórios mais antigos que o limite configurado foram ignorados.`;
+                    if(progressText) progressText.innerHTML = `<span style="color:#a52a2a;">Concluído. Relatórios ultrapassaram limite de antiguidade (${limitHours}h).</span>`;
                     return;
                 }
 
@@ -310,7 +322,6 @@
             }
 
             if (DB.isRunning()) {
-                // Correção da paginação (O que causou o crash anterior)
                 let nextUrl = null;
                 const activePageNode = document.querySelector('.vis td[align="center"] strong');
                 
@@ -326,7 +337,7 @@
                     DB.setState(false);
                     UI.toggleAuto(false);
                     const progressText = document.getElementById('ra-progress-text');
-                    if(progressText) progressText.textContent = `Leitura concluída. Todas as páginas analisadas.`;
+                    if(progressText) progressText.innerHTML = `<span style="color:#008200;">Leitura concluída. Todas as páginas analisadas.</span>`;
                 }
             }
         },
@@ -555,7 +566,6 @@
 
             const savedLimit = localStorage.getItem(CFG.STORAGE.LIMIT_HOURS) || '36';
 
-            // Interface limpa, usando o layout nativo da InnoGames ("vis")
             const html = `
                 <table id="ra-notas-dashboard" class="vis" style="width: 100%; margin-bottom: 15px;">
                     <tbody>
@@ -575,6 +585,11 @@
                         <tr>
                             <td colspan="2" style="text-align: center; padding: 8px; font-weight: bold; color: #555;" id="ra-progress-text">
                                 Pronto a iniciar.
+                            </td>
+                        </tr>
+                        <tr>
+                            <td colspan="2" style="text-align: center; padding: 4px;">
+                                <a href="#" id="btn-clear" style="font-size: 10px; color: #a52a2a;">[Redefinir Memória de Relatórios]</a>
                             </td>
                         </tr>
                     </tbody>
@@ -598,6 +613,13 @@
                 DB.setState(false); 
                 UI.toggleAuto(false);
                 document.getElementById('ra-progress-text').textContent = 'Extração interrompida manualmente.';
+            });
+
+            document.getElementById('btn-clear')?.addEventListener('click', (e) => {
+                e.preventDefault(); 
+                if (confirm("Isto vai forçar o script a ler todos os relatórios novamente. Tens a certeza?")) {
+                    DB.clearHistory();
+                }
             });
 
             if (DB.isRunning()) {
