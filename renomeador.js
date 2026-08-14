@@ -1,4 +1,3 @@
-javascript:
 (function() {
     'use strict';
 
@@ -201,6 +200,19 @@ javascript:
         saveSettings();
     }
 
+    // --- FUNÇÃO RECUPERADA! ---
+    function generateRandomName() {
+        const prefixes = ["Al", "Bar", "Car", "Del", "Eld", "Fal", "Gar", "Hal", "Il", "Jar", "Kal", "Lor"];
+        const middles = ["dorn", "fell", "gorn", "hil", "mir", "nar", "pel", "quil", "rak", "sor", "tur"];
+        const suffixes = ["dor", "mar", "rin", "ton", "vin", "wyn", "zar", "thur", "lak", "dil", "ros"];
+        
+        const prefix = prefixes[Math.floor(Math.random() * prefixes.length)];
+        const middle = middles[Math.floor(Math.random() * middles.length)];
+        const suffix = suffixes[Math.floor(Math.random() * suffixes.length)];
+        
+        return `${prefix}${middle}${suffix}`;
+    }
+
     function generateVillageName(optionsArray, numberCounter, coords) {
         return optionsArray.map(opt => {
             switch (opt.type) {
@@ -216,7 +228,7 @@ javascript:
                         if (target.length === 2) return `${Math.round(Math.sqrt((target[0] - coords[0]) ** 2 + (target[1] - coords[1]) ** 2) * 10) / 10}`;
                     }
                     return '';
-                case 'randomname': return "Random";
+                case 'randomname': return generateRandomName(); // Chamada à função corrigida aqui!
                 default: return '';
             }
         }).join(' ').trim();
@@ -239,6 +251,7 @@ javascript:
             const coordsMatches = textContent.match(/(\d{3}\|\d{3})/g);
             const coords = (coordsMatches && coordsMatches.length > 0 ? coordsMatches[coordsMatches.length - 1] : "000|000").split('|').map(Number);
 
+            // Gera um nome único para cada aldeia
             const finalName = generateVillageName(currentOptions, numberCounter++, coords).slice(0, 32).replace(/[´^]/g, ''); 
 
             setTimeout(() => {
@@ -302,5 +315,5 @@ javascript:
     }
 
     loadSettings();
-    combineOptions(); // Garante que a pré-visualização carrega logo ao abrir
+    combineOptions(); 
 })();
