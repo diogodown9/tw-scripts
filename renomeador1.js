@@ -1,7 +1,7 @@
 (function() {
     'use strict';
 
-    // Se o painel já existir na página, o clique na barra apenas o esconde/mostra (Efeito Toggle)
+    // Se o painel já existir na página, o clique na barra apenas o esconde/mostra
     const existingContainer = document.getElementById('rename-container');
     if (existingContainer) {
         existingContainer.style.display = existingContainer.style.display === 'none' ? 'block' : 'none';
@@ -15,25 +15,25 @@
         return;
     }
 
-    // Traduções
     const translations = {
         en: {
             heading: "Renaming Options",
             tableHeaders: { option: "Option", configuration: "Configuration" },
             options: { textOption: "Text", numberOption: "Number", kOption: "By K", randomCoordOption: "Random Coordinates", distanceOption: "Distance (in fields)", randomNameOption: "Random Name" },
             placeholders: { textInput: "Enter text", digitInput: "Total digits", startNumberInput: "Starting number", targetCoordInput: "Target (XXX|YYY)", result: "Example result" },
-            renameButton: "Rename Villages"
+            renameButton: "Rename All",
+            fixButton: "Auto-Fix New"
         },
         pt: {
             heading: "Opções de Renomeação",
             tableHeaders: { option: "Opção", configuration: "Configuração" },
             options: { textOption: "Texto", numberOption: "Número", kOption: "Por K", randomCoordOption: "Coordenada Aleatória", distanceOption: "Distância (em campos)", randomNameOption: "Nome Aleatório" },
             placeholders: { textInput: "Digite o texto", digitInput: "Total dígitos", startNumberInput: "Nº inicial", targetCoordInput: "Alvo (XXX|YYY)", result: "Exemplo de resultado" },
-            renameButton: "Renomear Aldeias"
+            renameButton: "Renomear Todas",
+            fixButton: "Auto-Corrigir Novas"
         }
     };
 
-    // Estrutura principal da Interface (Agora abre diretamente)
     const contentRename = `
     <div id="rename-container" style="display: block; font-family: Verdana, Arial, sans-serif; padding: 20px; background: #f4e4bc; border: 2px solid #8c5f0d; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);">
         
@@ -109,8 +109,9 @@
             <input type="text" id="result" placeholder="Exemplo de resultado" style="width: 100%; border: none; background: transparent; font-size: 15px; font-weight: bold; color: #000; outline: none;" readonly="">
         </div>
         
-        <div style="text-align: right;">
-            <button id="combine-options" class="btn" style="padding: 12px 25px; font-size: 15px; cursor: pointer; border-radius: 4px; background: linear-gradient(to bottom, #5cb85c 0%, #449d44 100%); color: white; border: 1px solid #398439; font-weight: bold; box-shadow: 0 2px 5px rgba(0,0,0,0.3); text-shadow: 1px 1px 1px rgba(0,0,0,0.2);">Renomear Aldeias</button>
+        <div style="display: flex; justify-content: flex-end; gap: 10px;">
+            <button id="fix-outliers" class="btn" style="padding: 12px 15px; font-size: 14px; cursor: pointer; border-radius: 4px; background: linear-gradient(to bottom, #f0ad4e 0%, #eea236 100%); color: white; border: 1px solid #d58512; font-weight: bold; box-shadow: 0 2px 5px rgba(0,0,0,0.3); text-shadow: 1px 1px 1px rgba(0,0,0,0.2);">Auto-Corrigir Novas</button>
+            <button id="combine-options" class="btn" style="padding: 12px 20px; font-size: 14px; cursor: pointer; border-radius: 4px; background: linear-gradient(to bottom, #5cb85c 0%, #449d44 100%); color: white; border: 1px solid #398439; font-weight: bold; box-shadow: 0 2px 5px rgba(0,0,0,0.3); text-shadow: 1px 1px 1px rgba(0,0,0,0.2);">Renomear Todas</button>
         </div>
     </div>`;
 
@@ -131,6 +132,7 @@
         ['textOption', 'numberOption', 'kOption', 'randomCoordOption', 'distanceOption', 'randomNameOption'].forEach(opt => document.querySelector(`#${opt} + label`).textContent = t.options[opt]);
         ['textInput', 'digitInput', 'startNumberInput', 'targetCoordInput', 'result'].forEach(input => document.querySelector(`#${input}`).placeholder = t.placeholders[input]);
         document.querySelector('#combine-options').textContent = t.renameButton;
+        document.querySelector('#fix-outliers').textContent = t.fixButton;
         saveSettings();
     }
 
@@ -200,7 +202,6 @@
         saveSettings();
     }
 
-    // --- FUNÇÃO RECUPERADA! ---
     function generateRandomName() {
         const prefixes = ["Al", "Bar", "Car", "Del", "Eld", "Fal", "Gar", "Hal", "Il", "Jar", "Kal", "Lor"];
         const middles = ["dorn", "fell", "gorn", "hil", "mir", "nar", "pel", "quil", "rak", "sor", "tur"];
@@ -228,22 +229,17 @@
                         if (target.length === 2) return `${Math.round(Math.sqrt((target[0] - coords[0]) ** 2 + (target[1] - coords[1]) ** 2) * 10) / 10}`;
                     }
                     return '';
-                case 'randomname': return generateRandomName(); // Chamada à função corrigida aqui!
+                case 'randomname': return generateRandomName();
                 default: return '';
             }
         }).join(' ').trim();
     }
 
-    document.getElementById('combine-options').addEventListener('click', function() {
-        if (currentOptions.length === 0) {
-            showCustomNotification("Atenção: Seleciona pelo menos uma opção de renomeação.", "error");
-            return;
-        }
+    // Função core para processar o clique e edição (Reutilizável)
+    function processRenaming(villagesNodeList, startingNumber) {
+        let numberCounter = startingNumber;
 
-        const lineVillages = document.querySelectorAll('.nowrap.row_a, .nowrap.row_b');
-        let numberCounter = parseInt(currentOptions.find(opt => opt.type === 'number')?.startNumberInput) || 1;
-
-        lineVillages.forEach((element, index) => {
+        villagesNodeList.forEach((element, index) => {
             const labelNode = element.querySelector('.quickedit-vn');
             if(!labelNode) return;
             
@@ -251,7 +247,6 @@
             const coordsMatches = textContent.match(/(\d{3}\|\d{3})/g);
             const coords = (coordsMatches && coordsMatches.length > 0 ? coordsMatches[coordsMatches.length - 1] : "000|000").split('|').map(Number);
 
-            // Gera um nome único para cada aldeia
             const finalName = generateVillageName(currentOptions, numberCounter++, coords).slice(0, 32).replace(/[´^]/g, ''); 
 
             setTimeout(() => {
@@ -275,6 +270,70 @@
                 }
             }, index * 400); 
         });
+    }
+
+    // --- NOVO BOTAO: AUTO-CORRIGIR RECÉM CONQUISTADAS ---
+    document.getElementById('fix-outliers').addEventListener('click', function() {
+        if (currentOptions.length === 0) {
+            showCustomNotification("Atenção: Seleciona pelo menos uma opção de renomeação.", "error");
+            return;
+        }
+
+        const textOpt = currentOptions.find(opt => opt.type === 'text');
+        if (!textOpt || !textOpt.textInput) {
+            showCustomNotification("Para esta função, ativa e preenche a opção 'Texto' com o teu padrão.", "error");
+            return;
+        }
+
+        const baseText = textOpt.textInput.trim();
+        const lineVillages = document.querySelectorAll('.nowrap.row_a, .nowrap.row_b');
+        
+        let maxFoundNumber = 0;
+        let villagesToRename = [];
+
+        lineVillages.forEach((element) => {
+            const labelNode = element.querySelector('.quickedit-vn');
+            if(!labelNode) return;
+            
+            // Limpa dados extra da string para analisar apenas o nome
+            let currentName = element.querySelector('.quickedit-label').textContent;
+            currentName = currentName.replace(/\(\d{3}\|\d{3}\)\sK\d{2}/g, '').trim(); 
+            
+            if (currentName.includes(baseText)) {
+                // Se já faz parte do padrão, procura qual o número da aldeia
+                const remainingPart = currentName.replace(baseText, '');
+                const numMatch = remainingPart.match(/\d+/);
+                if (numMatch) {
+                    const num = parseInt(numMatch[0]);
+                    if (num > maxFoundNumber) {
+                        maxFoundNumber = num;
+                    }
+                }
+            } else {
+                // Não tem o texto padrão = aldeia que precisa de ser renomeada
+                villagesToRename.push(element);
+            }
+        });
+
+        if (villagesToRename.length === 0) {
+            showCustomNotification("Todas as aldeias já estão dentro do teu padrão!", "success");
+            return;
+        }
+
+        // Renomeia apenas a lista filtrada, começando no maxFoundNumber + 1
+        showCustomNotification(`Encontradas ${villagesToRename.length} aldeias fora do padrão. A corrigir...`, "success");
+        processRenaming(villagesToRename, maxFoundNumber + 1);
+    });
+
+    // --- BOTAO ORIGINAL: RENOMEAR TODAS AS ALDEIAS ---
+    document.getElementById('combine-options').addEventListener('click', function() {
+        if (currentOptions.length === 0) {
+            showCustomNotification("Atenção: Seleciona pelo menos uma opção de renomeação.", "error");
+            return;
+        }
+        const lineVillages = document.querySelectorAll('.nowrap.row_a, .nowrap.row_b');
+        let startingNumber = parseInt(currentOptions.find(opt => opt.type === 'number')?.startNumberInput) || 1;
+        processRenaming(lineVillages, startingNumber);
     });
 
     document.getElementById('language-select').addEventListener('change', function () { setLanguage(this.value); });
@@ -311,7 +370,7 @@
         setTimeout(() => {
             notification.style.opacity = '0';
             setTimeout(() => notification.remove(), 300);
-        }, 1500);
+        }, 2000);
     }
 
     loadSettings();
