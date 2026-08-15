@@ -1,6 +1,16 @@
 (function() {
     'use strict';
 
+    // 1. VERIFICA SE ESTÁ NA PÁGINA CORRETA. SE NÃO ESTIVER, REDIRECIONA PARA O COMBINADO.
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('screen') !== 'overview_villages') {
+        // Pega no ID da aldeia atual usando os dados do jogo
+        const villageId = (window.game_data && window.game_data.village) ? window.game_data.village.id : '';
+        // Redireciona para o Combinado
+        window.location.href = `/game.php?village=${villageId}&screen=overview_villages&mode=combined`;
+        return; // Pára a execução para a página poder recarregar
+    }
+
     // Se o painel já existir na página, o clique na barra apenas o esconde/mostra
     const existingContainer = document.getElementById('rename-container');
     if (existingContainer) {
@@ -8,10 +18,10 @@
         return;
     }
 
-    // Verifica se está numa página válida
+    // Verifica se os elementos necessários para injetar o script existem
     const modemenuElement = document.querySelector('.vis.modemenu') || document.querySelector('#paged_view_content');
     if (!modemenuElement) {
-        alert("Por favor, acede a uma visualização geral de aldeias (Combinado, Produção, etc.) para usar o script.");
+        alert("Erro: Não foi possível carregar a interface do script nesta página.");
         return;
     }
 
@@ -235,7 +245,6 @@
         }).join(' ').trim();
     }
 
-    // Função core para processar o clique e edição (Reutilizável)
     function processRenaming(villagesNodeList, startingNumber) {
         let numberCounter = startingNumber;
 
@@ -263,7 +272,7 @@
                             if (textInput && submitBtn) {
                                 textInput.value = finalName;
                                 submitBtn.click(); 
-                                showCustomNotification(`Aldeia ${index + 1} enviada!`);
+                                showCustomNotification(`Aldeia enviada!`);
                             }
                         }
                     }, 150); 
@@ -272,7 +281,6 @@
         });
     }
 
-    // --- NOVO BOTAO: AUTO-CORRIGIR RECÉM CONQUISTADAS ---
     document.getElementById('fix-outliers').addEventListener('click', function() {
         if (currentOptions.length === 0) {
             showCustomNotification("Atenção: Seleciona pelo menos uma opção de renomeação.", "error");
@@ -295,12 +303,10 @@
             const labelNode = element.querySelector('.quickedit-vn');
             if(!labelNode) return;
             
-            // Limpa dados extra da string para analisar apenas o nome
             let currentName = element.querySelector('.quickedit-label').textContent;
             currentName = currentName.replace(/\(\d{3}\|\d{3}\)\sK\d{2}/g, '').trim(); 
             
             if (currentName.includes(baseText)) {
-                // Se já faz parte do padrão, procura qual o número da aldeia
                 const remainingPart = currentName.replace(baseText, '');
                 const numMatch = remainingPart.match(/\d+/);
                 if (numMatch) {
@@ -310,7 +316,6 @@
                     }
                 }
             } else {
-                // Não tem o texto padrão = aldeia que precisa de ser renomeada
                 villagesToRename.push(element);
             }
         });
@@ -320,12 +325,10 @@
             return;
         }
 
-        // Renomeia apenas a lista filtrada, começando no maxFoundNumber + 1
-        showCustomNotification(`Encontradas ${villagesToRename.length} aldeias fora do padrão. A corrigir...`, "success");
+        showCustomNotification(`A corrigir ${villagesToRename.length} aldeias...`, "success");
         processRenaming(villagesToRename, maxFoundNumber + 1);
     });
 
-    // --- BOTAO ORIGINAL: RENOMEAR TODAS AS ALDEIAS ---
     document.getElementById('combine-options').addEventListener('click', function() {
         if (currentOptions.length === 0) {
             showCustomNotification("Atenção: Seleciona pelo menos uma opção de renomeação.", "error");
