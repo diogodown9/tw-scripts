@@ -11,7 +11,7 @@
 
     const PANEL_ID = 'tw-left-villages-panel';
     
-    // 2. EFEITO LIGA/DESLIGA: Se o painel já existir, o clique na barra apenas o esconde ou mostra
+    // 2. EFEITO LIGA/DESLIGA
     const existingPanel = document.getElementById(PANEL_ID);
     if (existingPanel) {
         existingPanel.style.display = existingPanel.style.display === 'none' ? 'flex' : 'none';
@@ -151,6 +151,7 @@
         
         let count = 0;
         let visibleCount = 0;
+        let activeGroup = groupSelect.value || '0'; // Pega o grupo atual da dropdown
         
         allVillages.forEach(v => {
             if (filterText && !v.label.toLowerCase().includes(filterText)) return;
@@ -162,7 +163,7 @@
             const rowClass = (visibleCount % 2 === 0) ? 'row_b' : 'row_a';
             
             let colorClass = '';
-            if (groupSelect.value === '0' || groupSelect.value === '') {
+            if (activeGroup === '0') {
                 if (v.isAtk && v.isDef) colorClass = 'tw-village-both';
                 else if (v.isAtk) colorClass = 'tw-village-atk';
                 else if (v.isDef) colorClass = 'tw-village-def';
@@ -170,7 +171,8 @@
 
             row.className = `tw-village-row ${rowClass} ${colorClass} ${v.id === currentVillageId ? 'current-village' : ''}`;
             
-            const goUrl = window.location.pathname + '?village=' + v.id + '&screen=overview';
+            // FORÇA O PARÂMETRO DO GRUPO NO LINK
+            const goUrl = window.location.pathname + '?village=' + v.id + '&screen=overview&group=' + activeGroup;
 
             row.innerHTML = `
                 <div class="tw-village-info" title="${v.label}">
@@ -278,6 +280,9 @@
                         if (fetchPromises.length > 0) {
                             Promise.all(fetchPromises).then(() => {
                                 renderVillages(); 
+                                // FIX: Restaura a memória do servidor para o grupo atual ("0")
+                                // Isto evita que o servidor memorize os grupos de ataque/defesa verificados no background
+                                $.get(`/game.php?screen=overview_villages&mode=prod&group=${groupId}`);
                             });
                         }
                     }
