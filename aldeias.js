@@ -151,7 +151,7 @@
         
         let count = 0;
         let visibleCount = 0;
-        let activeGroup = groupSelect.value || '0'; // Pega o grupo atual da dropdown
+        let activeGroup = groupSelect.value || '0'; 
         
         allVillages.forEach(v => {
             if (filterText && !v.label.toLowerCase().includes(filterText)) return;
@@ -171,8 +171,8 @@
 
             row.className = `tw-village-row ${rowClass} ${colorClass} ${v.id === currentVillageId ? 'current-village' : ''}`;
             
-            // FORÇA O PARÂMETRO DO GRUPO NO LINK
-            const goUrl = window.location.pathname + '?village=' + v.id + '&screen=overview&group=' + activeGroup;
+            // FORÇA EXPLICITAMENTE O JOGO A ABRIR A ALDEIA NO GRUPO CORRETO
+            const goUrl = `/game.php?village=${v.id}&screen=overview&group=${activeGroup}`;
 
             row.innerHTML = `
                 <div class="tw-village-info" title="${v.label}">
@@ -208,6 +208,7 @@
         $.ajax({
             url: `/game.php?screen=overview_villages&mode=prod&group=${groupId}&page=-1`,
             type: 'GET',
+            cache: false, // FORÇA O NAVEGADOR A NÃO USAR CACHE AQUI
             success: function(data) {
                 try {
                     const doc = new DOMParser().parseFromString(data, 'text/html');
@@ -246,6 +247,7 @@
                     
                     renderVillages(); 
 
+                    // PINTAR CORES (SÓ SE ESTIVER NO GRUPO 0)
                     if (groupId === '0' && groupsFound.size > 1) {
                         let atkIds = [];
                         let defIds = [];
@@ -258,7 +260,10 @@
                         let fetchPromises = [];
 
                         atkIds.forEach(id => {
-                            fetchPromises.push($.get(`/game.php?screen=overview_villages&mode=prod&group=${id}&page=-1`).then(html => {
+                            fetchPromises.push($.ajax({
+                                url: `/game.php?screen=overview_villages&mode=prod&group=${id}&page=-1`,
+                                cache: false // IGNORA CACHE PARA ESTAS PÁGINAS INVISÍVEIS
+                            }).then(html => {
                                 let tempDoc = new DOMParser().parseFromString(html, 'text/html');
                                 tempDoc.querySelectorAll('span.quickedit-vn').forEach(row => {
                                     let v = allVillages.find(village => village.id === row.getAttribute('data-id'));
@@ -268,7 +273,10 @@
                         });
 
                         defIds.forEach(id => {
-                            fetchPromises.push($.get(`/game.php?screen=overview_villages&mode=prod&group=${id}&page=-1`).then(html => {
+                            fetchPromises.push($.ajax({
+                                url: `/game.php?screen=overview_villages&mode=prod&group=${id}&page=-1`,
+                                cache: false // IGNORA CACHE PARA ESTAS PÁGINAS INVISÍVEIS
+                            }).then(html => {
                                 let tempDoc = new DOMParser().parseFromString(html, 'text/html');
                                 tempDoc.querySelectorAll('span.quickedit-vn').forEach(row => {
                                     let v = allVillages.find(village => village.id === row.getAttribute('data-id'));
@@ -280,9 +288,13 @@
                         if (fetchPromises.length > 0) {
                             Promise.all(fetchPromises).then(() => {
                                 renderVillages(); 
-                                // FIX: Restaura a memória do servidor para o grupo atual ("0")
-                                // Isto evita que o servidor memorize os grupos de ataque/defesa verificados no background
-                                $.get(`/game.php?screen=overview_villages&mode=prod&group=${groupId}`);
+                                
+                                // FIX DEFINITIVO: Obriga o servidor do jogo a registar que a sessão final é o grupo "0"
+                                $.ajax({
+                                    url: `/game.php?screen=overview_villages&mode=prod&group=${groupId}&page=-1`,
+                                    type: 'GET',
+                                    cache: false 
+                                });
                             });
                         }
                     }
