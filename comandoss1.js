@@ -3,13 +3,12 @@
 
     const gameData = window.game_data;
     
-    // 1. Verificação de Ecrã com Aviso
+    // 1. Verificação de Ecrã e Redirecionamento
     if (gameData.screen !== 'place') {
         if (typeof window.UI !== 'undefined' && window.UI.InfoMessage) {
-             window.UI.InfoMessage('Por favor, vai para a Praça de Reuniões antes de executar este script.', 3000, 'error');
-        } else {
-             alert('Este script tem de ser executado na Praça de Reuniões.');
+            window.UI.InfoMessage('A redirecionar para a Praça de Reuniões...', 2000, 'success');
         }
+        window.location.href = gameData.link_base_pure + 'place';
         return;
     }
 
