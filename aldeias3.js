@@ -1,19 +1,11 @@
 (function() {
     'use strict';
 
-    // 1. REDIRECIONA SE NÃO ESTIVER NA PÁGINA CORRETA
-    const urlParams = new URLSearchParams(window.location.search);
-    if (urlParams.get('screen') !== 'overview' && urlParams.get('screen') !== 'overview_villages') {
-        const villageId = (window.game_data && window.game_data.village) ? window.game_data.village.id : '';
-        window.location.href = `/game.php?village=${villageId}&screen=overview`;
-        return; 
-    }
-
     const PANEL_ID = 'tw-left-villages-panel';
     const CACHE_PREFIX = 'tw-villages-cache-v11_';
     const CACHE_TIME = 60 * 60 * 1000; // 1 hora de memória
     
-    // 2. EFEITO LIGA/DESLIGA
+    // EFEITO LIGA/DESLIGA
     const existingPanel = document.getElementById(PANEL_ID);
     if (existingPanel) {
         existingPanel.style.display = existingPanel.style.display === 'none' ? 'flex' : 'none';
@@ -116,17 +108,20 @@
     document.body.appendChild(panel);
 
     let allVillages = [];
+    const urlParams = new URLSearchParams(window.location.search);
     let currentGroupId = urlParams.get('group') || '0'; 
     const listContainer = document.getElementById('tw-villages-list');
     const groupSelect = document.getElementById('tw-group-select');
-    const currentVillageId = urlParams.get('village');
+    
+    // Método universal para apanhar a aldeia atual (funciona em qualquer página do jogo)
+    const currentVillageId = (window.game_data && window.game_data.village) ? String(window.game_data.village.id) : urlParams.get('village');
 
     // LÓGICA DE ARRASTAR (DRAG & DROP)
     const dragHeader = document.getElementById('tw-drag-header');
     let pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
     
     dragHeader.onmousedown = function(e) {
-        if(e.target.id === 'close-left-panel' || e.target.id === 'tw-refresh-data') return; // Ignora se clicar nos botões
+        if(e.target.id === 'close-left-panel' || e.target.id === 'tw-refresh-data') return; 
         e.preventDefault();
         pos3 = e.clientX;
         pos4 = e.clientY;
@@ -142,7 +137,7 @@
         pos4 = e.clientY;
         panel.style.top = (panel.offsetTop - pos2) + "px";
         panel.style.left = (panel.offsetLeft - pos1) + "px";
-        panel.style.right = 'auto'; // Remove a ancoragem à direita se arrastar
+        panel.style.right = 'auto'; 
     }
 
     function closeDragElement() {
@@ -155,7 +150,7 @@
     // BOTÕES DE FECHAR E ATUALIZAR
     document.getElementById('close-left-panel').addEventListener('click', () => panel.style.display = 'none');
     document.getElementById('tw-refresh-data').addEventListener('click', () => {
-        loadSafeData(groupSelect.value || currentGroupId, true); // O 'true' força a ignorar a memória
+        loadSafeData(groupSelect.value || currentGroupId, true); 
     });
 
     function showNotification(msg, type = "success") {
@@ -248,7 +243,6 @@
     }
 
     function loadSafeData(groupId = '0', forceReload = false) {
-        // VERIFICA SE EXISTE NA MEMÓRIA INSTANTÂNEA
         if (!forceReload) {
             const cachedString = localStorage.getItem(CACHE_PREFIX + groupId);
             if (cachedString) {
@@ -259,17 +253,16 @@
                         if (parsed.groupsHTML) {
                             groupSelect.innerHTML = parsed.groupsHTML;
                             groupSelect.style.display = 'block';
-                            groupSelect.value = groupId; // Garante que a combobox fica certa
+                            groupSelect.value = groupId; 
                         }
                         renderVillages();
                         showNotification("Carregado da memória instantânea!");
-                        return; // Pára aqui, não faz pedidos ao servidor!
+                        return; 
                     }
-                } catch (e) { /* Cache corrompida, segue em frente para pedir ao servidor */ }
+                } catch (e) { }
             }
         }
 
-        // SE CHEGOU AQUI, PEDE AO SERVIDOR
         listContainer.innerHTML = '<div style="text-align: center; margin-top: 20px; font-size: 11px; font-weight: bold; color: #603000;"><img src="https://dspt.innogamescdn.com/asset/876c6ddb/graphic/throbber.gif"><br>A atualizar do servidor...</div>';
         
         $.ajax({
@@ -356,7 +349,7 @@
                         if (fetchPromises.length > 0) {
                             Promise.all(fetchPromises).then(() => {
                                 renderVillages(); 
-                                saveToCache(groupId, savedGroupsHTML); // Guarda na memória as cores calculadas
+                                saveToCache(groupId, savedGroupsHTML); 
                                 
                                 $.ajax({
                                     url: `/game.php?screen=overview_villages&mode=prod&group=${groupId}&page=-1`,
@@ -407,7 +400,7 @@
     });
     
     groupSelect.addEventListener('change', (e) => {
-        loadSafeData(e.target.value, false); // Ao mudar de grupo, tenta ir buscar primeiro à memória
+        loadSafeData(e.target.value, false); 
         document.getElementById('tw-select-all').checked = false;
     });
 
