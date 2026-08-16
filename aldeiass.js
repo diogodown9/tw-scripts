@@ -113,7 +113,6 @@
     const listContainer = document.getElementById('tw-villages-list');
     const groupSelect = document.getElementById('tw-group-select');
     
-    // Método universal para apanhar a aldeia atual (funciona em qualquer página do jogo)
     const currentVillageId = (window.game_data && window.game_data.village) ? String(window.game_data.village.id) : urlParams.get('village');
 
     // LÓGICA DE ARRASTAR (DRAG & DROP)
@@ -185,6 +184,10 @@
         let visibleCount = 0;
         let activeGroup = groupSelect.value || '0'; 
         
+        // Descobre em que ecrã exato estás agora
+        const currentScreen = urlParams.get('screen') || 'overview';
+        const currentMode = urlParams.get('mode');
+        
         allVillages.forEach(v => {
             if (filterText && !v.label.toLowerCase().includes(filterText)) return;
             
@@ -203,7 +206,11 @@
 
             row.className = `tw-village-row ${rowClass} ${colorClass} ${v.id === currentVillageId ? 'current-village' : ''}`;
             
-            const goUrl = `/game.php?village=${v.id}&screen=overview&group=${activeGroup}`;
+            // CONSTRÓI O LINK MANTENDO O ECRÃ ONDE ESTÁS!
+            let goUrl = `/game.php?village=${v.id}&screen=${currentScreen}&group=${activeGroup}`;
+            if (currentMode) {
+                goUrl += `&mode=${currentMode}`; // Exemplo: Se estiveres no mercado a "enviar", ele mantém o enviar
+            }
 
             row.innerHTML = `
                 <div class="tw-village-info" title="${v.label}">
