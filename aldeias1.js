@@ -10,6 +10,8 @@
     }
 
     const PANEL_ID = 'tw-left-villages-panel';
+    const CACHE_PREFIX = 'tw-villages-cache-v11_';
+    const CACHE_TIME = 60 * 60 * 1000; // 1 hora de memória
     
     // 2. EFEITO LIGA/DESLIGA
     const existingPanel = document.getElementById(PANEL_ID);
@@ -18,6 +20,9 @@
         return;
     }
 
+    // LER POSIÇÃO GUARDADA
+    const savedTop = localStorage.getItem('tw-villages-pos-top');
+    const savedLeft = localStorage.getItem('tw-villages-pos-left');
     const savedSide = localStorage.getItem('tw-villages-panel-side') || 'left';
 
     // ESTILOS 
@@ -30,13 +35,11 @@
         
         .tw-village-row { display: flex; align-items: center; justify-content: space-between; padding: 4px 6px; border-bottom: 1px solid #e3d5b3; cursor: pointer; transition: background-color 0.2s; }
         
-        /* Cores Nativas do TW */
         .tw-village-row.row_a { background-color: #fff5da; }
         .tw-village-row.row_b { background-color: #f0e2be; }
         .tw-village-row:hover { background-color: #dcb588 !important; }
         .tw-village-row.current-village { border-left: 3px solid #8c0000; padding-left: 3px; }
         
-        /* Cores de Ataque e Defesa (Suaves) */
         .tw-village-atk { background-color: #f7d7d7 !important; } 
         .tw-village-def { background-color: #d7e8f7 !important; } 
         .tw-village-both { background-color: #e8d7f7 !important; } 
@@ -64,10 +67,16 @@
     panel.id = PANEL_ID;
     panel.style.position = 'fixed';
     
-    if (savedSide === 'right') panel.style.right = '10px';
-    else panel.style.left = '10px';
+    // APLICA POSIÇÃO ARRASTADA OU O LADO GUARDADO
+    if (savedTop && savedLeft) {
+        panel.style.top = savedTop;
+        panel.style.left = savedLeft;
+    } else {
+        panel.style.top = '55px';
+        if (savedSide === 'right') panel.style.right = '10px';
+        else panel.style.left = '10px';
+    }
     
-    panel.style.top = '55px';
     panel.style.width = '310px'; 
     panel.style.maxHeight = 'calc(100vh - 170px)'; 
     panel.style.backgroundColor = '#e3d5b3';
@@ -79,10 +88,10 @@
     panel.style.flexDirection = 'column';
 
     panel.innerHTML = `
-        <div style="background: url('https://dspt.innogamescdn.com/asset/876c6ddb/graphic/index/main_bg.jpg') repeat; padding: 6px; border-bottom: 2px solid #8c5f0d; font-weight: bold; text-align: center; color: #603000; position: relative; font-size: 12px; font-family: Verdana, Arial;">
+        <div id="tw-drag-header" style="cursor: move; background: url('https://dspt.innogamescdn.com/asset/876c6ddb/graphic/index/main_bg.jpg') repeat; padding: 6px; border-bottom: 2px solid #8c5f0d; font-weight: bold; text-align: center; color: #603000; position: relative; font-size: 12px; font-family: Verdana, Arial; user-select: none;">
             🏰 Gestor de Aldeias
             <div style="position: absolute; right: 5px; top: 4px; display: flex; gap: 4px; align-items: center;">
-                <span id="tw-toggle-side" title="Mudar Lado" style="cursor: pointer; color: #000; font-size: 11px; border: 1px solid #8c5f0d; border-radius: 2px; background: #e3d5b3; padding: 0 4px; line-height: 12px;">⇄</span>
+                <span id="tw-refresh-data" title="Atualizar Dados (Forçar Servidor)" style="cursor: pointer; color: #000; font-size: 11px; border: 1px solid #8c5f0d; border-radius: 2px; background: #e3d5b3; padding: 0 4px; line-height: 12px;">🔄</span>
                 <span id="close-left-panel" title="Fechar" style="cursor: pointer; color: #a02c2c; font-size: 10px; border: 1px solid #a02c2c; border-radius: 2px; width: 14px; height: 14px; line-height: 12px; background: #e3d5b3;">✖</span>
             </div>
         </div>
@@ -101,7 +110,7 @@
         </div>
 
         <div id="tw-villages-list" style="overflow-y: auto; overflow-x: hidden; flex-grow: 1; padding-bottom: 5px; background: url('https://dspt.innogamescdn.com/asset/876c6ddb/graphic/index/main_bg.jpg');">
-            <div style="text-align: center; margin-top: 20px; font-size: 11px; font-weight: bold; color: #603000;"><img src="https://dspt.innogamescdn.com/asset/876c6ddb/graphic/throbber.gif"><br>A carregar...</div>
+            <div style="text-align: center; margin-top: 20px; font-size: 11px; font-weight: bold; color: #603000;"><img src="https://dspt.innogamescdn.com/asset/876c6ddb/graphic/throbber.gif"><br>A analisar...</div>
         </div>
     `;
     document.body.appendChild(panel);
@@ -112,13 +121,41 @@
     const groupSelect = document.getElementById('tw-group-select');
     const currentVillageId = urlParams.get('village');
 
+    // LÓGICA DE ARRASTAR (DRAG & DROP)
+    const dragHeader = document.getElementById('tw-drag-header');
+    let pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
+    
+    dragHeader.onmousedown = function(e) {
+        if(e.target.id === 'close-left-panel' || e.target.id === 'tw-refresh-data') return; // Ignora se clicar nos botões
+        e.preventDefault();
+        pos3 = e.clientX;
+        pos4 = e.clientY;
+        document.onmouseup = closeDragElement;
+        document.onmousemove = elementDrag;
+    };
+
+    function elementDrag(e) {
+        e.preventDefault();
+        pos1 = pos3 - e.clientX;
+        pos2 = pos4 - e.clientY;
+        pos3 = e.clientX;
+        pos4 = e.clientY;
+        panel.style.top = (panel.offsetTop - pos2) + "px";
+        panel.style.left = (panel.offsetLeft - pos1) + "px";
+        panel.style.right = 'auto'; // Remove a ancoragem à direita se arrastar
+    }
+
+    function closeDragElement() {
+        document.onmouseup = null;
+        document.onmousemove = null;
+        localStorage.setItem('tw-villages-pos-top', panel.style.top);
+        localStorage.setItem('tw-villages-pos-left', panel.style.left);
+    }
+
+    // BOTÕES DE FECHAR E ATUALIZAR
     document.getElementById('close-left-panel').addEventListener('click', () => panel.style.display = 'none');
-    document.getElementById('tw-toggle-side').addEventListener('click', () => {
-        if (panel.style.left === '10px') {
-            panel.style.left = ''; panel.style.right = '10px'; localStorage.setItem('tw-villages-panel-side', 'right');
-        } else {
-            panel.style.right = ''; panel.style.left = '10px'; localStorage.setItem('tw-villages-panel-side', 'left');
-        }
+    document.getElementById('tw-refresh-data').addEventListener('click', () => {
+        loadSafeData(groupSelect.value || currentGroupId, true); // O 'true' força a ignorar a memória
     });
 
     function showNotification(msg, type = "success") {
@@ -171,7 +208,6 @@
 
             row.className = `tw-village-row ${rowClass} ${colorClass} ${v.id === currentVillageId ? 'current-village' : ''}`;
             
-            // FORÇA EXPLICITAMENTE O JOGO A ABRIR A ALDEIA NO GRUPO CORRETO
             const goUrl = `/game.php?village=${v.id}&screen=overview&group=${activeGroup}`;
 
             row.innerHTML = `
@@ -202,13 +238,44 @@
         if(count === 0) listContainer.innerHTML = '<div style="color:#a02c2c; text-align:center; padding: 20px 10px; font-weight: bold; font-size: 11px;">Nenhuma aldeia encontrada.</div>';
     }
 
-    function loadSafeData(groupId = '0') {
-        listContainer.innerHTML = '<div style="text-align: center; margin-top: 20px; font-size: 11px; font-weight: bold; color: #603000;"><img src="https://dspt.innogamescdn.com/asset/876c6ddb/graphic/throbber.gif"><br>A carregar do servidor...</div>';
+    function saveToCache(groupId, groupsHTML) {
+        const cacheData = {
+            timestamp: Date.now(),
+            villages: allVillages,
+            groupsHTML: groupsHTML
+        };
+        localStorage.setItem(CACHE_PREFIX + groupId, JSON.stringify(cacheData));
+    }
+
+    function loadSafeData(groupId = '0', forceReload = false) {
+        // VERIFICA SE EXISTE NA MEMÓRIA INSTANTÂNEA
+        if (!forceReload) {
+            const cachedString = localStorage.getItem(CACHE_PREFIX + groupId);
+            if (cachedString) {
+                try {
+                    const parsed = JSON.parse(cachedString);
+                    if (Date.now() - parsed.timestamp < CACHE_TIME) {
+                        allVillages = parsed.villages;
+                        if (parsed.groupsHTML) {
+                            groupSelect.innerHTML = parsed.groupsHTML;
+                            groupSelect.style.display = 'block';
+                            groupSelect.value = groupId; // Garante que a combobox fica certa
+                        }
+                        renderVillages();
+                        showNotification("Carregado da memória instantânea!");
+                        return; // Pára aqui, não faz pedidos ao servidor!
+                    }
+                } catch (e) { /* Cache corrompida, segue em frente para pedir ao servidor */ }
+            }
+        }
+
+        // SE CHEGOU AQUI, PEDE AO SERVIDOR
+        listContainer.innerHTML = '<div style="text-align: center; margin-top: 20px; font-size: 11px; font-weight: bold; color: #603000;"><img src="https://dspt.innogamescdn.com/asset/876c6ddb/graphic/throbber.gif"><br>A atualizar do servidor...</div>';
         
         $.ajax({
             url: `/game.php?screen=overview_villages&mode=prod&group=${groupId}&page=-1`,
             type: 'GET',
-            cache: false, // FORÇA O NAVEGADOR A NÃO USAR CACHE AQUI
+            cache: false, 
             success: function(data) {
                 try {
                     const doc = new DOMParser().parseFromString(data, 'text/html');
@@ -228,13 +295,15 @@
                         if(id && id !== '0' && name) groupsFound.set(id, name);
                     });
 
+                    let savedGroupsHTML = '';
                     if (groupsFound.size > 1) {
                         groupSelect.style.display = 'block';
                         groupSelect.innerHTML = '';
                         groupsFound.forEach((name, id) => {
                             let sel = (id === groupId) ? 'selected' : '';
-                            groupSelect.innerHTML += `<option value="${id}" ${sel}>${name}</option>`;
+                            savedGroupsHTML += `<option value="${id}" ${sel}>${name}</option>`;
                         });
+                        groupSelect.innerHTML = savedGroupsHTML;
                     }
 
                     allVillages = [];
@@ -247,7 +316,6 @@
                     
                     renderVillages(); 
 
-                    // PINTAR CORES (SÓ SE ESTIVER NO GRUPO 0)
                     if (groupId === '0' && groupsFound.size > 1) {
                         let atkIds = [];
                         let defIds = [];
@@ -262,7 +330,7 @@
                         atkIds.forEach(id => {
                             fetchPromises.push($.ajax({
                                 url: `/game.php?screen=overview_villages&mode=prod&group=${id}&page=-1`,
-                                cache: false // IGNORA CACHE PARA ESTAS PÁGINAS INVISÍVEIS
+                                cache: false 
                             }).then(html => {
                                 let tempDoc = new DOMParser().parseFromString(html, 'text/html');
                                 tempDoc.querySelectorAll('span.quickedit-vn').forEach(row => {
@@ -275,7 +343,7 @@
                         defIds.forEach(id => {
                             fetchPromises.push($.ajax({
                                 url: `/game.php?screen=overview_villages&mode=prod&group=${id}&page=-1`,
-                                cache: false // IGNORA CACHE PARA ESTAS PÁGINAS INVISÍVEIS
+                                cache: false 
                             }).then(html => {
                                 let tempDoc = new DOMParser().parseFromString(html, 'text/html');
                                 tempDoc.querySelectorAll('span.quickedit-vn').forEach(row => {
@@ -288,15 +356,21 @@
                         if (fetchPromises.length > 0) {
                             Promise.all(fetchPromises).then(() => {
                                 renderVillages(); 
+                                saveToCache(groupId, savedGroupsHTML); // Guarda na memória as cores calculadas
                                 
-                                // FIX DEFINITIVO: Obriga o servidor do jogo a registar que a sessão final é o grupo "0"
                                 $.ajax({
                                     url: `/game.php?screen=overview_villages&mode=prod&group=${groupId}&page=-1`,
                                     type: 'GET',
                                     cache: false 
                                 });
+                                showNotification("Dados atualizados e memorizados!");
                             });
+                        } else {
+                            saveToCache(groupId, savedGroupsHTML);
                         }
+                    } else {
+                        saveToCache(groupId, savedGroupsHTML);
+                        if(forceReload) showNotification("Dados atualizados e memorizados!");
                     }
 
                 } catch(err) {
@@ -333,9 +407,9 @@
     });
     
     groupSelect.addEventListener('change', (e) => {
-        loadSafeData(e.target.value);
+        loadSafeData(e.target.value, false); // Ao mudar de grupo, tenta ir buscar primeiro à memória
         document.getElementById('tw-select-all').checked = false;
     });
 
-    loadSafeData(currentGroupId);
+    loadSafeData(currentGroupId, false);
 })();
