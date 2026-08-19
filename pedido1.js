@@ -1,5 +1,5 @@
 // Tribal Wars - Pedido de Recursos Final
-// Distribui recursos (Painel de transportes minimizado - Auto Start)
+// Distribui recursos (Painel de transportes minimizado - Auto Start) - Corrigido
 
 (function() {
     'use strict';
@@ -529,6 +529,50 @@
 
                 Dialog.show('Content', html);
                 showTransportsPanel();
+                setTimeout(alignTransportPanel, 50);
+
+                // --- O BLOCO QUE EU TINHA CORTADO COMEÇA AQUI ---
+                $('#calcDistribBtn').off('click').on('click', () => {
+                    const selectedIds = $('.village-checkbox:checked').map((_, el) => $(el).data('id')).get();
+                    if (!selectedIds.length) return UI.WarningMessage('Seleciona pelo menos uma aldeia.');
+
+                    const result = calculateDistribution(demand, sources.filter(v => selectedIds.includes(v.id)));
+                    if (!result) return UI.ErrorMessage('Recursos ou mercadores insuficientes!');
+
+                    let preview = '<h3 style="margin:0 0 10px; font-size:16px; color:#ffd54f; border-bottom:1px solid #2a3a5e; padding-bottom:6px;">📊 Distribuição Calculada</h3><div class="tw-table-wrap" style="flex:1; max-height:none;"><table class="tw-table" style="margin-bottom: auto;"><thead><tr><th>Aldeia</th><th>Madeira</th><th>Pedra</th><th>Ferro</th><th>Merc.</th><th>Chegada</th></tr></thead><tbody>';
+                    let tw = 0, ts = 0, ti = 0, tm = 0, maxIda = 0;
+
+                    result.forEach(item => {
+                        const v = sources.find(s => s.id === item.id);
+                        const merc = Math.ceil((item.wood + item.stone + item.iron) / 1000);
+                        tw += item.wood; ts += item.stone; ti += item.iron; tm += merc;
+                        const idaMin = (v.distance * MERCHANT_SPEED_TOTAL) / 2;
+                        if (idaMin > maxIda) maxIda = idaMin;
+
+                        preview += `<tr>
+                            <td class="name-cell">${v.name.replace(' K43', '')}</td>
+                            <td>${formatNumber(item.wood)}</td><td>${formatNumber(item.stone)}</td><td>${formatNumber(item.iron)}</td>
+                            <td>${merc}</td><td class="time-cell">${formatTime(idaMin)}</td>
+                        </tr>`;
+                    });
+
+                    preview += `<tr class="total-row"><th>Total</th><th>${formatNumber(tw)}</th><th>${formatNumber(ts)}</th><th>${formatNumber(ti)}</th><th>${tm}</th><th>${formatTime(maxIda)}</th></tr></tbody></table></div>
+                        <div style="margin-top:15px; border-top: 1px solid #2a3a5e; padding-top:12px;">
+                            <button class="tw-btn-primary" id="confirmSendBtn" style="width: 100%; font-size: 13px; padding: 8px;">✅ Confirmar e Enviar</button>
+                        </div>`;
+
+                    $('#distribResult').html(preview);
+
+                    $('#confirmSendBtn').off('click').on('click', function() {
+                        $(this).prop('disabled', true).text('A Enviar...');
+                        sendRequests(result, () => {
+                            UI.SuccessMessage('Todos os pedidos foram enviados!');
+                            $btn.removeClass('tw-btn-primary').addClass('tw-btn-success').text('✔ Enviado').prop('disabled', true);
+                            Dialog.close();
+                        });
+                    });
+                });
+                // --- O BLOCO QUE EU TINHA CORTADO ACABA AQUI ---
             };
 
             if (isVillagesLoaded) proceed(); else loadVillages(proceed);
