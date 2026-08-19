@@ -1,13 +1,24 @@
 (async function () {
-    const uiId = 'tw-dark-ui-v5';
+    const uiId = 'tw-dark-ui-v6';
     
+    // Função global de fecho limpa e isolada
+    function closeUI() {
+        if(document.getElementById(uiId)) document.getElementById(uiId).remove();
+        if(document.getElementById(`${uiId}-backdrop`)) document.getElementById(`${uiId}-backdrop`).remove();
+        if(document.getElementById(`${uiId}-style`)) document.getElementById(`${uiId}-style`).remove();
+        document.removeEventListener('keydown', escListener);
+    }
+    
+    // Fechar com a tecla ESC
+    function escListener(e) { if(e.key === 'Escape') closeUI(); }
+
     // Se a interface já estiver aberta, fecha-a
     if (document.getElementById(uiId)) {
         closeUI();
         return;
     }
 
-    // --- 1. INJETAR CSS PREMIUM ---
+    // --- 1. INJETAR CSS PREMIUM (Largo e Expansivo) ---
     const style = document.createElement('style');
     style.id = `${uiId}-style`;
     style.innerHTML = `
@@ -19,15 +30,18 @@
         #${uiId} {
             position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
             background: #181a1b; color: #e8e6e3; border: 1px solid #3a3e41;
-            border-radius: 12px; z-index: 99999; padding: 24px;
-            box-shadow: 0 15px 40px rgba(0,0,0,0.9); width: 92%; max-width: 440px;
+            border-radius: 12px; z-index: 99999; padding: 24px 30px;
+            box-shadow: 0 15px 40px rgba(0,0,0,0.9); 
+            width: max-content; /* Cresce horizontalmente com o conteúdo */
+            min-width: 440px; 
+            max-width: 95vw; /* Impede que saia fora do ecrã em monitores pequenos */
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
             opacity: 0; transition: opacity 0.2s ease-out;
         }
         #${uiId}.show { opacity: 1; }
         .tw-ui-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #3a3e41; padding-bottom: 15px; margin-bottom: 20px; }
         .tw-ui-title { font-size: 18px; font-weight: bold; color: #fff; display: flex; align-items: center; gap: 10px;}
-        .tw-ui-close { cursor: pointer; color: #888; font-size: 28px; line-height: 20px; transition: all 0.2s; padding: 4px; border-radius: 6px; }
+        .tw-ui-close { cursor: pointer; color: #888; font-size: 28px; line-height: 20px; transition: all 0.2s; padding: 4px; border-radius: 6px; user-select: none; }
         .tw-ui-close:hover { color: #ff5555; background: rgba(255,85,85,0.1); transform: scale(1.15); }
         .tw-ui-info-card { background: #222426; border: 1px solid #3a3e41; border-radius: 8px; padding: 14px; margin-bottom: 22px; box-shadow: inset 0 2px 4px rgba(0,0,0,0.2); }
         .tw-ui-row { display: flex; justify-content: space-between; font-size: 14px; margin-bottom: 8px; }
@@ -36,8 +50,8 @@
         .tw-ui-val { color: #e8e6e3; font-weight: bold; }
         .tw-ui-progress-bg { background: #111; height: 10px; border-radius: 5px; margin-top: 10px; overflow: hidden; border: 1px solid #333; }
         .tw-ui-progress-bar { height: 100%; transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1); }
-        .tw-ui-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(48px, 1fr)); gap: 10px; }
-        .tw-ui-unit { background: #222426; border: 1px solid #3a3e41; border-radius: 8px; padding: 10px 4px; text-align: center; transition: all 0.2s ease; display: flex; flex-direction: column; align-items: center; gap: 6px;}
+        .tw-ui-grid { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
+        .tw-ui-unit { flex: 1; min-width: 48px; max-width: 70px; background: #222426; border: 1px solid #3a3e41; border-radius: 8px; padding: 10px 4px; text-align: center; transition: all 0.2s ease; display: flex; flex-direction: column; align-items: center; gap: 6px;}
         .tw-ui-unit:hover { background: #2a2d30; transform: translateY(-3px); border-color: #666; box-shadow: 0 4px 10px rgba(0,0,0,0.4); }
         .tw-ui-unit img { max-width: 100%; height: auto; filter: drop-shadow(0 2px 2px rgba(0,0,0,0.5)); }
         .tw-ui-unit div { font-weight: bold; font-size: 14px; }
@@ -50,7 +64,6 @@
     // --- 2. CRIAR O BACKDROP (Fundo Escuro) E A JANELA ---
     const backdrop = document.createElement('div');
     backdrop.id = `${uiId}-backdrop`;
-    backdrop.onclick = closeUI; // Clicar fora fecha a janela
     document.body.appendChild(backdrop);
 
     const ui = document.createElement('div');
@@ -58,30 +71,22 @@
     ui.innerHTML = `
         <div class="tw-ui-header">
             <div class="tw-ui-title" id="tw-ui-title"><div class="tw-spinner"></div> A carregar dados...</div>
-            <span class="tw-ui-close" onclick="closeUI()" title="Fechar (ESC)">&times;</span>
+            <span class="tw-ui-close" id="tw-ui-close-btn" title="Fechar (ESC)">&times;</span>
         </div>
         <div id="tw-ui-content" style="text-align:center; font-size:14px; color:#a8a095; padding: 20px 0;">A extrair tropas em trânsito...</div>
     `;
     document.body.appendChild(ui);
     
+    // --- Ligar os eventos de fecho corretamente (AGORA O X FUNCIONA!) ---
+    document.getElementById('tw-ui-close-btn').addEventListener('click', closeUI);
+    backdrop.addEventListener('click', closeUI);
+    document.addEventListener('keydown', escListener);
+
     // Animação de entrada
     setTimeout(() => ui.classList.add('show'), 10);
-    
-    // Função global de fecho (limpa tudo incluindo o CSS e eventos)
-    function closeUI() {
-        if(document.getElementById(uiId)) document.getElementById(uiId).remove();
-        if(document.getElementById(`${uiId}-backdrop`)) document.getElementById(`${uiId}-backdrop`).remove();
-        if(document.getElementById(`${uiId}-style`)) document.getElementById(`${uiId}-style`).remove();
-        document.removeEventListener('keydown', escListener);
-    }
-    
-    // Fechar com a tecla ESC
-    function escListener(e) { if(e.key === 'Escape') closeUI(); }
-    document.addEventListener('keydown', escListener);
 
     // --- 3. EXTRAÇÃO DE DADOS OTIMIZADA ---
     try {
-        // Dados locais (não precisam de fetch)
         const vId = game_data.village.id;
         const vName = game_data.village.name;
         const fLvl = game_data.village.buildings.farm;
@@ -92,7 +97,6 @@
         if (pPerc >= 95) pColor = '#ff5555';
         else if (pPerc >= 80) pColor = '#ffa500';
 
-        // Fetch APENAS das tropas (dobro da velocidade do script)
         const urlUnits = game_data.link_base_pure + 'overview_villages&mode=units&type=complete';
         const resUnits = await fetch(urlUnits).then(r => r.text());
         
@@ -128,7 +132,6 @@
 
             const cell = unitCells[i];
             if (cell) {
-                // Ignorar tropas que não existem no mundo
                 if (th.classList.contains('hidden') || cell.classList.contains('hidden') || th.style.display === 'none') return;
 
                 foundUnits = true;
@@ -138,7 +141,6 @@
                 
                 const count = parseInt(cell.textContent.replace(/\./g, '').trim()) || 0;
                 
-                // Melhor contraste para tropas a zeros
                 const opacity = count === 0 ? '0.25' : '1';
                 const color = count === 0 ? '#555' : '#fff';
                 
