@@ -1,5 +1,5 @@
 // Tribal Wars - Pedido de Recursos Final
-// Distribui recursos (Painel de transportes compacto e alinhado - Fix Topo)
+// Distribui recursos (Painel de transportes minimizado - Auto Start)
 
 (function() {
     'use strict';
@@ -17,6 +17,7 @@
     let ownTransportsHTML = '';
     let originalDialogClose = null;
     let isVillagesLoaded = false;
+    let isPanelMinimized = true; // Controla se o painel inicia minimizado
     let sources = [];
     let resourcesNeeded = [];
 
@@ -101,14 +102,21 @@
         
         .tw-bottom-actions { display: flex; gap: 8px; margin-top: 12px; padding-top: 12px; border-top: 1px solid #2a3a5e; }
         
-        .tw-transport-panel { position: fixed; width: 270px; max-height: 65vh; background: #1a2433; border-radius: 8px; border: 1px solid #2a3a5e; box-shadow: 0 4px 20px rgba(0,0,0,0.6); padding: 8px 10px; color: #e0e0e0; font-size: 11px; overflow-y: auto; z-index: 99999 !important; display: none; }
+        /* Modificações no painel para suportar minimização */
+        .tw-transport-panel { position: fixed; width: 270px; max-height: 65vh; background: #1a2433; border-radius: 8px; border: 1px solid #2a3a5e; box-shadow: 0 4px 20px rgba(0,0,0,0.6); padding: 8px 10px; color: #e0e0e0; font-size: 11px; overflow-y: auto; z-index: 99999 !important; display: none; transition: width 0.2s; }
+        .tw-transport-panel.tw-minimized { width: auto; min-width: 160px; overflow: hidden; padding-bottom: 6px; }
+        
         .tw-transport-panel::-webkit-scrollbar { width: 4px; }
         .tw-transport-panel::-webkit-scrollbar-track { background: #1a2433; }
         .tw-transport-panel::-webkit-scrollbar-thumb { background: #4a5a6e; border-radius: 4px; }
         
-        .tw-transport-panel h3 { color: #ffd54f; margin: 0 0 6px 0; font-size: 13px; border-bottom: 1px solid #2a3a5e; padding-bottom: 4px; }
-        .tw-transport-panel .close-btn { float: right; background: none; border: none; color: #ff6b6b; cursor: pointer; font-size: 15px; font-weight: bold; margin-top:-2px; }
-        .tw-transport-panel .refresh-btn { background: none; border: 1px solid #2a3a5e; color: #81d4fa; cursor: pointer; font-size: 10px; padding: 1px 6px; border-radius: 10px; float: right; margin-right: 25px; margin-top:-1px;}
+        .tw-transport-panel h3 { color: #ffd54f; margin: 0; font-size: 13px; cursor: pointer; user-select: none; }
+        .tw-transport-panel:not(.tw-minimized) h3 { margin-bottom: 6px; border-bottom: 1px solid #2a3a5e; padding-bottom: 4px; }
+        
+        #tw-toggle-icon { display: inline-block; width: 14px; color: #81d4fa; transition: transform 0.2s; }
+        .tw-transport-panel .close-btn { float: right; background: none; border: none; color: #ff6b6b; cursor: pointer; font-size: 15px; font-weight: bold; margin-top:-2px; margin-left: 6px; }
+        .tw-transport-panel .refresh-btn { background: none; border: 1px solid #2a3a5e; color: #81d4fa; cursor: pointer; font-size: 10px; padding: 1px 6px; border-radius: 10px; float: right; margin-top:-1px;}
+        
         .tw-transport-panel table { width: 100%; border-collapse: collapse; font-size: 10px; }
         .tw-transport-panel table th { background: #0f1a2f; color: #ffd54f; padding: 3px 2px; border-bottom: 1px solid #2a3a5e; }
         .tw-transport-panel table td { padding: 3px 2px; border-bottom: 1px solid #1e2a3a; text-align: center; }
@@ -120,11 +128,11 @@
         // ============================================================
         // 2. BARRA SUPERIOR
         // ============================================================
-        if ($('#activateBtn').length === 0) {
+        if ($('#script-update-btn').length === 0) {
             $('#building_wrapper').prepend(`
                 <div class="tw-topbar tw-script-wrapper">
-                    <span class="status inactive" id="scriptStatus">🔴 Inativo</span>
-                    <button class="btn" id="activateBtn">Ativar</button>
+                    <span class="status active" id="scriptStatus">🟢 A sincronizar...</span>
+                    <button class="btn" id="script-update-btn" disabled>A sincronizar...</button>
                     <span class="spacer"></span>
                     <span class="resource-total">${iconSpan('wood', 14)}<span class="value" id="totalWood">0</span></span>
                     <span class="resource-total">${iconSpan('stone', 14)}<span class="value" id="totalStone">0</span></span>
@@ -239,17 +247,47 @@
             }
         }
 
+        function updatePanelState() {
+            const panel = $('#tw-transport-panel');
+            if (isPanelMinimized) {
+                panel.addClass('tw-minimized');
+                $('#tw-transport-content').hide();
+                $('#tw-toggle-icon').html('▶');
+            } else {
+                panel.removeClass('tw-minimized');
+                $('#tw-transport-content').show();
+                $('#tw-toggle-icon').html('▼');
+            }
+            alignTransportPanel();
+        }
+
         function showTransportsPanel() {
             let panel = $('#tw-transport-panel');
             if (!panel.length) {
                 panel = $(`<div id="tw-transport-panel" class="tw-transport-panel">
-                    <h3>📦 Transportes <button class="close-btn" id="tw-close-transport">×</button> <button class="refresh-btn" id="tw-refresh-transport">↻</button></h3>
+                    <h3 id="tw-transport-header" title="Clique para expandir/minimizar">
+                        <span id="tw-toggle-icon">▶</span> 📦 Transportes 
+                        <button class="close-btn" id="tw-close-transport" title="Fechar">×</button> 
+                        <button class="refresh-btn" id="tw-refresh-transport" title="Atualizar dados">↻</button>
+                    </h3>
                     <div id="tw-transport-content">Carregando...</div>
                 </div>`);
                 $('body').append(panel);
+                
+                // Lidar com o clique para minimizar/maximizar
+                $('#tw-transport-header').off('click').on('click', function(e) {
+                    if ($(e.target).is('button')) return; // Ignora se o clique for nos botões
+                    isPanelMinimized = !isPanelMinimized;
+                    updatePanelState();
+                });
+
                 $('#tw-close-transport').off('click').on('click', closeTransportsPanel);
                 $('#tw-refresh-transport').off('click').on('click', () => {
-                    $('#tw-transport-content').html('Carregando...');
+                    if(isPanelMinimized) {
+                        isPanelMinimized = false;
+                        updatePanelState();
+                    }
+                    $('#tw-transport-content').html('<div style="text-align:center;padding:15px;">A atualizar...</div>');
                     loadOwnTransports(html => {
                         $('#tw-transport-content').html(html);
                         alignTransportPanel();
@@ -258,7 +296,9 @@
                 
                 $(window).on('resize scroll', alignTransportPanel);
             }
+            
             panel.show();
+            updatePanelState();
             
             if (!ownTransportsHTML) {
                 loadOwnTransports(html => {
@@ -327,28 +367,32 @@
         }
 
         // ============================================================
-        // 6. GESTÃO DE BOTÕES NOS EDIFÍCIOS
+        // 6. GESTÃO DE BOTÕES E ARRANQUE AUTOMÁTICO
         // ============================================================
-        $('#activateBtn').off('click').on('click', function() {
-            $('#scriptStatus').html('🟢 Ativo').removeClass('inactive').addClass('active');
-            $(this).prop('disabled', true).text('A sincronizar...');
+        function initScriptData() {
+            $('#scriptStatus').html('🟢 A sincronizar...').removeClass('inactive').addClass('active');
+            $('#script-update-btn').prop('disabled', true).text('A sincronizar...');
 
             let loaded = 0;
             const checkDone = () => {
                 loaded++;
                 if (loaded === 2) {
                     checkBuildings();
-                    $('#activateBtn').text('↻ Atualizar').prop('disabled', false).off('click').on('click', () => {
+                    $('#script-update-btn').text('↻ Atualizar').prop('disabled', false).off('click').on('click', () => {
                         isVillagesLoaded = false;
-                        $('#activateBtn').click();
+                        initScriptData();
                     });
+                    $('#scriptStatus').html('🟢 Ativo');
                     UI.SuccessMessage('Script ativado!');
                 }
             };
 
             loadOwnTransports(checkDone);
             loadVillages(checkDone);
-        });
+        }
+
+        // Arranca automaticamente os dados quando a interface for criada
+        initScriptData();
 
         function checkBuildings() {
             resourcesNeeded = [];
@@ -485,48 +529,6 @@
 
                 Dialog.show('Content', html);
                 showTransportsPanel();
-                setTimeout(alignTransportPanel, 50);
-
-                $('#calcDistribBtn').off('click').on('click', () => {
-                    const selectedIds = $('.village-checkbox:checked').map((_, el) => $(el).data('id')).get();
-                    if (!selectedIds.length) return UI.WarningMessage('Seleciona pelo menos uma aldeia.');
-
-                    const result = calculateDistribution(demand, sources.filter(v => selectedIds.includes(v.id)));
-                    if (!result) return UI.ErrorMessage('Recursos ou mercadores insuficientes!');
-
-                    let preview = '<h3 style="margin:0 0 10px; font-size:16px; color:#ffd54f; border-bottom:1px solid #2a3a5e; padding-bottom:6px;">📊 Distribuição Calculada</h3><div class="tw-table-wrap" style="flex:1; max-height:none;"><table class="tw-table" style="margin-bottom: auto;"><thead><tr><th>Aldeia</th><th>Madeira</th><th>Pedra</th><th>Ferro</th><th>Merc.</th><th>Chegada</th></tr></thead><tbody>';
-                    let tw = 0, ts = 0, ti = 0, tm = 0, maxIda = 0;
-
-                    result.forEach(item => {
-                        const v = sources.find(s => s.id === item.id);
-                        const merc = Math.ceil((item.wood + item.stone + item.iron) / 1000);
-                        tw += item.wood; ts += item.stone; ti += item.iron; tm += merc;
-                        const idaMin = (v.distance * MERCHANT_SPEED_TOTAL) / 2;
-                        if (idaMin > maxIda) maxIda = idaMin;
-
-                        preview += `<tr>
-                            <td class="name-cell">${v.name.replace(' K43', '')}</td>
-                            <td>${formatNumber(item.wood)}</td><td>${formatNumber(item.stone)}</td><td>${formatNumber(item.iron)}</td>
-                            <td>${merc}</td><td class="time-cell">${formatTime(idaMin)}</td>
-                        </tr>`;
-                    });
-
-                    preview += `<tr class="total-row"><th>Total</th><th>${formatNumber(tw)}</th><th>${formatNumber(ts)}</th><th>${formatNumber(ti)}</th><th>${tm}</th><th>${formatTime(maxIda)}</th></tr></tbody></table></div>
-                        <div style="margin-top:15px; border-top: 1px solid #2a3a5e; padding-top:12px;">
-                            <button class="tw-btn-primary" id="confirmSendBtn" style="width: 100%; font-size: 13px; padding: 8px;">✅ Confirmar e Enviar</button>
-                        </div>`;
-
-                    $('#distribResult').html(preview);
-
-                    $('#confirmSendBtn').off('click').on('click', function() {
-                        $(this).prop('disabled', true).text('A Enviar...');
-                        sendRequests(result, () => {
-                            UI.SuccessMessage('Todos os pedidos foram enviados!');
-                            $btn.removeClass('tw-btn-primary').addClass('tw-btn-success').text('✔ Enviado').prop('disabled', true);
-                            Dialog.close();
-                        });
-                    });
-                });
             };
 
             if (isVillagesLoaded) proceed(); else loadVillages(proceed);
