@@ -1,12 +1,10 @@
 (async function () {
-    // --- 1. CONFIGURAÇÃO DA UI (Fluid & Dark Mode) ---
     const uiId = 'tw-dark-ui-v2';
     if (document.getElementById(uiId)) {
         document.getElementById(uiId).remove();
         return;
     }
 
-    // Injetar CSS Moderno
     const style = document.createElement('style');
     style.innerHTML = `
         #${uiId} {
@@ -34,7 +32,6 @@
     `;
     document.head.appendChild(style);
 
-    // Construir o esqueleto da janela
     const ui = document.createElement('div');
     ui.id = uiId;
     ui.innerHTML = `
@@ -42,15 +39,13 @@
             <span id="tw-ui-title"><div class="tw-spinner"></div> A sincronizar...</span>
             <span class="tw-ui-close" onclick="document.getElementById('${uiId}').remove()">&times;</span>
         </div>
-        <div id="tw-ui-content" style="text-align:center; font-size:14px; color:#a8a095;">A extrair dados do servidor...</div>
+        <div id="tw-ui-content" style="text-align:center; font-size:14px; color:#a8a095;">A extrair HTML da aldeia...</div>
     `;
     document.body.appendChild(ui);
     
-    // Animação de entrada suave e fecho com tecla ESC
     setTimeout(() => ui.classList.add('show'), 10);
     document.addEventListener('keydown', function(e) { if(e.key === 'Escape' && document.getElementById(uiId)) document.getElementById(uiId).remove(); }, {once:true});
 
-    // --- 2. EXTRAÇÃO DE DADOS OTIMIZADA ---
     try {
         const vId = game_data.village.id;
         const vName = game_data.village.name;
@@ -65,7 +60,6 @@
         const urlOverview = game_data.link_base_pure + 'overview';
         const urlUnits = game_data.link_base_pure + 'overview_villages&mode=units&type=complete';
 
-        // Pedidos simultâneos com async/await (muito mais rápido e fiável)
         const [resOverview, resUnits] = await Promise.all([
             fetch(urlOverview).then(r => r.text()),
             fetch(urlUnits).then(r => r.text())
@@ -75,26 +69,27 @@
         const dO = parser.parseFromString(resOverview, 'text/html');
         const dU = parser.parseFromString(resUnits, 'text/html');
 
-        // --- CORREÇÃO 1: GRUPOS ---
-        // Agora procura EXCLUSIVAMENTE dentro do quadro principal (#content_value), ignorando a tua Barra Rápida.
+        // --- 1. GRUPOS (Totalmente blindado) ---
         let grps = [];
-        const groupLinks = dO.querySelectorAll('#content_value .vis a[href*="mode=groups&group="]');
-        groupLinks.forEach(a => {
+        const mainContent = dO.querySelector('#content_value') || dO.body;
+        mainContent.querySelectorAll('a[href*="mode=groups"]').forEach(a => {
+            // Rejeita TUDO o que for barra rápida, menus ou barras de navegação superior
+            if (a.closest('.quickbar_item') || a.closest('#quickbar_outer') || a.closest('#quickbar_inner') || a.closest('#header_info') || a.closest('#menu_row')) return;
+            
             const t = a.textContent.replace(/[\[\]]/g, '').trim();
-            if (t && !['+', '>', 'editar', 'edit', 'adicionar'].includes(t.toLowerCase())) {
+            if (t && !['+', '>', 'editar', 'edit', 'adicionar', 'gerir'].includes(t.toLowerCase())) {
                 if (!grps.includes(t)) grps.push(t);
             }
         });
         const grpTxt = grps.length > 0 ? grps.join(', ') : 'Sem grupo';
 
-        // --- CORREÇÃO 2: TROPAS TOTAIS ---
+        // --- 2. TROPAS TOTAIS (Mapeamento Matemático por Índice) ---
         let tHtml = '';
         const $t = $(dU).find('#units_table');
         
         if ($t.length === 0) {
-            tHtml = '<div style="grid-column:1/-1;color:#ffaaaa;padding:10px;text-align:center;">Tabela não encontrada. Tens a Conta Premium ativa?</div>';
+            tHtml = '<div style="grid-column:1/-1;color:#ffaaaa;text-align:center;">Tabela não encontrada. Confirmas a Conta Premium ativa?</div>';
         } else {
-            // Mapear cabeçalhos (que tropas existem no mundo atual)
             const hdrs = [];
             $t.find('thead th img[src*="unit"]').each((_, img) => {
                 const src = $(img).attr('src');
@@ -102,40 +97,46 @@
                 if (match) hdrs.push({ name: match[1], src: src });
             });
 
-            // Encontrar a linha exata que contém a hiperligação da tua aldeia atual
-            let $vRow = null;
-            $t.find('a[href*="village="]').each(function() {
-                const href = $(this).attr('href');
-                if (href && (href.includes('village=' + vId + '&') || href.endsWith('village=' + vId))) {
-                    $vRow = $(this).closest('tr');
-                    return false; // Quebra o loop assim que encontra
+            // Encontrar o bloco de linhas EXATO da aldeia atual
+            let $tb = null;
+            $t.find('tbody').each(function() {
+                // Procura a tag data-id (a mais fiável de todo o TW)
+                if ($(this).find(`.village_anchor[data-id="${vId}"]`).length > 0) {
+                    $tb = $(this); return false;
                 }
+                // Fallback 1: Link URL
+                let hrefMatch = false;
+                $(this).find('a').each(function() {
+                    let href = $(this).attr('href');
+                    if (href && href.match(new RegExp('village=' + vId + '(&|$)'))) hrefMatch = true;
+                });
+                if (hrefMatch) { $tb = $(this); return false; }
             });
 
-            if (!$vRow || $vRow.length === 0) {
+            if (!$tb || $tb.length === 0) {
                 tHtml = '<div style="grid-column:1/-1;color:#ffaaaa;text-align:center;">Aldeia não encontrada na tabela de tropas.</div>';
             } else {
-                // Navegar dinamicamente por todas as linhas seguintes até encontrar a próxima aldeia.
-                // A última linha desse bloco é SEMPRE a do "Total", independentemente do texto ou de quantas tropas estão em trânsito.
-                const $villageBlock = $vRow.nextUntil('tr:has(a[href*="village="])');
-                let $totalRow = null;
-
-                // Procurar por segurança a palavra "Total" (caso o layout mude), senão assume a última linha.
-                $villageBlock.each(function() {
-                    if ($(this).text().toLowerCase().includes('total')) {
-                        $totalRow = $(this);
-                    }
-                });
-                
-                if (!$totalRow) $totalRow = $villageBlock.last();
+                // A linha Total é sempre a última linha do bloco (tbody)
+                let $totalRow = $tb.find('tr').filter(function() { return $(this).text().toLowerCase().includes('total'); }).last();
+                if (!$totalRow.length) $totalRow = $tb.find('tr').last();
 
                 if ($totalRow && $totalRow.length) {
                     let foundUnits = false;
-                    $totalRow.find('td.unit-item, td[class*="unit"]').each((i, td) => {
-                        const c = parseInt($(td).text().replace(/\./g, '').trim()) || 0;
-                        if (hdrs[i]) {
+                    let tds = $totalRow.find('td');
+                    let startIndex = 0;
+                    
+                    // Se o texto "Total" estiver dentro do primeiro TD em vez de um TH, avançamos 1 índice.
+                    if ($totalRow.find('th').length === 0 && tds.eq(0).text().toLowerCase().includes('total')) {
+                        startIndex = 1;
+                    }
+
+                    // Apanhar apenas as células com números, correspondentes aos cabeçalhos
+                    let uCells = tds.slice(startIndex);
+                    uCells.each((i, td) => {
+                        if (i < hdrs.length) {
+                            const c = parseInt($(td).text().replace(/\./g, '').trim()) || 0;
                             foundUnits = true;
-                            // UX Optimization: Tropas a zeros ficam mais escuras para facilitar a leitura visual das que realmente existem
+                            // Design Upgrade: Tropas que tens a 0 ficam semitransparentes para leres a tabela muito mais depressa
                             const isZero = c === 0;
                             const opacity = isZero ? '0.35' : '1';
                             const color = isZero ? '#666' : '#fff';
@@ -147,14 +148,15 @@
                             `;
                         }
                     });
-                    if (!foundUnits) tHtml = '<div style="grid-column:1/-1;color:#ffaaaa;text-align:center;">Erro estrutural ao ler colunas.</div>';
+
+                    if (!foundUnits) tHtml = '<div style="grid-column:1/-1;color:#ffaaaa;text-align:center;">As células de tropas estão com um formato irreconhecível.</div>';
                 } else {
-                    tHtml = '<div style="grid-column:1/-1;color:#ffaaaa;text-align:center;">Linha de tropas não encontrada para esta aldeia.</div>';
+                    tHtml = '<div style="grid-column:1/-1;color:#ffaaaa;text-align:center;">Linha Total não encontrada.</div>';
                 }
             }
         }
 
-        // --- 3. RENDERIZAR RESULTADO FINAL ---
+        // --- 3. INJETAR HTML NA JANELA ---
         document.getElementById('tw-ui-title').innerHTML = `📊 ${vName}`;
         document.getElementById('tw-ui-content').innerHTML = `
             <div style="text-align:left;">
