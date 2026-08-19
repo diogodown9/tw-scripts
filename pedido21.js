@@ -1,5 +1,5 @@
 // Tribal Wars - Pedido de Recursos Final
-// Distribui recursos (Memória Anti-Loop + Movimentos + Auto Start)
+// Distribui recursos (Memória Anti-Loop + Movimentos + Auto Start + Linhas Clicáveis)
 
 (function() {
     'use strict';
@@ -68,16 +68,18 @@
         .tw-table { width: 100%; border-collapse: collapse; border-radius: 6px; overflow: hidden; background: #1a2433; color: #e0e0e0; font-size: 12px; margin: 0; }
         .tw-table th { background: #0f1a2f; color: #ffd54f; font-weight: 600; padding: 5px 8px; text-align: center; border-bottom: 1px solid #2a3a5e; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; position: sticky; top: 0; z-index: 2; }
         .tw-table td { padding: 4px 8px; text-align: center; border-bottom: 1px solid #1e2a3a; background: #1a2433; vertical-align: middle; }
-        .tw-table tr:hover td { background: #24334a; }
+        .tw-table tr:hover td { background: #2a3b52; }
         .tw-table .no-merchants td { background-color: #3d1a1a !important; color: #ff6b6b; }
         
-        /* Novo estilo para aldeias que pediram recursos recentemente */
         .tw-table tr.recent-request td { background-color: #332415 !important; border-top: 1px solid #5a3811; border-bottom: 1px solid #5a3811; }
         .tw-badge-warning { background: #e67e22; color: #fff; padding: 2px 5px; border-radius: 4px; font-size: 9px; margin-left: 6px; font-weight: bold; text-transform: uppercase; box-shadow: 0 1px 3px rgba(0,0,0,0.4); }
         
-        .tw-table .village-checkbox { accent-color: #4caf50; transform: scale(0.9); margin: 0; }
+        /* Checkbox maior e cursor para a linha */
+        .tw-table .village-row { cursor: pointer; transition: background 0.1s; }
+        .tw-table .village-checkbox { accent-color: #4caf50; transform: scale(1.4); margin: 0; cursor: pointer; }
+        
         .tw-table .time-cell { color: #81d4fa; font-weight: 500; font-size: 11px; white-space: nowrap; }
-        .tw-table .total-row td, .tw-table .total-row th { background: #0f1a2f; font-weight: 600; border-top: 1px solid #4caf50; color: #ffd54f; position: sticky; bottom: 0; }
+        .tw-table .total-row td, .tw-table .total-row th { background: #0f1a2f; font-weight: 600; border-top: 1px solid #4caf50; color: #ffd54f; position: sticky; bottom: 0; cursor: default; }
         .tw-table .merch-cell.available { color: #4caf50; }
         .tw-table .merch-cell.none { color: #ff6b6b; }
         .tw-table .name-cell { font-size: 11px; text-align: left; padding-left: 6px; white-space: nowrap; }
@@ -511,7 +513,6 @@
             const proceed = () => {
                 $btn.text('Request').prop('disabled', false);
                 
-                // Vai buscar a memória de aldeias que pediram recursos
                 const recentReqs = getRecentRequestsCache();
 
                 let html = `<div class="tw-dialog">
@@ -535,7 +536,8 @@
                     let rowClass = v.merchants === 0 ? 'no-merchants' : '';
                     if (isRecent) rowClass += ' recent-request';
                     
-                    // Se pediu há pouco, não fazemos auto-select
+                    rowClass += ' village-row'; // Adiciona classe para a linha ser clicável
+                    
                     const checked = (v.merchants > 0 && selCount < 5 && !isRecent) ? 'checked' : '';
                     if (checked) selCount++;
                     
@@ -571,6 +573,15 @@
                 Dialog.show('Content', html);
                 showTransportsPanel();
                 setTimeout(alignTransportPanel, 50);
+                
+                // --- NOVO: Lógica para tornar a linha inteira clicável ---
+                $('.village-row').off('click').on('click', function(e) {
+                    // Evita dupla seleção se o utilizador clicou diretamente na checkbox
+                    if (!$(e.target).is('input[type="checkbox"]')) {
+                        const $checkbox = $(this).find('.village-checkbox');
+                        $checkbox.prop('checked', !$checkbox.prop('checked'));
+                    }
+                });
 
                 $('#calcDistribBtn').off('click').on('click', () => {
                     const selectedIds = $('.village-checkbox:checked').map((_, el) => $(el).data('id')).get();
@@ -606,7 +617,6 @@
                     $('#confirmSendBtn').off('click').on('click', function() {
                         $(this).prop('disabled', true).text('A Enviar...');
                         
-                        // Grava a aldeia atual na memória como "aldeia que pediu recursos"
                         let reqs = getRecentRequestsCache();
                         reqs[game_data.village.id] = Date.now();
                         localStorage.setItem('tw_script_recent_reqs', JSON.stringify(reqs));
