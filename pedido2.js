@@ -1,5 +1,5 @@
 // Tribal Wars - Pedido de Recursos Final
-// Distribui recursos (Painel de transportes minimizado - Auto Start) - Corrigido
+// Distribui recursos (Painel de Movimentos Locais minimizado - Auto Start)
 
 (function() {
     'use strict';
@@ -103,7 +103,7 @@
         .tw-bottom-actions { display: flex; gap: 8px; margin-top: 12px; padding-top: 12px; border-top: 1px solid #2a3a5e; }
         
         /* Modificações no painel para suportar minimização */
-        .tw-transport-panel { position: fixed; width: 270px; max-height: 65vh; background: #1a2433; border-radius: 8px; border: 1px solid #2a3a5e; box-shadow: 0 4px 20px rgba(0,0,0,0.6); padding: 8px 10px; color: #e0e0e0; font-size: 11px; overflow-y: auto; z-index: 99999 !important; display: none; transition: width 0.2s; }
+        .tw-transport-panel { position: fixed; width: 290px; max-height: 65vh; background: #1a2433; border-radius: 8px; border: 1px solid #2a3a5e; box-shadow: 0 4px 20px rgba(0,0,0,0.6); padding: 8px 10px; color: #e0e0e0; font-size: 11px; overflow-y: auto; z-index: 99999 !important; display: none; transition: width 0.2s; }
         .tw-transport-panel.tw-minimized { width: auto; min-width: 160px; overflow: hidden; padding-bottom: 6px; }
         
         .tw-transport-panel::-webkit-scrollbar { width: 4px; }
@@ -122,6 +122,7 @@
         .tw-transport-panel table td { padding: 3px 2px; border-bottom: 1px solid #1e2a3a; text-align: center; }
         .tw-transport-panel .transport-arrival { color: #81d4fa; font-weight: 500; }
         .tw-transport-panel .transport-return { color: #aed581; font-weight: 500; }
+        .tw-transport-panel .transport-incoming { color: #ffb74d; font-weight: 500; }
         </style>`;
         $('head').append(css);
 
@@ -150,72 +151,84 @@
         }
 
         // ============================================================
-        // 3. CARREGAR TRANSPORTES
+        // 3. CARREGAR MOVIMENTOS DA ALDEIA (MERCADO LOCAL)
         // ============================================================
         function loadOwnTransports(callback) {
             const villageId = game_data.village.id;
-            const url = `${location.origin}/game.php?village=${villageId}&screen=overview_villages&mode=trader&type=own`;
+            // Busca apenas os movimentos do mercado desta aldeia específica
+            const url = `${location.origin}/game.php?village=${villageId}&screen=market`;
 
             $.get(url, page => {
                 const $page = $(page);
-                let $table = $page.find('#transport_table');
-                if (!$table.length) $table = $page.find('table:has(th:contains("Origem")):has(th:contains("Aldeia"))');
-                if (!$table.length) $table = $page.find('table.vis:has(td)');
-
-                if (!$table.length) {
-                    ownTransportsHTML = '<div class="no-data" style="text-align:center;padding:15px;">Nenhum transporte ativo encontrado.</div>';
-                    if(callback) callback(ownTransportsHTML);
-                    return;
-                }
-
-                const $headerRow = $table.find('tr:has(th)').first() || $table.find('tr').filter((_, el) => $(el).find('th').length).first();
-                const headers = $headerRow.find('th').map((_, el) => $(el).text().trim().toLowerCase()).get();
-
-                const idx = { origem: -1, aldeia: -1, duracao: -1, chegada: -1, chegaEm: -1, mercadores: -1, recursos: -1 };
-                headers.forEach((text, i) => {
-                    if (text.includes('origem')) idx.origem = i;
-                    else if (text.includes('aldeia')) idx.aldeia = i;
-                    else if (text.includes('dura')) idx.duracao = i;
-                    else if (text.includes('chegada') && !text.includes('chega em')) idx.chegada = i;
-                    else if (text.includes('chega em')) idx.chegaEm = i;
-                    else if (text.includes('mercadores') || text.includes('mercad')) idx.mercadores = i;
-                    else if (text.includes('recursos') || text.includes('recurs')) idx.recursos = i;
-                });
-
-                if (idx.aldeia === -1) idx.aldeia = 1;
-                if (idx.recursos === -1) idx.recursos = 6;
-                if (idx.mercadores === -1) idx.mercadores = 5;
-                if (idx.chegaEm === -1) idx.chegaEm = 4;
-
                 let hasData = false;
                 let rowsHtml = '';
-                $table.find('tr:has(td)').each((_, tr) => {
-                    const cells = $(tr).find('td');
-                    if (cells.length < 5) return;
+                
+                $page.find('table.vis').each((_, table) => {
+                    const $table = $(table);
+                    const $headersRow = $table.find('tr').filter((_, tr) => $(tr).find('th').length > 0).first();
+                    if (!$headersRow.length) return;
+                    
+                    const headersText = $headersRow.text().toLowerCase();
+                    
+                    // Verifica se a tabela é de facto uma lista de transportes
+                    if (!headersText.includes('recursos') || (!headersText.includes('origem') && !headersText.includes('destino'))) return;
+                    if (!headersText.includes('chegada') && !headersText.includes('chega em') && !headersText.includes('tempo')) return;
+                    
+                    const idx = { originDest: -1, resources: -1, merchants: -1, arrivesIn: -1 };
+                    
+                    $headersRow.find('th').each((i, th) => {
+                        const txt = $(th).text().toLowerCase();
+                        if (txt.includes('origem') || txt.includes('destino')) idx.originDest = i;
+                        if (txt.includes('recursos')) idx.resources = i;
+                        if (txt.includes('mercador')) idx.merchants = i;
+                        if (txt.includes('chega em') || txt.includes('chegada') || txt.includes('tempo')) idx.arrivesIn = i;
+                    });
+                    
+                    if (idx.originDest === -1) idx.originDest = 0;
+                    if (idx.resources === -1) idx.resources = 1;
+                    if (idx.arrivesIn === -1) idx.arrivesIn = $headersRow.find('th').length - 1;
 
-                    let destino = cells.eq(idx.aldeia !== -1 ? idx.aldeia : idx.origem).text().trim() || '';
-                    let recursos = cells.eq(idx.recursos !== -1 ? idx.recursos : cells.length - 1).text().trim() || '';
-                    let mercadores = cells.eq(idx.mercadores !== -1 ? idx.mercadores : cells.length - 2).text().trim() || '';
-                    let chegaEm = cells.eq(idx.chegaEm !== -1 ? idx.chegaEm : 4).text().trim() || '';
+                    const isIncomingTable = headersText.includes('origem');
 
-                    if (!destino || destino.length < 3 || (/origem|aldeia/i.test(destino))) return;
-                    if (!recursos.match(/\d/) && !mercadores.match(/\d/)) return;
+                    $table.find('tr').each((_, tr) => {
+                        const cells = $(tr).find('td');
+                        if (cells.length < 3) return; // Ignora cabeçalhos/linhas vazias
+                        
+                        let target = cells.eq(idx.originDest).text().trim();
+                        let res = cells.eq(idx.resources).text().trim();
+                        let time = cells.eq(idx.arrivesIn).text().trim();
+                        let merch = idx.merchants !== -1 ? cells.eq(idx.merchants).text().trim() : '-';
 
-                    hasData = true;
-                    const isReturn = /retorno de|return from/i.test(destino);
-                    const destinoShort = escapeHTML(destino.replace(/transporte para |retorno de /i, '').replace(/\(.*\)/, '').trim() || destino);
+                        if (!target || !res.match(/\d/)) return;
+                        
+                        hasData = true;
+                        const isReturn = /retorno|return/i.test(target);
+                        
+                        let timeClass = 'transport-arrival';
+                        let dirIcon = '📤'; 
+                        
+                        if (isReturn) {
+                            timeClass = 'transport-return';
+                            dirIcon = '↩️';
+                        } else if (isIncomingTable) {
+                            timeClass = 'transport-incoming';
+                            dirIcon = '📥';
+                        }
+                        
+                        const targetShort = escapeHTML(target.replace(/transporte para |retorno de /i, '').replace(/\(.*\)/, '').trim() || target);
 
-                    rowsHtml += `<tr>
-                        <td style="text-align:left;max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${destinoShort}">${destinoShort}</td>
-                        <td>${recursos}</td>
-                        <td>${mercadores}</td>
-                        <td class="${isReturn ? 'transport-return' : 'transport-arrival'}">${chegaEm}</td>
-                    </tr>`;
+                        rowsHtml += `<tr>
+                            <td style="text-align:left;max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${targetShort}">${dirIcon} ${targetShort}</td>
+                            <td>${res}</td>
+                            <td>${merch}</td>
+                            <td class="${timeClass}">${time}</td>
+                        </tr>`;
+                    });
                 });
 
                 ownTransportsHTML = hasData
-                    ? `<table><thead><tr><th>Destino</th><th>Rec.</th><th>M.</th><th>Chega em</th></tr></thead><tbody>${rowsHtml}</tbody></table>`
-                    : '<div class="no-data" style="text-align:center;padding:15px;">Nenhum transporte ativo.</div>';
+                    ? `<table><thead><tr><th>Aldeia</th><th>Rec.</th><th>M.</th><th>Tempo</th></tr></thead><tbody>${rowsHtml}</tbody></table>`
+                    : '<div class="no-data" style="text-align:center;padding:15px;color:#888;font-style:italic;">Nenhum movimento nesta aldeia.</div>';
 
                 if(callback) callback(ownTransportsHTML);
             });
@@ -266,7 +279,7 @@
             if (!panel.length) {
                 panel = $(`<div id="tw-transport-panel" class="tw-transport-panel">
                     <h3 id="tw-transport-header" title="Clique para expandir/minimizar">
-                        <span id="tw-toggle-icon">▶</span> 📦 Transportes 
+                        <span id="tw-toggle-icon">▶</span> 📦 Movimentos
                         <button class="close-btn" id="tw-close-transport" title="Fechar">×</button> 
                         <button class="refresh-btn" id="tw-refresh-transport" title="Atualizar dados">↻</button>
                     </h3>
@@ -274,9 +287,8 @@
                 </div>`);
                 $('body').append(panel);
                 
-                // Lidar com o clique para minimizar/maximizar
                 $('#tw-transport-header').off('click').on('click', function(e) {
-                    if ($(e.target).is('button')) return; // Ignora se o clique for nos botões
+                    if ($(e.target).is('button')) return;
                     isPanelMinimized = !isPanelMinimized;
                     updatePanelState();
                 });
@@ -391,7 +403,6 @@
             loadVillages(checkDone);
         }
 
-        // Arranca automaticamente os dados quando a interface for criada
         initScriptData();
 
         function checkBuildings() {
@@ -531,7 +542,6 @@
                 showTransportsPanel();
                 setTimeout(alignTransportPanel, 50);
 
-                // --- O BLOCO QUE EU TINHA CORTADO COMEÇA AQUI ---
                 $('#calcDistribBtn').off('click').on('click', () => {
                     const selectedIds = $('.village-checkbox:checked').map((_, el) => $(el).data('id')).get();
                     if (!selectedIds.length) return UI.WarningMessage('Seleciona pelo menos uma aldeia.');
@@ -572,7 +582,6 @@
                         });
                     });
                 });
-                // --- O BLOCO QUE EU TINHA CORTADO ACABA AQUI ---
             };
 
             if (isVillagesLoaded) proceed(); else loadVillages(proceed);
