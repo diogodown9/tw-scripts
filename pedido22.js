@@ -1,5 +1,5 @@
 // Tribal Wars - Pedido de Recursos Final
-// Distribui recursos (Memória Anti-Loop + Movimentos + Auto Start + Linhas Clicáveis)
+// Distribui recursos (Memória Anti-Loop + Movimentos + UI Compacta)
 
 (function() {
     'use strict';
@@ -31,6 +31,14 @@
         return `<span style="display:inline-block;width:${size}px;height:${size}px;border-radius:50%;background:${color};vertical-align:middle;margin-right:2px;"></span>`;
     }
 
+    // Formatadores de texto
+    const formatNumber = num => (num || 0).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+    const formatK = num => {
+        if (!num) return '0';
+        if (num >= 1000) return (num / 1000).toFixed(1).replace(/\.0$/, '') + 'k';
+        return num.toString();
+    };
+
     let attempts = 0;
     const initInterval = setInterval(() => {
         attempts++;
@@ -44,15 +52,20 @@
 
     function startScript() {
         const WHCap = game_data.village.storage_max || 1000;
-        const formatNumber = num => (num || 0).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.');
-        const getResourceHTML = (w, s, i) => `${iconSpan('wood')} ${formatNumber(w)} <span style="margin-left: 4px;">${iconSpan('stone')} ${formatNumber(s)}</span> <span style="margin-left: 4px;">${iconSpan('iron')} ${formatNumber(i)}</span>`;
+        
+        // Formato compacto para as tabelas de seleção
+        const getResourceHTMLCompact = (w, s, i) => `<div style="display:flex; justify-content:center; gap:8px; font-size:11px;">
+            <span style="display:flex; align-items:center;">${iconSpan('wood', 13)}${formatK(w)}</span>
+            <span style="display:flex; align-items:center;">${iconSpan('stone', 13)}${formatK(s)}</span>
+            <span style="display:flex; align-items:center;">${iconSpan('iron', 13)}${formatK(i)}</span>
+        </div>`;
 
         // ============================================================
         // 1. CSS ORIGINAL + FIX POPUP TRIBAL WARS + NOVO PAINEL TRANSPORTES
         // ============================================================
         const css = `
         <style>
-        #popup_box_Content { width: 1150px !important; max-width: 95vw !important; }
+        #popup_box_Content { width: 1100px !important; max-width: 95vw !important; }
 
         .tw-script-wrapper * { box-sizing: border-box; font-family: 'Segoe UI', Arial, sans-serif; }
         .tw-topbar { background: linear-gradient(135deg, #1a1a2e, #16213e); color: #e0e0e0; padding: 6px 16px; border-radius: 6px; margin-bottom: 10px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 13px; box-shadow: 0 2px 8px rgba(0,0,0,0.3); border: 1px solid #2a3a5e; }
@@ -65,24 +78,24 @@
         .tw-topbar .resource-total span.value { font-weight: 700; color: #ffd54f; }
         .tw-topbar .spacer { flex: 1; }
         
-        .tw-table { width: 100%; border-collapse: collapse; border-radius: 6px; overflow: hidden; background: #1a2433; color: #e0e0e0; font-size: 12px; margin: 0; }
-        .tw-table th { background: #0f1a2f; color: #ffd54f; font-weight: 600; padding: 5px 8px; text-align: center; border-bottom: 1px solid #2a3a5e; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; position: sticky; top: 0; z-index: 2; }
-        .tw-table td { padding: 4px 8px; text-align: center; border-bottom: 1px solid #1e2a3a; background: #1a2433; vertical-align: middle; }
+        .tw-table { width: 100%; border-collapse: collapse; border-radius: 6px; overflow: hidden; background: #1a2433; color: #e0e0e0; font-size: 11px; margin: 0; }
+        .tw-table th { background: #0f1a2f; color: #ffd54f; font-weight: 600; padding: 4px 6px; text-align: center; border-bottom: 1px solid #2a3a5e; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; position: sticky; top: 0; z-index: 2; }
+        .tw-table td { padding: 4px 6px; text-align: center; border-bottom: 1px solid #1e2a3a; background: #1a2433; vertical-align: middle; }
         .tw-table tr:hover td { background: #2a3b52; }
         .tw-table .no-merchants td { background-color: #3d1a1a !important; color: #ff6b6b; }
         
         .tw-table tr.recent-request td { background-color: #332415 !important; border-top: 1px solid #5a3811; border-bottom: 1px solid #5a3811; }
-        .tw-badge-warning { background: #e67e22; color: #fff; padding: 2px 5px; border-radius: 4px; font-size: 9px; margin-left: 6px; font-weight: bold; text-transform: uppercase; box-shadow: 0 1px 3px rgba(0,0,0,0.4); }
+        .tw-badge-warning { background: #e67e22; color: #fff; padding: 1px 4px; border-radius: 3px; font-size: 9px; margin-left: 4px; font-weight: bold; text-transform: uppercase; box-shadow: 0 1px 2px rgba(0,0,0,0.4); }
         
         /* Checkbox maior e cursor para a linha */
         .tw-table .village-row { cursor: pointer; transition: background 0.1s; }
         .tw-table .village-checkbox { accent-color: #4caf50; transform: scale(1.4); margin: 0; cursor: pointer; }
         
-        .tw-table .time-cell { color: #81d4fa; font-weight: 500; font-size: 11px; white-space: nowrap; }
+        .tw-table .time-cell { color: #81d4fa; font-weight: 500; white-space: nowrap; }
         .tw-table .total-row td, .tw-table .total-row th { background: #0f1a2f; font-weight: 600; border-top: 1px solid #4caf50; color: #ffd54f; position: sticky; bottom: 0; cursor: default; }
-        .tw-table .merch-cell.available { color: #4caf50; }
+        .tw-table .merch-cell.available { color: #4caf50; font-weight: bold; }
         .tw-table .merch-cell.none { color: #ff6b6b; }
-        .tw-table .name-cell { font-size: 11px; text-align: left; padding-left: 6px; white-space: nowrap; }
+        .tw-table .name-cell { text-align: left; padding-left: 6px; white-space: nowrap; }
         .tw-table .res-cell { white-space: nowrap; } 
         
         .tw-btn-primary { background: linear-gradient(135deg, #4caf50, #2e7d32); color: white; border: none; padding: 6px 16px; border-radius: 16px; cursor: pointer; font-weight: 600; font-size: 12px; transition: 0.2s; box-shadow: 0 2px 6px rgba(76,175,80,0.3); }
@@ -92,22 +105,22 @@
         .tw-btn-secondary:hover:not(:disabled) { background: #4a5a6e; }
         .tw-btn-success { background: #2e7d32 !important; color: white !important; }
         
-        .tw-dialog { background: #1a2433; border-radius: 8px; padding: 16px 20px; color: #e0e0e0; box-shadow: 0 4px 20px rgba(0,0,0,0.6); max-width: 100%; margin: 0 auto; font-size: 13px; } 
-        .tw-dialog h2 { color: #ffd54f; margin: 0 0 10px 0; font-size: 18px; border-bottom: 1px solid #2a3a5e; padding-bottom: 6px; }
+        .tw-dialog { background: #1a2433; border-radius: 8px; padding: 12px 16px; color: #e0e0e0; box-shadow: 0 4px 20px rgba(0,0,0,0.6); max-width: 100%; margin: 0 auto; font-size: 12px; } 
+        .tw-dialog h2 { color: #ffd54f; margin: 0 0 8px 0; font-size: 16px; border-bottom: 1px solid #2a3a5e; padding-bottom: 4px; }
         .tw-dialog .res-icons { display: inline-flex; align-items: center; gap: 10px; }
         .tw-dialog .res-item { display: inline-flex; align-items: center; gap: 4px; }
-        .tw-dialog .res-value { font-weight: 700; color: #ffd54f; }
+        .tw-dialog .res-value { font-weight: 700; color: #ffd54f; font-size: 13px; }
         
-        .tw-layout { display: flex; gap: 15px; align-items: stretch; margin-top: 15px; width: 100%; }
-        .tw-col-left { flex: 1.25; display: flex; flex-direction: column; min-width: 0; }
-        .tw-col-right { flex: 1; background: #0f1a2f; padding: 15px; border-radius: 8px; border: 1px solid #2a3a5e; display: flex; flex-direction: column; min-width: 0; overflow-x: auto; }
+        .tw-layout { display: flex; gap: 12px; align-items: stretch; margin-top: 10px; width: 100%; }
+        .tw-col-left { flex: 1.2; display: flex; flex-direction: column; min-width: 0; }
+        .tw-col-right { flex: 1; background: #0f1a2f; padding: 12px; border-radius: 8px; border: 1px solid #2a3a5e; display: flex; flex-direction: column; min-width: 0; overflow-x: auto; }
         
         .tw-table-wrap { max-height: 55vh; overflow-y: auto; overflow-x: auto; padding-right: 4px; border-radius: 6px; border: 1px solid #2a3a5e; }
         .tw-table-wrap::-webkit-scrollbar { width: 6px; height: 6px; }
         .tw-table-wrap::-webkit-scrollbar-track { background: #1a2433; }
         .tw-table-wrap::-webkit-scrollbar-thumb { background: #4a5a6e; border-radius: 4px; }
         
-        .tw-bottom-actions { display: flex; gap: 8px; margin-top: 12px; padding-top: 12px; border-top: 1px solid #2a3a5e; }
+        .tw-bottom-actions { display: flex; gap: 8px; margin-top: 10px; padding-top: 10px; border-top: 1px solid #2a3a5e; }
         
         .tw-transport-panel { position: fixed; width: 290px; max-height: 65vh; background: #1a2433; border-radius: 8px; border: 1px solid #2a3a5e; box-shadow: 0 4px 20px rgba(0,0,0,0.6); padding: 8px 10px; color: #e0e0e0; font-size: 11px; overflow-y: auto; z-index: 99999 !important; display: none; transition: width 0.2s; }
         .tw-transport-panel.tw-minimized { width: auto; min-width: 160px; overflow: hidden; padding-bottom: 6px; }
@@ -389,9 +402,9 @@
                 sources.sort((a, b) => a.distance - b.distance);
                 isVillagesLoaded = true;
 
-                $('#totalWood').text(formatNumber(tw));
-                $('#totalStone').text(formatNumber(ts));
-                $('#totalIron').text(formatNumber(ti));
+                $('#totalWood').text(formatK(tw));
+                $('#totalStone').text(formatK(ts));
+                $('#totalIron').text(formatK(ti));
                 $('#totalMerchants').text(formatNumber(tm));
 
                 if (callback) callback();
@@ -517,17 +530,17 @@
 
                 let html = `<div class="tw-dialog">
                     <h2>📦 Selecionar aldeias fonte</h2>
-                    <p><strong>Recursos necessários:</strong> <span class="res-icons">
-                        <span class="res-item">${iconSpan('wood', 18)}<span class="res-value">${formatNumber(demand.wood)}</span></span>
-                        <span class="res-item">${iconSpan('stone', 18)}<span class="res-value">${formatNumber(demand.stone)}</span></span>
-                        <span class="res-item">${iconSpan('iron', 18)}<span class="res-value">${formatNumber(demand.iron)}</span></span>
+                    <p style="margin-bottom: 8px;"><strong>Recursos necessários:</strong> <span class="res-icons">
+                        <span class="res-item">${iconSpan('wood', 16)}<span class="res-value">${formatNumber(demand.wood)}</span></span>
+                        <span class="res-item">${iconSpan('stone', 16)}<span class="res-value">${formatNumber(demand.stone)}</span></span>
+                        <span class="res-item">${iconSpan('iron', 16)}<span class="res-value">${formatNumber(demand.iron)}</span></span>
                     </span></p>
                     
                     <div class="tw-layout">
                         <div class="tw-col-left">
                             <div class="tw-table-wrap">
                                 <table class="tw-table">
-                                    <thead><tr><th style="width:30px;">Sel.</th><th>Nome</th><th style="min-width: 210px;">Recursos</th><th>Dist.</th><th style="width:55px;">Merc.</th></tr></thead>
+                                    <thead><tr><th style="width:25px;">Sel.</th><th>Nome</th><th>Recursos</th><th>Dist.</th><th style="width:40px;">Merc.</th></tr></thead>
                                     <tbody>`; 
 
                 let selCount = 0;
@@ -536,17 +549,17 @@
                     let rowClass = v.merchants === 0 ? 'no-merchants' : '';
                     if (isRecent) rowClass += ' recent-request';
                     
-                    rowClass += ' village-row'; // Adiciona classe para a linha ser clicável
+                    rowClass += ' village-row'; 
                     
                     const checked = (v.merchants > 0 && selCount < 5 && !isRecent) ? 'checked' : '';
                     if (checked) selCount++;
                     
-                    const badge = isRecent ? `<span class="tw-badge-warning" title="Esta aldeia pediu recursos nos últimos 30 min.">⚠️ Pediu</span>` : '';
+                    const badge = isRecent ? `<span class="tw-badge-warning" title="Já pediu recursos nos últimos 30 min.">⚠️ 30m</span>` : '';
 
                     html += `<tr class="${rowClass.trim()}">
                         <td><input type="checkbox" class="village-checkbox" data-id="${v.id}" ${checked}></td>
                         <td class="name-cell">${v.name.replace(' K43', '')} ${badge}</td>
-                        <td class="res-cell">${getResourceHTML(v.wood, v.stone, v.iron)}</td>
+                        <td class="res-cell">${getResourceHTMLCompact(v.wood, v.stone, v.iron)}</td>
                         <td class="dist-cell">${v.distance}</td>
                         <td class="merch-cell ${v.merchants > 0 ? 'available' : 'none'}">${v.merchants}</td>
                     </tr>`;
@@ -562,9 +575,9 @@
                         </div>
                         
                         <div class="tw-col-right" id="distribResult">
-                            <h3 style="margin:0 0 10px; font-size:16px; color:#ffd54f; border-bottom:1px solid #2a3a5e; padding-bottom:6px;">📊 Distribuição</h3>
+                            <h3 style="margin:0 0 8px; font-size:14px; color:#ffd54f; border-bottom:1px solid #2a3a5e; padding-bottom:4px;">📊 Distribuição</h3>
                             <div style="flex:1; display:flex; align-items:center; justify-content:center; text-align:center; color:#7F8C8D; font-style:italic;">
-                                Clica em "Calcular" para gerar a distribuição de recursos aqui.
+                                Clica em "Calcular" para gerar a distribuição aqui.
                             </div>
                         </div>
                     </div>
@@ -574,9 +587,7 @@
                 showTransportsPanel();
                 setTimeout(alignTransportPanel, 50);
                 
-                // --- NOVO: Lógica para tornar a linha inteira clicável ---
                 $('.village-row').off('click').on('click', function(e) {
-                    // Evita dupla seleção se o utilizador clicou diretamente na checkbox
                     if (!$(e.target).is('input[type="checkbox"]')) {
                         const $checkbox = $(this).find('.village-checkbox');
                         $checkbox.prop('checked', !$checkbox.prop('checked'));
@@ -590,7 +601,7 @@
                     const result = calculateDistribution(demand, sources.filter(v => selectedIds.includes(v.id)));
                     if (!result) return UI.ErrorMessage('Recursos ou mercadores insuficientes!');
 
-                    let preview = '<h3 style="margin:0 0 10px; font-size:16px; color:#ffd54f; border-bottom:1px solid #2a3a5e; padding-bottom:6px;">📊 Distribuição Calculada</h3><div class="tw-table-wrap" style="flex:1; max-height:none;"><table class="tw-table" style="margin-bottom: auto;"><thead><tr><th>Aldeia</th><th>Madeira</th><th>Pedra</th><th>Ferro</th><th>Merc.</th><th>Chegada</th></tr></thead><tbody>';
+                    let preview = '<h3 style="margin:0 0 8px; font-size:14px; color:#ffd54f; border-bottom:1px solid #2a3a5e; padding-bottom:4px;">📊 Distribuição Calculada</h3><div class="tw-table-wrap" style="flex:1; max-height:none;"><table class="tw-table" style="margin-bottom: auto;"><thead><tr><th>Aldeia</th><th>Madeira</th><th>Pedra</th><th>Ferro</th><th>Merc.</th><th>Chegada</th></tr></thead><tbody>';
                     let tw = 0, ts = 0, ti = 0, tm = 0, maxIda = 0;
 
                     result.forEach(item => {
@@ -602,14 +613,15 @@
 
                         preview += `<tr>
                             <td class="name-cell">${v.name.replace(' K43', '')}</td>
-                            <td>${formatNumber(item.wood)}</td><td>${formatNumber(item.stone)}</td><td>${formatNumber(item.iron)}</td>
+                            <td>${formatK(item.wood)}</td><td>${formatK(item.stone)}</td><td>${formatK(item.iron)}</td>
                             <td>${merc}</td><td class="time-cell">${formatTime(idaMin)}</td>
                         </tr>`;
                     });
 
+                    // O total mantém-se exato para podermos bater as contas com os "Recursos necessários"
                     preview += `<tr class="total-row"><th>Total</th><th>${formatNumber(tw)}</th><th>${formatNumber(ts)}</th><th>${formatNumber(ti)}</th><th>${tm}</th><th>${formatTime(maxIda)}</th></tr></tbody></table></div>
-                        <div style="margin-top:15px; border-top: 1px solid #2a3a5e; padding-top:12px;">
-                            <button class="tw-btn-primary" id="confirmSendBtn" style="width: 100%; font-size: 13px; padding: 8px;">✅ Confirmar e Enviar</button>
+                        <div style="margin-top:10px; border-top: 1px solid #2a3a5e; padding-top:10px;">
+                            <button class="tw-btn-primary" id="confirmSendBtn" style="width: 100%; font-size: 13px; padding: 6px;">✅ Confirmar e Enviar</button>
                         </div>`;
 
                     $('#distribResult').html(preview);
