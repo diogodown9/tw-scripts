@@ -1,5 +1,5 @@
 // Tribal Wars - Pedido de Recursos Final
-// Distribui recursos (Painel de Movimentos Locais minimizado - Auto Start)
+// Distribui recursos (Memória Anti-Loop + Movimentos + Auto Start)
 
 (function() {
     'use strict';
@@ -17,7 +17,7 @@
     let ownTransportsHTML = '';
     let originalDialogClose = null;
     let isVillagesLoaded = false;
-    let isPanelMinimized = true; // Controla se o painel inicia minimizado
+    let isPanelMinimized = true; 
     let sources = [];
     let resourcesNeeded = [];
 
@@ -70,6 +70,11 @@
         .tw-table td { padding: 4px 8px; text-align: center; border-bottom: 1px solid #1e2a3a; background: #1a2433; vertical-align: middle; }
         .tw-table tr:hover td { background: #24334a; }
         .tw-table .no-merchants td { background-color: #3d1a1a !important; color: #ff6b6b; }
+        
+        /* Novo estilo para aldeias que pediram recursos recentemente */
+        .tw-table tr.recent-request td { background-color: #332415 !important; border-top: 1px solid #5a3811; border-bottom: 1px solid #5a3811; }
+        .tw-badge-warning { background: #e67e22; color: #fff; padding: 2px 5px; border-radius: 4px; font-size: 9px; margin-left: 6px; font-weight: bold; text-transform: uppercase; box-shadow: 0 1px 3px rgba(0,0,0,0.4); }
+        
         .tw-table .village-checkbox { accent-color: #4caf50; transform: scale(0.9); margin: 0; }
         .tw-table .time-cell { color: #81d4fa; font-weight: 500; font-size: 11px; white-space: nowrap; }
         .tw-table .total-row td, .tw-table .total-row th { background: #0f1a2f; font-weight: 600; border-top: 1px solid #4caf50; color: #ffd54f; position: sticky; bottom: 0; }
@@ -102,7 +107,6 @@
         
         .tw-bottom-actions { display: flex; gap: 8px; margin-top: 12px; padding-top: 12px; border-top: 1px solid #2a3a5e; }
         
-        /* Modificações no painel para suportar minimização */
         .tw-transport-panel { position: fixed; width: 290px; max-height: 65vh; background: #1a2433; border-radius: 8px; border: 1px solid #2a3a5e; box-shadow: 0 4px 20px rgba(0,0,0,0.6); padding: 8px 10px; color: #e0e0e0; font-size: 11px; overflow-y: auto; z-index: 99999 !important; display: none; transition: width 0.2s; }
         .tw-transport-panel.tw-minimized { width: auto; min-width: 160px; overflow: hidden; padding-bottom: 6px; }
         
@@ -155,7 +159,6 @@
         // ============================================================
         function loadOwnTransports(callback) {
             const villageId = game_data.village.id;
-            // Busca apenas os movimentos do mercado desta aldeia específica
             const url = `${location.origin}/game.php?village=${villageId}&screen=market`;
 
             $.get(url, page => {
@@ -170,7 +173,6 @@
                     
                     const headersText = $headersRow.text().toLowerCase();
                     
-                    // Verifica se a tabela é de facto uma lista de transportes
                     if (!headersText.includes('recursos') || (!headersText.includes('origem') && !headersText.includes('destino'))) return;
                     if (!headersText.includes('chegada') && !headersText.includes('chega em') && !headersText.includes('tempo')) return;
                     
@@ -192,7 +194,7 @@
 
                     $table.find('tr').each((_, tr) => {
                         const cells = $(tr).find('td');
-                        if (cells.length < 3) return; // Ignora cabeçalhos/linhas vazias
+                        if (cells.length < 3) return;
                         
                         let target = cells.eq(idx.originDest).text().trim();
                         let res = cells.eq(idx.resources).text().trim();
@@ -333,8 +335,24 @@
         }
 
         // ============================================================
-        // 5. CARREGAR ALDEIAS
+        // 5. CARREGAR ALDEIAS E PREPARAR MEMÓRIA
         // ============================================================
+        function getRecentRequestsCache() {
+            let reqs = JSON.parse(localStorage.getItem('tw_script_recent_reqs') || '{}');
+            const now = Date.now();
+            const MAX_AGE = 30 * 60 * 1000; // 30 minutos de memória
+            
+            let changed = false;
+            for (let id in reqs) {
+                if (now - reqs[id] > MAX_AGE) {
+                    delete reqs[id];
+                    changed = true;
+                }
+            }
+            if (changed) localStorage.setItem('tw_script_recent_reqs', JSON.stringify(reqs));
+            return reqs;
+        }
+
         function loadVillages(callback) {
             $.get(`${location.origin}/game.php?screen=overview_villages&mode=prod&group=0&page=-1`, page => {
                 const rows = $(page).find('#production_table tr').not(':first');
@@ -492,6 +510,10 @@
 
             const proceed = () => {
                 $btn.text('Request').prop('disabled', false);
+                
+                // Vai buscar a memória de aldeias que pediram recursos
+                const recentReqs = getRecentRequestsCache();
+
                 let html = `<div class="tw-dialog">
                     <h2>📦 Selecionar aldeias fonte</h2>
                     <p><strong>Recursos necessários:</strong> <span class="res-icons">
@@ -509,11 +531,19 @@
 
                 let selCount = 0;
                 sources.forEach(v => {
-                    const checked = (v.merchants > 0 && selCount < 5) ? 'checked' : '';
+                    const isRecent = !!recentReqs[v.id];
+                    let rowClass = v.merchants === 0 ? 'no-merchants' : '';
+                    if (isRecent) rowClass += ' recent-request';
+                    
+                    // Se pediu há pouco, não fazemos auto-select
+                    const checked = (v.merchants > 0 && selCount < 5 && !isRecent) ? 'checked' : '';
                     if (checked) selCount++;
-                    html += `<tr class="${v.merchants === 0 ? 'no-merchants' : ''}">
+                    
+                    const badge = isRecent ? `<span class="tw-badge-warning" title="Esta aldeia pediu recursos nos últimos 30 min.">⚠️ Pediu</span>` : '';
+
+                    html += `<tr class="${rowClass.trim()}">
                         <td><input type="checkbox" class="village-checkbox" data-id="${v.id}" ${checked}></td>
-                        <td class="name-cell">${v.name.replace(' K43', '')}</td>
+                        <td class="name-cell">${v.name.replace(' K43', '')} ${badge}</td>
                         <td class="res-cell">${getResourceHTML(v.wood, v.stone, v.iron)}</td>
                         <td class="dist-cell">${v.distance}</td>
                         <td class="merch-cell ${v.merchants > 0 ? 'available' : 'none'}">${v.merchants}</td>
@@ -575,6 +605,12 @@
 
                     $('#confirmSendBtn').off('click').on('click', function() {
                         $(this).prop('disabled', true).text('A Enviar...');
+                        
+                        // Grava a aldeia atual na memória como "aldeia que pediu recursos"
+                        let reqs = getRecentRequestsCache();
+                        reqs[game_data.village.id] = Date.now();
+                        localStorage.setItem('tw_script_recent_reqs', JSON.stringify(reqs));
+
                         sendRequests(result, () => {
                             UI.SuccessMessage('Todos os pedidos foram enviados!');
                             $btn.removeClass('tw-btn-primary').addClass('tw-btn-success').text('✔ Enviado').prop('disabled', true);
