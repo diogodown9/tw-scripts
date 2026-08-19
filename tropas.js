@@ -1,5 +1,5 @@
 (async function () {
-    const uiId = 'tw-dark-ui-v3';
+    const uiId = 'tw-dark-ui-v4';
     if (document.getElementById(uiId)) {
         document.getElementById(uiId).remove();
         return;
@@ -33,7 +33,6 @@
     `;
     document.head.appendChild(style);
 
-    // Criar UI base
     const ui = document.createElement('div');
     ui.id = uiId;
     ui.innerHTML = `
@@ -41,7 +40,7 @@
             <span id="tw-ui-title"><div class="tw-spinner"></div> A sincronizar...</span>
             <span class="tw-ui-close" onclick="document.getElementById('${uiId}').remove()">&times;</span>
         </div>
-        <div id="tw-ui-content" style="text-align:center; font-size:14px; color:#a8a095;">A analisar HTML estrutural...</div>
+        <div id="tw-ui-content" style="text-align:center; font-size:14px; color:#a8a095;">A extrair os dados da aldeia...</div>
     `;
     document.body.appendChild(ui);
     
@@ -71,105 +70,87 @@
         const dO = parser.parseFromString(resOverview, 'text/html');
         const dU = parser.parseFromString(resUnits, 'text/html');
 
-        // --- 1. GRUPOS (Procura direcionada ao Widget) ---
-        let grps = [];
-        let groupWidget = null;
+        // --- 1. GRUPOS (Lógica de Procura Inteligente Baseada em Sets) ---
+        let grps = new Set();
+        let widget = Array.from(dO.querySelectorAll('.widget_container, table.vis')).find(el => {
+            const txt = el.textContent.toLowerCase();
+            return txt.includes('afiliação por grupos') || txt.includes('grupos') || txt.includes('groups');
+        });
         
-        // Encontra especificamente a tabela que diz "Afiliação por grupos"
-        dO.querySelectorAll('table.vis').forEach(tbl => {
-            if (tbl.textContent.toLowerCase().includes('grupos') || tbl.textContent.toLowerCase().includes('groups')) {
-                groupWidget = tbl;
+        const searchArea = widget || dO.querySelector('#content_value') || dO.body;
+        
+        searchArea.querySelectorAll('a[href*="group="]').forEach(a => {
+            // Ignorar os atalhos da quickbar ou menus padrão
+            if (a.closest('.quickbar_item') || a.closest('#quickbar_outer') || a.closest('#header_info') || a.closest('#menu_row') || a.closest('.menu_column')) return;
+            
+            let t = a.textContent.replace(/[\[\]]/g, '').trim();
+            let tLower = t.toLowerCase();
+            // Ignorar texto de botões de configuração
+            if (t && t.length > 0 && !['+', '>', 'editar', 'edit', 'adicionar', 'gerir', '» editar'].includes(tLower) && !tLower.includes('editar')) {
+                grps.add(t);
             }
         });
+        const grpTxt = grps.size > 0 ? Array.from(grps).join(', ') : 'Sem grupo';
 
-        if (groupWidget) {
-            groupWidget.querySelectorAll('a[href*="group="]').forEach(a => {
-                let t = a.textContent.replace(/[\[\]]/g, '').trim();
-                let tLower = t.toLowerCase();
-                // Ignora links de edição e gestão
-                if (t && !['+', '>', 'editar', 'edit', 'adicionar', 'gerir', '» editar'].includes(tLower) && !tLower.includes('editar')) {
-                    if (!grps.includes(t)) grps.push(t);
-                }
-            });
-        }
-        const grpTxt = grps.length > 0 ? grps.join(', ') : 'Sem grupo';
-
-        // --- 2. TROPAS TOTAIS (Índice Cego) ---
+        // --- 2. TROPAS TOTAIS (Estrutura Exata do HTML que enviaste) ---
         const unitsTable = dU.querySelector('#units_table');
-        if (!unitsTable) {
-            throw new Error("Tabela de tropas não encontrada (Verifica Conta Premium).");
-        }
+        if (!unitsTable) throw new Error("Tabela de tropas não encontrada (Verifica Conta Premium).");
 
-        // Mapear quantas tropas o mundo tem
-        const hdrs = [];
-        unitsTable.querySelectorAll('thead th img[src*="unit_"]').forEach(img => {
-            const match = img.src.match(/unit_([a-z_]+)\.png/);
-            if (match) hdrs.push({ name: match[1], src: img.src });
+        // Guardar a referência do cabeçalho
+        const headers = Array.from(unitsTable.querySelectorAll('thead th')).filter(th => th.querySelector('img[src*="unit_"]'));
+        
+        // Encontrar o tbody do block desta aldeia
+        const tbodys = Array.from(unitsTable.querySelectorAll('tbody'));
+        const villageTbody = tbodys.find(tb => tb.querySelector(`a[href*="village=${vId}"]`) || tb.querySelector(`[data-id="${vId}"]`));
+
+        if (!villageTbody) throw new Error("Aldeia não encontrada na tabela de tropas.");
+
+        // Encontrar a linha Total
+        const rows = Array.from(villageTbody.querySelectorAll('tr'));
+        let totalRow = rows.find(tr => {
+            const td = tr.querySelector('td');
+            return td && td.textContent.trim().toLowerCase() === 'total';
+        });
+        if (!totalRow) totalRow = rows[rows.length - 1];
+
+        // Mapear apenas pelas células "unit-item" que o teu HTML revelou!
+        const unitCells = Array.from(totalRow.querySelectorAll('td.unit-item'));
+        if (unitCells.length === 0) throw new Error("Células 'unit-item' não encontradas na linha da aldeia.");
+
+        let tHtml = '';
+        let foundUnits = false;
+
+        // Fazer correspondência rigorosa índice-a-índice
+        headers.forEach((th, i) => {
+            const imgNode = th.querySelector('img[src*="unit_"]');
+            if (!imgNode) return;
+
+            const cell = unitCells[i];
+            if (cell) {
+                // IGNORA as células invisíveis/inexistentes (milícias, etc.) graças à classe 'hidden'
+                if (th.classList.contains('hidden') || cell.classList.contains('hidden') || th.style.display === 'none') return;
+
+                foundUnits = true;
+                const src = imgNode.src;
+                const nameMatch = src.match(/unit_([a-z_]+)\.png/);
+                const name = nameMatch ? nameMatch[1] : 'unidade';
+                
+                const count = parseInt(cell.textContent.replace(/\./g, '').trim()) || 0;
+                const opacity = count === 0 ? '0.35' : '1';
+                const color = count === 0 ? '#666' : '#fff';
+                
+                tHtml += `
+                    <div class="tw-ui-unit" style="opacity: ${opacity};">
+                        <img src="${src}" alt="${name}">
+                        <div style="color: ${color};">${count}</div>
+                    </div>
+                `;
+            }
         });
 
-        const rows = Array.from(unitsTable.querySelectorAll('tbody tr'));
-        let startIdx = -1;
-        
-        for (let i = 0; i < rows.length; i++) {
-            if (rows[i].querySelector(`a[href*="village=${vId}"]`)) {
-                startIdx = i;
-                break;
-            }
-        }
+        if (!foundUnits) throw new Error("Falha no alinhamento. Nenhuma tropa válida lida.");
 
-        if (startIdx === -1) {
-            throw new Error("Aldeia não encontrada na tabela de tropas.");
-        }
-
-        // Determinar o fim do bloco desta aldeia
-        let endIdx = startIdx + 1;
-        while (endIdx < rows.length && !rows[endIdx].querySelector('a[href*="village="]')) {
-            endIdx++;
-        }
-
-        // O Total é infalivelmente a última linha
-        const totalRow = rows[endIdx - 1];
-        let tHtml = '';
-
-        if (totalRow) {
-            const tds = Array.from(totalRow.querySelectorAll('td'));
-            
-            // Ignorar a 1ª coluna (texto "Total") e alinhar o resto matematicamente aos headers
-            let startIndex = 1;
-            if (tds[0] && !tds[0].textContent.toLowerCase().includes('total')) {
-                startIndex = tds.length - hdrs.length; // Fallback extremo
-                if (startIndex < 0) startIndex = 0;
-            }
-
-            const unitCells = tds.slice(startIndex, startIndex + hdrs.length);
-            
-            let foundUnits = false;
-            for (let i = 0; i < hdrs.length; i++) {
-                if (unitCells[i]) {
-                    foundUnits = true;
-                    // Limpar todos os pontos nos milhares e garantir que é um número
-                    const count = parseInt(unitCells[i].textContent.replace(/\./g, '').trim()) || 0;
-                    
-                    const opacity = count === 0 ? '0.35' : '1';
-                    const color = count === 0 ? '#666' : '#fff';
-                    
-                    tHtml += `
-                        <div class="tw-ui-unit" style="opacity: ${opacity};">
-                            <img src="${hdrs[i].src}" alt="${hdrs[i].name}">
-                            <div style="color: ${color};">${count}</div>
-                        </div>
-                    `;
-                }
-            }
-
-            if (!foundUnits || tHtml === '') {
-                throw new Error("Ocorreu um erro no alinhamento das colunas.");
-            }
-        } else {
-            throw new Error("Linha 'Total' não detetada.");
-        }
-
-        // --- 3. FINALIZAR UI ---
+        // --- 3. RENDERIZAR INTERFACE ---
         document.getElementById('tw-ui-title').innerHTML = `📊 ${vName}`;
         document.getElementById('tw-ui-content').innerHTML = `
             <div style="text-align:left;">
@@ -191,7 +172,7 @@
             </div>
         `;
     } catch (err) {
-        document.getElementById('tw-ui-title').innerText = '❌ Erro na Leitura';
+        document.getElementById('tw-ui-title').innerText = '❌ Erro de Leitura';
         document.getElementById('tw-ui-content').innerHTML = `<div style="color:#ff5555; text-align:center; font-size:13px; padding-top:10px;">${err.message}</div>`;
         console.error('[Script Tropas]', err);
     }
