@@ -1,5 +1,5 @@
 // Tribal Wars - Pedido de Recursos Final
-// Distribui recursos (Memória Anti-Loop + Movimentos + UI Compacta)
+// Distribui recursos (Seleção Inteligente + Memória + UI Compacta)
 
 (function() {
     'use strict';
@@ -31,7 +31,6 @@
         return `<span style="display:inline-block;width:${size}px;height:${size}px;border-radius:50%;background:${color};vertical-align:middle;margin-right:2px;"></span>`;
     }
 
-    // Formatadores de texto
     const formatNumber = num => (num || 0).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.');
     const formatK = num => {
         if (!num) return '0';
@@ -53,7 +52,6 @@
     function startScript() {
         const WHCap = game_data.village.storage_max || 1000;
         
-        // Formato compacto para as tabelas de seleção
         const getResourceHTMLCompact = (w, s, i) => `<div style="display:flex; justify-content:center; gap:8px; font-size:11px;">
             <span style="display:flex; align-items:center;">${iconSpan('wood', 13)}${formatK(w)}</span>
             <span style="display:flex; align-items:center;">${iconSpan('stone', 13)}${formatK(s)}</span>
@@ -87,7 +85,6 @@
         .tw-table tr.recent-request td { background-color: #332415 !important; border-top: 1px solid #5a3811; border-bottom: 1px solid #5a3811; }
         .tw-badge-warning { background: #e67e22; color: #fff; padding: 1px 4px; border-radius: 3px; font-size: 9px; margin-left: 4px; font-weight: bold; text-transform: uppercase; box-shadow: 0 1px 2px rgba(0,0,0,0.4); }
         
-        /* Checkbox maior e cursor para a linha */
         .tw-table .village-row { cursor: pointer; transition: background 0.1s; }
         .tw-table .village-checkbox { accent-color: #4caf50; transform: scale(1.4); margin: 0; cursor: pointer; }
         
@@ -355,7 +352,7 @@
         function getRecentRequestsCache() {
             let reqs = JSON.parse(localStorage.getItem('tw_script_recent_reqs') || '{}');
             const now = Date.now();
-            const MAX_AGE = 30 * 60 * 1000; // 30 minutos de memória
+            const MAX_AGE = 30 * 60 * 1000; 
             
             let changed = false;
             for (let id in reqs) {
@@ -525,8 +522,50 @@
 
             const proceed = () => {
                 $btn.text('Request').prop('disabled', false);
-                
                 const recentReqs = getRecentRequestsCache();
+
+                // --- SISTEMA DE SELEÇÃO INTELIGENTE ---
+                let simDemand = { wood: demand.wood, stone: demand.stone, iron: demand.iron };
+                let recommendedIds = [];
+                let demandMet = false;
+
+                for (let v of sources) {
+                    if (simDemand.wood <= 0 && simDemand.stone <= 0 && simDemand.iron <= 0) {
+                        demandMet = true;
+                        break;
+                    }
+                    if (v.merchants <= 0 || recentReqs[v.id]) continue;
+
+                    let availableMerch = v.merchants * 1000;
+                    let takenW = 0, takenS = 0, takenI = 0;
+
+                    if (simDemand.wood > 0 && v.wood > 0) {
+                        let take = Math.min(simDemand.wood, v.wood, availableMerch);
+                        takenW = take;
+                        availableMerch -= take;
+                    }
+                    if (simDemand.stone > 0 && v.stone > 0 && availableMerch > 0) {
+                        let take = Math.min(simDemand.stone, v.stone, availableMerch);
+                        takenS = take;
+                        availableMerch -= take;
+                    }
+                    if (simDemand.iron > 0 && v.iron > 0 && availableMerch > 0) {
+                        let take = Math.min(simDemand.iron, v.iron, availableMerch);
+                        takenI = take;
+                        availableMerch -= take;
+                    }
+
+                    if (takenW > 0 || takenS > 0 || takenI > 0) {
+                        recommendedIds.push(v.id);
+                        simDemand.wood -= takenW;
+                        simDemand.stone -= takenS;
+                        simDemand.iron -= takenI;
+                    }
+                }
+
+                const warningMsg = !demandMet 
+                    ? '<span style="color:#ff6b6b; font-size:11px; margin-left:10px; font-weight:normal;">⚠️ Faltam recursos nas aldeias livres!</span>' 
+                    : '<span style="color:#4caf50; font-size:11px; margin-left:10px; font-weight:normal;">✨ Seleção automática otimizada</span>';
 
                 let html = `<div class="tw-dialog">
                     <h2>📦 Selecionar aldeias fonte</h2>
@@ -534,7 +573,7 @@
                         <span class="res-item">${iconSpan('wood', 16)}<span class="res-value">${formatNumber(demand.wood)}</span></span>
                         <span class="res-item">${iconSpan('stone', 16)}<span class="res-value">${formatNumber(demand.stone)}</span></span>
                         <span class="res-item">${iconSpan('iron', 16)}<span class="res-value">${formatNumber(demand.iron)}</span></span>
-                    </span></p>
+                    </span> ${warningMsg}</p>
                     
                     <div class="tw-layout">
                         <div class="tw-col-left">
@@ -543,7 +582,6 @@
                                     <thead><tr><th style="width:25px;">Sel.</th><th>Nome</th><th>Recursos</th><th>Dist.</th><th style="width:40px;">Merc.</th></tr></thead>
                                     <tbody>`; 
 
-                let selCount = 0;
                 sources.forEach(v => {
                     const isRecent = !!recentReqs[v.id];
                     let rowClass = v.merchants === 0 ? 'no-merchants' : '';
@@ -551,8 +589,8 @@
                     
                     rowClass += ' village-row'; 
                     
-                    const checked = (v.merchants > 0 && selCount < 5 && !isRecent) ? 'checked' : '';
-                    if (checked) selCount++;
+                    const isRecommended = recommendedIds.includes(v.id);
+                    const checked = isRecommended ? 'checked' : '';
                     
                     const badge = isRecent ? `<span class="tw-badge-warning" title="Já pediu recursos nos últimos 30 min.">⚠️ 30m</span>` : '';
 
@@ -618,7 +656,6 @@
                         </tr>`;
                     });
 
-                    // O total mantém-se exato para podermos bater as contas com os "Recursos necessários"
                     preview += `<tr class="total-row"><th>Total</th><th>${formatNumber(tw)}</th><th>${formatNumber(ts)}</th><th>${formatNumber(ti)}</th><th>${tm}</th><th>${formatTime(maxIda)}</th></tr></tbody></table></div>
                         <div style="margin-top:10px; border-top: 1px solid #2a3a5e; padding-top:10px;">
                             <button class="tw-btn-primary" id="confirmSendBtn" style="width: 100%; font-size: 13px; padding: 6px;">✅ Confirmar e Enviar</button>
