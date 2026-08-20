@@ -76,7 +76,8 @@
         autocompleteTimeout = setTimeout(async () => {
             try {
                 const apiUrl = `${gameData.link_base_pure}api&ajax=target_selection&type=player&match=${encodeURIComponent(val)}`;
-                const res = await fetch(apiUrl);
+                // CORREÇÃO AQUI: Adicionado cabeçalho X-Requested-With
+                const res = await fetch(apiUrl, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
                 if (res.ok) {
                     const data = await res.json();
                     const list = Array.isArray(data) ? data : (data.players || []);
@@ -103,7 +104,9 @@
                         autocompleteList.style.display = 'none';
                     }
                 }
-            } catch (e) {}
+            } catch (e) {
+                console.warn("Erro no autocompletar:", e);
+            }
         }, 300);
     });
 
@@ -133,7 +136,7 @@
         startBtn.classList.add('btn-disabled');
         resultsContainer.innerHTML = '';
         statusDiv.style.color = 'black';
-        autocompleteList.style.display = 'none'; // Garante que a lista fecha ao clicar
+        autocompleteList.style.display = 'none';
 
         try {
             statusDiv.innerHTML = `A pesquisar jogador...`;
@@ -180,7 +183,8 @@
     async function getPlayerIdByName(playerName) {
         try {
             const apiUrl = `${gameData.link_base_pure}api&ajax=target_selection&type=player&match=${encodeURIComponent(playerName)}`;
-            const apiRes = await fetch(apiUrl);
+            // CORREÇÃO AQUI: Adicionado cabeçalho X-Requested-With
+            const apiRes = await fetch(apiUrl, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
             
             if (apiRes.ok) {
                 const data = await apiRes.json();
