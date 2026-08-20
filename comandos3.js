@@ -60,7 +60,7 @@
     const statusDiv = document.getElementById('gemini-status');
     const inputName = document.getElementById('gemini-player-name');
     
-    // LÓGICA DE AUTOCOMPLETAR
+    // --- LÓGICA DE AUTOCOMPLETAR (Corrigida com API Nativa) ---
     const autocompleteList = document.getElementById('gemini-autocomplete-list');
     let autocompleteTimeout;
 
@@ -73,14 +73,16 @@
             return;
         }
         
-        autocompleteTimeout = setTimeout(async () => {
-            try {
-                const apiUrl = `${gameData.link_base_pure}api&ajax=target_selection&type=player&match=${encodeURIComponent(val)}`;
-                // CORREÇÃO AQUI: Adicionado cabeçalho X-Requested-With
-                const res = await fetch(apiUrl, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
-                if (res.ok) {
-                    const data = await res.json();
-                    const list = Array.isArray(data) ? data : (data.players || []);
+        autocompleteTimeout = setTimeout(() => {
+            // Usamos a função interna do Tribos que lida automaticamente com os Tokens de Segurança
+            if (typeof window.TribalWars !== 'undefined') {
+                window.TribalWars.get('api', { ajax: 'target_selection', type: 'player', match: val }, function(data) {
+                    
+                    // O Tribos pode responder de várias formas, preparamos para todas
+                    let list = [];
+                    if (Array.isArray(data)) list = data;
+                    else if (data && data.targets) list = data.targets;
+                    else if (data && data.players) list = data.players;
                     
                     autocompleteList.innerHTML = '';
                     
@@ -103,9 +105,7 @@
                     } else {
                         autocompleteList.style.display = 'none';
                     }
-                }
-            } catch (e) {
-                console.warn("Erro no autocompletar:", e);
+                });
             }
         }, 300);
     });
@@ -120,7 +120,7 @@
     inputName.addEventListener('keypress', function(e) {
         if (e.key === 'Enter') {
             e.preventDefault();
-            autocompleteList.style.display = 'none'; // Esconde a lista ao dar Enter
+            autocompleteList.style.display = 'none';
             startBtn.click();
         }
     });
@@ -182,24 +182,31 @@
 
     async function getPlayerIdByName(playerName) {
         try {
-            const apiUrl = `${gameData.link_base_pure}api&ajax=target_selection&type=player&match=${encodeURIComponent(playerName)}`;
-            // CORREÇÃO AQUI: Adicionado cabeçalho X-Requested-With
-            const apiRes = await fetch(apiUrl, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
-            
-            if (apiRes.ok) {
-                const data = await apiRes.json();
-                const list = Array.isArray(data) ? data : (data.players || []);
+            if (typeof window.TribalWars !== 'undefined') {
+                const apiId = await new Promise((resolve) => {
+                    window.TribalWars.get('api', { ajax: 'target_selection', type: 'player', match: playerName }, function(data) {
+                        let list = [];
+                        if (Array.isArray(data)) list = data;
+                        else if (data && data.targets) list = data.targets;
+                        else if (data && data.players) list = data.players;
+                        
+                        for (const p of list) {
+                            if (p.name && p.name.toLowerCase() === playerName.toLowerCase()) {
+                                resolve(p.id);
+                                return;
+                            }
+                        }
+                        resolve(null); // Se não encontrar no Array
+                    });
+                });
                 
-                for (const p of list) {
-                    if (p.name && p.name.toLowerCase() === playerName.toLowerCase()) {
-                        return p.id;
-                    }
-                }
+                if (apiId) return apiId; // Devolve o ID caso a API encontre
             }
         } catch (e) {
-            console.warn("Pesquisa via API falhou, a tentar base de dados do mundo...");
+            console.warn("Pesquisa via API nativa falhou, a tentar fallback...");
         }
 
+        // FALLBACK: O "God Mode" que lê diretamente a base de dados do servidor
         try {
             const mapRes = await fetch('/map/player.txt');
             if (mapRes.ok) {
