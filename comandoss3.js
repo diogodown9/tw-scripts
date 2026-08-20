@@ -143,55 +143,52 @@
     }
 
     async function fetchPlayerVillages(playerId) {
-        let vIds = [];
-        let url = `${gameData.link_base_pure}info_player&id=${playerId}`;
+        if (statusDiv) statusDiv.innerHTML = `A consultar a base de dados do mundo...`;
         
         try {
-            if (statusDiv) statusDiv.innerHTML = `A extrair aldeias do jogador...`;
-            
-            const response = await fetch(url);
-            if (!response.ok) return [];
-            const text = await response.text();
-            const doc = domParser.parseFromString(text, 'text/html');
-            
-            // 1. Função para ler e guardar as aldeias que estão visíveis
-            const extrairAldeias = (htmlDoc) => {
-                htmlDoc.querySelectorAll('#villages_list tbody tr td a[href*="screen=info_village"]').forEach(l => {
-                    const m = l.href.match(/id=(\d+)/);
-                    if (m) vIds.push(m[1]);
-                });
-            };
-
-            extrairAldeias(doc); // Extrai a primeira fornada (até 100)
-
-            // 2. Procura o link mágico que me mostraste no print ("Mostrar todas outras...")
-            const showMoreLink = Array.from(doc.querySelectorAll('#villages_list a')).find(a => 
-                /mostrar.*(todas|outras)/i.test(a.textContent)
-            );
-
-            // 3. Se o link existir, vamos segui-lo para sacar o resto
-            if (showMoreLink) {
-                let href = showMoreLink.getAttribute('href');
-                if (href && !href.startsWith('#') && !href.startsWith('javascript')) {
-                    if (statusDiv) statusDiv.innerHTML = `A expandir a lista completa de aldeias...`;
+            // Método definitivo: Lemos a base de dados em tempo real do próprio mundo.
+            // Isto devolve TODAS as aldeias do jogador numa questão de milissegundos.
+            const response = await fetch('/map/village.txt');
+            if (response.ok) {
+                const text = await response.text();
+                const lines = text.split('\n');
+                const vIds = [];
+                
+                // A estrutura do ficheiro do Tribos é: id, nome, x, y, player_id, pontos, rank
+                for (let i = 0; i < lines.length; i++) {
+                    if (!lines[i]) continue;
+                    const parts = lines[i].split(',');
                     
-                    // Garante que o URL não quebra transformando-o num URL absoluto
-                    const fullUrl = new URL(href, window.location.href).href;
-                    
-                    const nextResponse = await fetch(fullUrl);
-                    if (nextResponse.ok) {
-                        const nextText = await nextResponse.text();
-                        const nextDoc = domParser.parseFromString(nextText, 'text/html');
-                        extrairAldeias(nextDoc); // Extrai tudo o que faltava
+                    // O ID do jogador está sempre na 5ª coluna (índice 4)
+                    if (parts.length > 4 && parts[4] === String(playerId)) {
+                        vIds.push(parts[0]);
                     }
                 }
+                
+                if (vIds.length > 0) {
+                    return vIds;
+                }
             }
+        } catch (e) {
+            console.warn('Falha a extrair map data, a tentar fallback...', e);
+        }
 
-            // Devolve a lista, removendo IDs duplicados por segurança
+        // FALLBACK: Caso algo falhe com o ficheiro mundial, lê a página do perfil como garantia
+        try {
+            if (statusDiv) statusDiv.innerHTML = `A extrair aldeias visíveis do perfil...`;
+            const url = `${gameData.link_base_pure}info_player&id=${playerId}`;
+            const response = await fetch(url);
+            const text = await response.text();
+            const doc = domParser.parseFromString(text, 'text/html');
+            const vIds = [];
+            
+            doc.querySelectorAll('a[href*="screen=info_village"]').forEach(l => {
+                const m = l.href.match(/id=(\d+)/);
+                if (m) vIds.push(m[1]);
+            });
             return [...new Set(vIds)];
         } catch (e) {
-            console.error('Erro ao extrair aldeias:', e);
-            return [...new Set(vIds)]; // Se der erro, pelo menos devolve as primeiras 100
+            return [];
         }
     }
 
