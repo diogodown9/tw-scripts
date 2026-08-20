@@ -23,6 +23,9 @@
     const domParser = new DOMParser();
     const unitsMap = { spear:1, sword:1, axe:1, archer:1, spy:2, light:4, marcher:5, heavy:6, ram:5, catapult:8, knight:10, snob:100 };
 
+    // --- VARIÁVEL GLOBAL PARA O AUTOCOMPLETAR ---
+    let worldPlayers = null;
+
     // --- INTERFACE DE UTILIZADOR ---
     const uiContainer = document.createElement('div');
     uiContainer.className = 'vis';
@@ -39,7 +42,7 @@
             <div id="gemini-autocomplete-list" style="position: absolute; top: 100%; left: 0; width: 220px; background: #f4e4bc; border: 1px solid #7d510f; border-top: none; z-index: 999; display: none; max-height: 150px; overflow-y: auto; box-shadow: 0px 4px 6px rgba(0,0,0,0.3);"></div>
             <a id="gemini-start-btn" class="btn" style="cursor: pointer; font-weight:bold; padding: 6px 12px;">Iniciar Análise</a>
         </div>
-        <div id="gemini-status" style="margin-top: 12px; font-weight: bold; font-size: 11px; color: #008200;"></div>
+        <div id="gemini-status" style="margin-top: 12px; font-weight: bold; font-size: 11px; color: #008200;">A iniciar o motor de análise...</div>
     `;
 
     const resultsContainer = document.createElement('div');
@@ -59,55 +62,68 @@
     const startBtn = document.getElementById('gemini-start-btn');
     const statusDiv = document.getElementById('gemini-status');
     const inputName = document.getElementById('gemini-player-name');
-    
-    // --- LÓGICA DE AUTOCOMPLETAR (Corrigida com API Nativa) ---
     const autocompleteList = document.getElementById('gemini-autocomplete-list');
-    let autocompleteTimeout;
 
+    // --- CARREGAR A BASE DE DADOS DO MUNDO EM PANO DE FUNDO ---
+    async function carregarJogadoresDoMundo() {
+        try {
+            const res = await fetch('/map/player.txt');
+            if (res.ok) {
+                const text = await res.text();
+                const lines = text.split('\n');
+                worldPlayers = [];
+                
+                for (let i = 0; i < lines.length; i++) {
+                    if (!lines[i]) continue;
+                    const parts = lines[i].split(',');
+                    if (parts.length > 1) {
+                        const name = decodeURIComponent(parts[1]).replace(/\+/g, ' ');
+                        worldPlayers.push({ id: parts[0], name: name });
+                    }
+                }
+                statusDiv.innerHTML = `Pronto a usar! <span style="color:#555; font-weight:normal;">(${worldPlayers.length} jogadores carregados)</span>`;
+            }
+        } catch (e) {
+            statusDiv.innerHTML = `<span style="color:red;">Erro ao carregar a lista de jogadores.</span>`;
+            console.error("Falha ao puxar /map/player.txt", e);
+        }
+    }
+    
+    carregarJogadoresDoMundo(); // Arranca logo que o script abre
+
+    // --- LÓGICA DE AUTOCOMPLETAR (100% LOCAL E INSTANTÂNEA) ---
     inputName.addEventListener('input', function() {
-        clearTimeout(autocompleteTimeout);
-        const val = this.value.trim();
+        const val = this.value.trim().toLowerCase();
         
-        if (!val || val.length < 2) { 
+        if (!val || val.length < 2 || !worldPlayers) { 
             autocompleteList.style.display = 'none';
             return;
         }
         
-        autocompleteTimeout = setTimeout(() => {
-            // Usamos a função interna do Tribos que lida automaticamente com os Tokens de Segurança
-            if (typeof window.TribalWars !== 'undefined') {
-                window.TribalWars.get('api', { ajax: 'target_selection', type: 'player', match: val }, function(data) {
-                    
-                    // O Tribos pode responder de várias formas, preparamos para todas
-                    let list = [];
-                    if (Array.isArray(data)) list = data;
-                    else if (data && data.targets) list = data.targets;
-                    else if (data && data.players) list = data.players;
-                    
-                    autocompleteList.innerHTML = '';
-                    
-                    if (list.length > 0) {
-                        list.forEach(p => {
-                            const item = document.createElement('div');
-                            item.style.cssText = 'padding: 6px 8px; cursor: pointer; border-bottom: 1px solid #d4c29c; font-size: 11px; font-weight: bold; color: #000;';
-                            item.textContent = p.name;
-                            
-                            item.addEventListener('mouseenter', () => item.style.backgroundColor = '#fde8e8');
-                            item.addEventListener('mouseleave', () => item.style.backgroundColor = 'transparent');
-                            
-                            item.addEventListener('click', function() {
-                                inputName.value = p.name;
-                                autocompleteList.style.display = 'none';
-                            });
-                            autocompleteList.appendChild(item);
-                        });
-                        autocompleteList.style.display = 'block';
-                    } else {
-                        autocompleteList.style.display = 'none';
-                    }
+        // Filtra a lista local em memória
+        const matches = worldPlayers.filter(p => p.name.toLowerCase().includes(val)).slice(0, 10);
+        
+        autocompleteList.innerHTML = '';
+        
+        if (matches.length > 0) {
+            matches.forEach(p => {
+                const item = document.createElement('div');
+                item.style.cssText = 'padding: 6px 8px; cursor: pointer; border-bottom: 1px solid #d4c29c; font-size: 11px; font-weight: bold; color: #000;';
+                item.textContent = p.name;
+                
+                item.addEventListener('mouseenter', () => item.style.backgroundColor = '#fde8e8');
+                item.addEventListener('mouseleave', () => item.style.backgroundColor = 'transparent');
+                
+                item.addEventListener('click', function() {
+                    inputName.value = p.name;
+                    autocompleteList.style.display = 'none';
                 });
-            }
-        }, 300);
+                autocompleteList.appendChild(item);
+            });
+            autocompleteList.style.display = 'block';
+        } else {
+            autocompleteList.style.display = 'none';
+        }
     });
 
     document.addEventListener('click', function(e) {
@@ -116,7 +132,7 @@
         }
     });
 
-    // INICIAR ANÁLISE
+    // --- INICIAR ANÁLISE ---
     inputName.addEventListener('keypress', function(e) {
         if (e.key === 'Enter') {
             e.preventDefault();
@@ -140,10 +156,16 @@
 
         try {
             statusDiv.innerHTML = `A pesquisar jogador...`;
-            const playerId = await getPlayerIdByName(playerName);
+            let playerId = null;
+            
+            // Pesquisa imediata na lista em memória!
+            if (worldPlayers) {
+                const found = worldPlayers.find(p => p.name.toLowerCase() === playerName.toLowerCase());
+                if (found) playerId = found.id;
+            }
 
             if (!playerId) {
-                statusDiv.innerHTML = `<span style="color:red;">Jogador não encontrado.</span>`;
+                statusDiv.innerHTML = `<span style="color:red;">Jogador não encontrado. Verifica o nome.</span>`;
                 startBtn.classList.remove('btn-disabled');
                 return;
             }
@@ -179,57 +201,6 @@
             startBtn.classList.remove('btn-disabled');
         }
     });
-
-    async function getPlayerIdByName(playerName) {
-        try {
-            if (typeof window.TribalWars !== 'undefined') {
-                const apiId = await new Promise((resolve) => {
-                    window.TribalWars.get('api', { ajax: 'target_selection', type: 'player', match: playerName }, function(data) {
-                        let list = [];
-                        if (Array.isArray(data)) list = data;
-                        else if (data && data.targets) list = data.targets;
-                        else if (data && data.players) list = data.players;
-                        
-                        for (const p of list) {
-                            if (p.name && p.name.toLowerCase() === playerName.toLowerCase()) {
-                                resolve(p.id);
-                                return;
-                            }
-                        }
-                        resolve(null); // Se não encontrar no Array
-                    });
-                });
-                
-                if (apiId) return apiId; // Devolve o ID caso a API encontre
-            }
-        } catch (e) {
-            console.warn("Pesquisa via API nativa falhou, a tentar fallback...");
-        }
-
-        // FALLBACK: O "God Mode" que lê diretamente a base de dados do servidor
-        try {
-            const mapRes = await fetch('/map/player.txt');
-            if (mapRes.ok) {
-                const text = await mapRes.text();
-                const lines = text.split('\n');
-                
-                for (let i = 0; i < lines.length; i++) {
-                    if (!lines[i]) continue;
-                    const parts = lines[i].split(',');
-                    
-                    const dbName = decodeURIComponent(parts[1]).replace(/\+/g, ' ');
-                    
-                    if (dbName.toLowerCase() === playerName.toLowerCase()) {
-                        return parts[0];
-                    }
-                }
-            }
-        } catch (e) {
-            console.error("Erro crítico ao localizar jogador:", e);
-        }
-        
-        return null;
-    }
 
     async function fetchPlayerVillages(playerId) {
         if (statusDiv) statusDiv.innerHTML = `A consultar a base de dados do mundo...`;
