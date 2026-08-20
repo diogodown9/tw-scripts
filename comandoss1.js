@@ -143,22 +143,55 @@
     }
 
     async function fetchPlayerVillages(playerId) {
+        let vIds = [];
+        let url = `${gameData.link_base_pure}info_player&id=${playerId}`;
+        
         try {
-            const url = `${gameData.link_base_pure}info_player&id=${playerId}`;
+            if (statusDiv) statusDiv.innerHTML = `A extrair aldeias do jogador...`;
+            
             const response = await fetch(url);
             if (!response.ok) return [];
-            
             const text = await response.text();
             const doc = domParser.parseFromString(text, 'text/html');
-            const vIds = [];
             
-            doc.querySelectorAll('#villages_list tbody tr td a[href*="screen=info_village"]').forEach(l => {
-                const m = l.href.match(/id=(\d+)/);
-                if (m) vIds.push(m[1]);
-            });
+            // 1. Função para ler e guardar as aldeias que estão visíveis
+            const extrairAldeias = (htmlDoc) => {
+                htmlDoc.querySelectorAll('#villages_list tbody tr td a[href*="screen=info_village"]').forEach(l => {
+                    const m = l.href.match(/id=(\d+)/);
+                    if (m) vIds.push(m[1]);
+                });
+            };
+
+            extrairAldeias(doc); // Extrai a primeira fornada (até 100)
+
+            // 2. Procura o link mágico que me mostraste no print ("Mostrar todas outras...")
+            const showMoreLink = Array.from(doc.querySelectorAll('#villages_list a')).find(a => 
+                /mostrar.*(todas|outras)/i.test(a.textContent)
+            );
+
+            // 3. Se o link existir, vamos segui-lo para sacar o resto
+            if (showMoreLink) {
+                let href = showMoreLink.getAttribute('href');
+                if (href && !href.startsWith('#') && !href.startsWith('javascript')) {
+                    if (statusDiv) statusDiv.innerHTML = `A expandir a lista completa de aldeias...`;
+                    
+                    // Garante que o URL não quebra transformando-o num URL absoluto
+                    const fullUrl = new URL(href, window.location.href).href;
+                    
+                    const nextResponse = await fetch(fullUrl);
+                    if (nextResponse.ok) {
+                        const nextText = await nextResponse.text();
+                        const nextDoc = domParser.parseFromString(nextText, 'text/html');
+                        extrairAldeias(nextDoc); // Extrai tudo o que faltava
+                    }
+                }
+            }
+
+            // Devolve a lista, removendo IDs duplicados por segurança
             return [...new Set(vIds)];
         } catch (e) {
-            return [];
+            console.error('Erro ao extrair aldeias:', e);
+            return [...new Set(vIds)]; // Se der erro, pelo menos devolve as primeiras 100
         }
     }
 
