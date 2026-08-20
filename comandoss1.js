@@ -256,62 +256,73 @@
     async function scanVillagesAndTooltips(villageIds) {
         const cmds = [];
         const seenCmdIds = new Set(); 
+        const batchSize = 5; // Número de aldeias a analisar em simultâneo
 
-        for (let i = 0; i < villageIds.length; i++) {
-            statusDiv.innerHTML = `A extrair aldeia ${i + 1} de ${villageIds.length}...`;
-
-            try {
-                const res = await fetch(`${gameData.link_base_pure}info_village&id=${villageIds[i]}`);
-                if (!res.ok) continue;
-                
-                const html = await res.text();
-                const doc = domParser.parseFromString(html, 'text/html');
-
-                const titleEl = doc.querySelector('#content_value h2');
-                let baseName = titleEl ? titleEl.textContent.trim() : `Aldeia ID ${villageIds[i]}`;
-                baseName = baseName.split('(')[0].trim();
-
-                const info = getVillageInfoFromDoc(doc);
-                let destName = baseName;
-                if (info.coord) destName += ` (${info.coord})`;
-                if (info.points) destName += ` - ${info.points} pts`;
-
-                const links = doc.querySelectorAll('a[href*="screen=info_command"]');
-                links.forEach(l => {
-                    const row = l.closest('tr');
-                    if (!row) return;
-
-                    const isReturn = !!row.querySelector('img[src*="command/return"]') || !!row.querySelector('img[src*="command/cancel"]');
-                    if (isReturn) return;
-
-                    const m = l.href.match(/id=(\d+)/);
-                    if (!m) return;
-                    const cmdId = m[1];
-
-                    if (seenCmdIds.has(cmdId)) return;
-                    seenCmdIds.add(cmdId);
-
-                    let tooltipHtml = "";
-                    const iconImg = row.querySelector('img[src*="command/"]');
-                    if (iconImg) {
-                        tooltipHtml += (iconImg.getAttribute('data-title') || iconImg.getAttribute('title') || "") + " ";
-                    }
-                    tooltipHtml += (row.getAttribute('data-title') || row.innerHTML) + " ";
-
-                    const troopsFromTooltip = parseTroopsFromHtml(tooltipHtml);
-
-                    cmds.push({
-                        id: cmdId,
-                        destName: destName,
-                        villageId: villageIds[i],
-                        tooltipHtml: tooltipHtml,
-                        tooltipTroops: troopsFromTooltip
-                    });
-                });
-            } catch (e) {
-                console.warn(`Aldeia ${villageIds[i]} ignorada devido a erro de rede.`);
+        for (let i = 0; i < villageIds.length; i += batchSize) {
+            const batch = villageIds.slice(i, i + batchSize);
+            const current = Math.min(i + batchSize, villageIds.length);
+            
+            if (statusDiv) {
+                statusDiv.innerHTML = `A extrair aldeias... (${current}/${villageIds.length}) <br><progress value="${current}" max="${villageIds.length}" style="width:100%; height:12px; margin-top:6px;"></progress>`;
             }
-            await new Promise(r => setTimeout(r, 100));
+
+            // Processar o lote de 5 aldeias ao mesmo tempo usando Promise.all
+            await Promise.all(batch.map(async (villageId) => {
+                try {
+                    const res = await fetch(`${gameData.link_base_pure}info_village&id=${villageId}`);
+                    if (!res.ok) return;
+                    
+                    const html = await res.text();
+                    const doc = domParser.parseFromString(html, 'text/html');
+
+                    const titleEl = doc.querySelector('#content_value h2');
+                    let baseName = titleEl ? titleEl.textContent.trim() : `Aldeia ID ${villageId}`;
+                    baseName = baseName.split('(')[0].trim();
+
+                    const info = getVillageInfoFromDoc(doc);
+                    let destName = baseName;
+                    if (info.coord) destName += ` (${info.coord})`;
+                    if (info.points) destName += ` - ${info.points} pts`;
+
+                    const links = doc.querySelectorAll('a[href*="screen=info_command"]');
+                    links.forEach(l => {
+                        const row = l.closest('tr');
+                        if (!row) return;
+
+                        const isReturn = !!row.querySelector('img[src*="command/return"]') || !!row.querySelector('img[src*="command/cancel"]');
+                        if (isReturn) return;
+
+                        const m = l.href.match(/id=(\d+)/);
+                        if (!m) return;
+                        const cmdId = m[1];
+
+                        if (seenCmdIds.has(cmdId)) return;
+                        seenCmdIds.add(cmdId);
+
+                        let tooltipHtml = "";
+                        const iconImg = row.querySelector('img[src*="command/"]');
+                        if (iconImg) {
+                            tooltipHtml += (iconImg.getAttribute('data-title') || iconImg.getAttribute('title') || "") + " ";
+                        }
+                        tooltipHtml += (row.getAttribute('data-title') || row.innerHTML) + " ";
+
+                        const troopsFromTooltip = parseTroopsFromHtml(tooltipHtml);
+
+                        cmds.push({
+                            id: cmdId,
+                            destName: destName,
+                            villageId: villageId,
+                            tooltipHtml: tooltipHtml,
+                            tooltipTroops: troopsFromTooltip
+                        });
+                    });
+                } catch (e) {
+                    console.warn(`Aldeia ${villageId} ignorada devido a erro de rede.`);
+                }
+            }));
+
+            // Pausa de 150ms entre cada lote de 5 para segurança do servidor
+            await new Promise(r => setTimeout(r, 150));
         }
         return cmds;
     }
