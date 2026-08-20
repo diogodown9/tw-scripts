@@ -122,23 +122,50 @@
 
     async function getPlayerIdByName(playerName) {
         try {
-            const url = `${gameData.link_base_pure}ranking&mode=player&name=${encodeURIComponent(playerName)}`;
-            const response = await fetch(url);
-            if (!response.ok) return null;
+            // Método 1: API oculta do Tribos (rápida, usada pelo jogo para autocompletar nomes)
+            const apiUrl = `${gameData.link_base_pure}api&ajax=target_selection&type=player&match=${encodeURIComponent(playerName)}`;
+            const apiRes = await fetch(apiUrl);
             
-            const text = await response.text();
-            const doc = domParser.parseFromString(text, 'text/html');
-            const links = doc.querySelectorAll('a[href*="screen=info_player"]');
-            
-            for (const link of links) {
-                if (link.textContent.trim().toLowerCase() === playerName.toLowerCase()) {
-                    const match = link.href.match(/id=(\d+)/);
-                    if (match) return match[1];
+            if (apiRes.ok) {
+                const data = await apiRes.json();
+                // A API pode devolver a lista num array direto ou dentro de 'players'
+                const list = Array.isArray(data) ? data : (data.players || []);
+                
+                for (const p of list) {
+                    if (p.name && p.name.toLowerCase() === playerName.toLowerCase()) {
+                        return p.id;
+                    }
                 }
             }
         } catch (e) {
-            console.error('Erro ao pesquisar jogador:', e);
+            console.warn("Pesquisa via API falhou, a tentar base de dados do mundo...");
         }
+
+        // Método 2 (O God Mode): Base de dados mundial de jogadores (/map/player.txt)
+        // É infalível e encontra qualquer ID instantaneamente, ignorando o ranking visual.
+        try {
+            const mapRes = await fetch('/map/player.txt');
+            if (mapRes.ok) {
+                const text = await mapRes.text();
+                const lines = text.split('\n');
+                
+                for (let i = 0; i < lines.length; i++) {
+                    if (!lines[i]) continue;
+                    const parts = lines[i].split(',');
+                    
+                    // No player.txt, os espaços nos nomes são guardados como '+' (ex: O+Meu+Nome)
+                    // Utilizamos o decodeURIComponent para interpretar caracteres especiais
+                    const dbName = decodeURIComponent(parts[1]).replace(/\+/g, ' ');
+                    
+                    if (dbName.toLowerCase() === playerName.toLowerCase()) {
+                        return parts[0];
+                    }
+                }
+            }
+        } catch (e) {
+            console.error("Erro crítico ao localizar jogador:", e);
+        }
+        
         return null;
     }
 
