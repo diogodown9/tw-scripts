@@ -34,8 +34,9 @@
     uiContainer.innerHTML = `
         <h4 style="margin-top:0; border-bottom: 1px solid #7d510f; padding-bottom: 6px; background-color: #c1a264; background-image: url(https://dspt.innogamescdn.com/asset/1057e93c/graphic/screen/tableheader_bg3.png); padding: 5px; border-radius: 2px 2px 0 0;">Analisador de Comandos</h4>
         <p style="font-size: 11px; margin: 10px 0;">Insere o nome do jogador alvo e prime <b>Enter</b> para extrair a informação.</p>
-        <div style="display: flex; align-items: center; gap: 10px;">
-            <input type="text" id="gemini-player-name" placeholder="Nome do Jogador" style="padding: 6px; width: 220px; border: 1px solid #ccc; border-radius: 3px; outline: none;">
+        <div style="display: flex; align-items: center; gap: 10px; position: relative;">
+            <input type="text" id="gemini-player-name" placeholder="Nome do Jogador" autocomplete="off" style="padding: 6px; width: 220px; border: 1px solid #ccc; border-radius: 3px; outline: none;">
+            <div id="gemini-autocomplete-list" style="position: absolute; top: 100%; left: 0; width: 220px; background: #f4e4bc; border: 1px solid #7d510f; border-top: none; z-index: 999; display: none; max-height: 150px; overflow-y: auto; box-shadow: 0px 4px 6px rgba(0,0,0,0.3);"></div>
             <a id="gemini-start-btn" class="btn" style="cursor: pointer; font-weight:bold; padding: 6px 12px;">Iniciar Análise</a>
         </div>
         <div id="gemini-status" style="margin-top: 12px; font-weight: bold; font-size: 11px; color: #008200;"></div>
@@ -58,10 +59,65 @@
     const startBtn = document.getElementById('gemini-start-btn');
     const statusDiv = document.getElementById('gemini-status');
     const inputName = document.getElementById('gemini-player-name');
+    
+    // LÓGICA DE AUTOCOMPLETAR
+    const autocompleteList = document.getElementById('gemini-autocomplete-list');
+    let autocompleteTimeout;
 
+    inputName.addEventListener('input', function() {
+        clearTimeout(autocompleteTimeout);
+        const val = this.value.trim();
+        
+        if (!val || val.length < 2) { 
+            autocompleteList.style.display = 'none';
+            return;
+        }
+        
+        autocompleteTimeout = setTimeout(async () => {
+            try {
+                const apiUrl = `${gameData.link_base_pure}api&ajax=target_selection&type=player&match=${encodeURIComponent(val)}`;
+                const res = await fetch(apiUrl);
+                if (res.ok) {
+                    const data = await res.json();
+                    const list = Array.isArray(data) ? data : (data.players || []);
+                    
+                    autocompleteList.innerHTML = '';
+                    
+                    if (list.length > 0) {
+                        list.forEach(p => {
+                            const item = document.createElement('div');
+                            item.style.cssText = 'padding: 6px 8px; cursor: pointer; border-bottom: 1px solid #d4c29c; font-size: 11px; font-weight: bold; color: #000;';
+                            item.textContent = p.name;
+                            
+                            item.addEventListener('mouseenter', () => item.style.backgroundColor = '#fde8e8');
+                            item.addEventListener('mouseleave', () => item.style.backgroundColor = 'transparent');
+                            
+                            item.addEventListener('click', function() {
+                                inputName.value = p.name;
+                                autocompleteList.style.display = 'none';
+                            });
+                            autocompleteList.appendChild(item);
+                        });
+                        autocompleteList.style.display = 'block';
+                    } else {
+                        autocompleteList.style.display = 'none';
+                    }
+                }
+            } catch (e) {}
+        }, 300);
+    });
+
+    document.addEventListener('click', function(e) {
+        if (e.target !== inputName && e.target !== autocompleteList) {
+            autocompleteList.style.display = 'none';
+        }
+    });
+
+    // INICIAR ANÁLISE
     inputName.addEventListener('keypress', function(e) {
         if (e.key === 'Enter') {
             e.preventDefault();
+            autocompleteList.style.display = 'none'; // Esconde a lista ao dar Enter
             startBtn.click();
         }
     });
@@ -77,6 +133,7 @@
         startBtn.classList.add('btn-disabled');
         resultsContainer.innerHTML = '';
         statusDiv.style.color = 'black';
+        autocompleteList.style.display = 'none'; // Garante que a lista fecha ao clicar
 
         try {
             statusDiv.innerHTML = `A pesquisar jogador...`;
@@ -122,13 +179,11 @@
 
     async function getPlayerIdByName(playerName) {
         try {
-            // Método 1: API oculta do Tribos (rápida, usada pelo jogo para autocompletar nomes)
             const apiUrl = `${gameData.link_base_pure}api&ajax=target_selection&type=player&match=${encodeURIComponent(playerName)}`;
             const apiRes = await fetch(apiUrl);
             
             if (apiRes.ok) {
                 const data = await apiRes.json();
-                // A API pode devolver a lista num array direto ou dentro de 'players'
                 const list = Array.isArray(data) ? data : (data.players || []);
                 
                 for (const p of list) {
@@ -141,8 +196,6 @@
             console.warn("Pesquisa via API falhou, a tentar base de dados do mundo...");
         }
 
-        // Método 2 (O God Mode): Base de dados mundial de jogadores (/map/player.txt)
-        // É infalível e encontra qualquer ID instantaneamente, ignorando o ranking visual.
         try {
             const mapRes = await fetch('/map/player.txt');
             if (mapRes.ok) {
@@ -153,8 +206,6 @@
                     if (!lines[i]) continue;
                     const parts = lines[i].split(',');
                     
-                    // No player.txt, os espaços nos nomes são guardados como '+' (ex: O+Meu+Nome)
-                    // Utilizamos o decodeURIComponent para interpretar caracteres especiais
                     const dbName = decodeURIComponent(parts[1]).replace(/\+/g, ' ');
                     
                     if (dbName.toLowerCase() === playerName.toLowerCase()) {
@@ -173,20 +224,16 @@
         if (statusDiv) statusDiv.innerHTML = `A consultar a base de dados do mundo...`;
         
         try {
-            // Método definitivo: Lemos a base de dados em tempo real do próprio mundo.
-            // Isto devolve TODAS as aldeias do jogador numa questão de milissegundos.
             const response = await fetch('/map/village.txt');
             if (response.ok) {
                 const text = await response.text();
                 const lines = text.split('\n');
                 const vIds = [];
                 
-                // A estrutura do ficheiro do Tribos é: id, nome, x, y, player_id, pontos, rank
                 for (let i = 0; i < lines.length; i++) {
                     if (!lines[i]) continue;
                     const parts = lines[i].split(',');
                     
-                    // O ID do jogador está sempre na 5ª coluna (índice 4)
                     if (parts.length > 4 && parts[4] === String(playerId)) {
                         vIds.push(parts[0]);
                     }
@@ -200,7 +247,6 @@
             console.warn('Falha a extrair map data, a tentar fallback...', e);
         }
 
-        // FALLBACK: Caso algo falhe com o ficheiro mundial, lê a página do perfil como garantia
         try {
             if (statusDiv) statusDiv.innerHTML = `A extrair aldeias visíveis do perfil...`;
             const url = `${gameData.link_base_pure}info_player&id=${playerId}`;
@@ -283,7 +329,7 @@
     async function scanVillagesAndTooltips(villageIds) {
         const cmds = [];
         const seenCmdIds = new Set(); 
-        const batchSize = 5; // Número de aldeias a analisar em simultâneo
+        const batchSize = 5; 
 
         for (let i = 0; i < villageIds.length; i += batchSize) {
             const batch = villageIds.slice(i, i + batchSize);
@@ -293,7 +339,6 @@
                 statusDiv.innerHTML = `A extrair aldeias... (${current}/${villageIds.length}) <br><progress value="${current}" max="${villageIds.length}" style="width:100%; height:12px; margin-top:6px;"></progress>`;
             }
 
-            // Processar o lote de 5 aldeias ao mesmo tempo usando Promise.all
             await Promise.all(batch.map(async (villageId) => {
                 try {
                     const res = await fetch(`${gameData.link_base_pure}info_village&id=${villageId}`);
@@ -348,7 +393,6 @@
                 }
             }));
 
-            // Pausa de 150ms entre cada lote de 5 para segurança do servidor
             await new Promise(r => setTimeout(r, 150));
         }
         return cmds;
@@ -458,7 +502,6 @@
                 scaleHtml = getBadgeHtml("🛡️ APOIO", "#008200", finalTroops.found ? finalTroops.pop : null);
             }
 
-            // CORREÇÃO: Leitura das datas em formato PT
             let endTime = 0;
             const now = new Date(serverTimeSeconds * 1000);
             let targetDate = new Date(now.getTime());
