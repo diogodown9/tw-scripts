@@ -25,6 +25,7 @@
 
     // --- VARIÁVEL GLOBAL PARA O AUTOCOMPLETAR ---
     let worldPlayers = null;
+    let currentFocus = -1; // Ajuda a saber qual é o item selecionado pelas setas
 
     // --- INTERFACE DE UTILIZADOR ---
     const uiContainer = document.createElement('div');
@@ -89,35 +90,59 @@
         }
     }
     
-    carregarJogadoresDoMundo(); // Arranca logo que o script abre
+    carregarJogadoresDoMundo();
 
-    // --- LÓGICA DE AUTOCOMPLETAR (100% LOCAL E INSTANTÂNEA) ---
+    // --- FUNÇÕES AUXILIARES PARA NAVEGAÇÃO POR TECLADO ---
+    function atualizarFoco(items) {
+        if (!items || items.length === 0) return;
+        
+        // Limpa o fundo de todos os itens
+        for (let i = 0; i < items.length; i++) {
+            items[i].style.backgroundColor = 'transparent';
+        }
+        
+        // Faz o ciclo (se passar do limite inferior volta a cima, e vice-versa)
+        if (currentFocus >= items.length) currentFocus = 0;
+        if (currentFocus < 0) currentFocus = (items.length - 1);
+        
+        // Pinta a linha atual
+        items[currentFocus].style.backgroundColor = '#fde8e8';
+        
+        // Obriga a barra de scroll a acompanhar a seleção
+        items[currentFocus].scrollIntoView({ block: 'nearest' });
+    }
+
+    // --- LÓGICA DE AUTOCOMPLETAR ---
     inputName.addEventListener('input', function() {
         const val = this.value.trim().toLowerCase();
+        currentFocus = -1; // Reset à navegação sempre que digitas
         
         if (!val || val.length < 2 || !worldPlayers) { 
             autocompleteList.style.display = 'none';
             return;
         }
         
-        // Filtra a lista local em memória
-        const matches = worldPlayers.filter(p => p.name.toLowerCase().includes(val)).slice(0, 10);
-        
+        const matches = worldPlayers.filter(p => p.name.toLowerCase().includes(val)).slice(0, 15);
         autocompleteList.innerHTML = '';
         
         if (matches.length > 0) {
-            matches.forEach(p => {
+            matches.forEach((p, index) => {
                 const item = document.createElement('div');
                 item.style.cssText = 'padding: 6px 8px; cursor: pointer; border-bottom: 1px solid #d4c29c; font-size: 11px; font-weight: bold; color: #000;';
                 item.textContent = p.name;
                 
-                item.addEventListener('mouseenter', () => item.style.backgroundColor = '#fde8e8');
-                item.addEventListener('mouseleave', () => item.style.backgroundColor = 'transparent');
+                // Sincroniza o rato com a navegação do teclado
+                item.addEventListener('mouseenter', () => {
+                    currentFocus = index;
+                    atualizarFoco(autocompleteList.getElementsByTagName('div'));
+                });
                 
                 item.addEventListener('click', function() {
                     inputName.value = p.name;
                     autocompleteList.style.display = 'none';
+                    inputName.focus();
                 });
+                
                 autocompleteList.appendChild(item);
             });
             autocompleteList.style.display = 'block';
@@ -126,18 +151,40 @@
         }
     });
 
-    document.addEventListener('click', function(e) {
-        if (e.target !== inputName && e.target !== autocompleteList) {
-            autocompleteList.style.display = 'none';
+    // --- ESCUTADOR DO TECLADO (Navegação + Enter) ---
+    inputName.addEventListener('keydown', function(e) {
+        let items = autocompleteList.getElementsByTagName('div');
+        
+        if (e.key === 'ArrowDown') {
+            if (autocompleteList.style.display === 'block') {
+                e.preventDefault(); // Impede o cursor de saltar no input
+                currentFocus++;
+                atualizarFoco(items);
+            }
+        } else if (e.key === 'ArrowUp') {
+            if (autocompleteList.style.display === 'block') {
+                e.preventDefault();
+                currentFocus--;
+                atualizarFoco(items);
+            }
+        } else if (e.key === 'Enter') {
+            e.preventDefault(); // Impede o recarregamento acidental da página
+            
+            if (autocompleteList.style.display === 'block' && currentFocus > -1) {
+                // Se a lista estiver aberta e estivermos a navegar nela, o Enter seleciona o jogador
+                if (items[currentFocus]) items[currentFocus].click();
+                currentFocus = -1;
+            } else {
+                // Se não houver lista ou não estivermos a navegar, o Enter inicia a análise
+                autocompleteList.style.display = 'none';
+                startBtn.click();
+            }
         }
     });
 
-    // --- INICIAR ANÁLISE ---
-    inputName.addEventListener('keypress', function(e) {
-        if (e.key === 'Enter') {
-            e.preventDefault();
+    document.addEventListener('click', function(e) {
+        if (e.target !== inputName && e.target !== autocompleteList) {
             autocompleteList.style.display = 'none';
-            startBtn.click();
         }
     });
 
@@ -158,7 +205,6 @@
             statusDiv.innerHTML = `A pesquisar jogador...`;
             let playerId = null;
             
-            // Pesquisa imediata na lista em memória!
             if (worldPlayers) {
                 const found = worldPlayers.find(p => p.name.toLowerCase() === playerName.toLowerCase());
                 if (found) playerId = found.id;
