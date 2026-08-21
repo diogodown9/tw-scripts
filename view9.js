@@ -38,9 +38,9 @@
         .tw-table tbody tr { transition: background 0.1s; }
         .tw-table tbody tr:hover { background: #26292c !important; }
         
-        /* Cores de Fundo Fortes e Distintas para Grupos */
-        .tw-row-ataque { background-color: rgba(255, 60, 60, 0.15) !important; }
-        .tw-row-defesa { background-color: rgba(60, 255, 60, 0.15) !important; }
+        /* Cores de Fundo Fortes para Grupos */
+        .tw-row-ataque { background-color: rgba(255, 60, 60, 0.18) !important; }
+        .tw-row-defesa { background-color: rgba(60, 255, 60, 0.18) !important; }
 
         .tw-zero { color: #666; opacity: 0.25; font-weight: normal; }
         .tw-val { color: #fff; font-weight: bold; }
@@ -75,7 +75,6 @@
     document.getElementById('tw-ui-close-btn').addEventListener('click', closeUI);
     backdrop.addEventListener('click', closeUI);
     
-    // Gestor de Teclado com bloqueio total do atalho nativo do TW (A/D)
     function globalKeyHandler(e) {
         if (e.key === 'Escape') {
             closeUI();
@@ -107,45 +106,35 @@
     let totalPages = 1;
     const itemsPerPage = 10;
 
+    function extractIds(htmlText) {
+        const ids = new Set();
+        const doc = new DOMParser().parseFromString(htmlText, 'text/html');
+        doc.querySelectorAll('a[href*="village="]').forEach(a => {
+            const match = a.href.match(/village=(\d+)/);
+            if (match) ids.add(match[1]);
+        });
+        return ids;
+    }
+
     async function loadGlobalOverview() {
         try {
             const baseUrl = game_data.link_base_pure;
             
-            // Fetch paralelo: Tropas, Produção e a página geral de Grupos do jogo
-            const [resUnits, resProd, resGroups] = await Promise.all([
+            // Requisição direta às páginas de tropas globais e filtradas por ID de grupo exato
+            const [resUnits, resProd, resAtaque, resDefesa] = await Promise.all([
                 fetch(baseUrl + 'overview_villages&mode=units&type=complete&group=0&page=-1').then(r => r.text()),
                 fetch(baseUrl + 'overview_villages&mode=prod&group=0&page=-1').then(r => r.text()),
-                fetch(baseUrl + 'overview_villages&mode=groups&group=0&page=-1').then(r => r.text())
+                fetch(baseUrl + 'overview_villages&mode=units&type=complete&group=67279&page=-1').then(r => r.text()),
+                fetch(baseUrl + 'overview_villages&mode=units&type=complete&group=67280&page=-1').then(r => r.text())
             ]);
             
             const parser = new DOMParser();
             const dU = parser.parseFromString(resUnits, 'text/html');
             const dP = parser.parseFromString(resProd, 'text/html');
-            const dG = parser.parseFromString(resGroups, 'text/html');
 
-            // 1. Mapear grupos diretamente da tabela geral mode=groups
-            const ataqueIds = new Set();
-            const defesaIds = new Set();
+            const ataqueIds = extractIds(resAtaque);
+            const defesaIds = extractIds(resDefesa);
 
-            dG.querySelectorAll('table.vis tbody tr').forEach(tr => {
-                const anchor = tr.querySelector('a[href*="village="]');
-                if (!anchor) return;
-                const match = anchor.href.match(/village=(\d+)/);
-                if (!match) return;
-                const vId = match[1];
-
-                const rowText = tr.textContent.toUpperCase();
-                
-                // Verifica se a linha contém as palavras-chave do grupo
-                if (rowText.includes('ATAQUE')) {
-                    ataqueIds.add(vId);
-                }
-                if (rowText.includes('DEFESA')) {
-                    defesaIds.add(vId);
-                }
-            });
-
-            // 2. Mapear Fazenda
             const farmMap = {};
             dP.querySelectorAll('#production_table tbody tr').forEach(tr => {
                 const anchor = tr.querySelector('a[href*="village="]');
@@ -170,7 +159,6 @@
                 });
             });
 
-            // 3. Mapear Tropas
             const unitsTable = dU.querySelector('#units_table');
             if (!unitsTable) throw new Error("Tabela geral de tropas não encontrada.");
 
