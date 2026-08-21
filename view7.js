@@ -5,7 +5,7 @@
         if(document.getElementById(uiId)) document.getElementById(uiId).remove();
         if(document.getElementById(`${uiId}-backdrop`)) document.getElementById(`${uiId}-backdrop`).remove();
         if(document.getElementById(`${uiId}-style`)) document.getElementById(`${uiId}-style`).remove();
-        document.removeEventListener('keydown', globalKeyHandler);
+        document.removeEventListener('keydown', globalKeyHandler, true);
     }
     
     if (document.getElementById(uiId)) { closeUI(); return; }
@@ -38,9 +38,9 @@
         .tw-table tbody tr { transition: background 0.1s; }
         .tw-table tbody tr:hover { background: #26292c !important; }
         
-        /* Marcações de Grupos */
-        .tw-row-ataque { background: rgba(255, 85, 85, 0.08); }
-        .tw-row-defesa { background: rgba(85, 255, 85, 0.08); }
+        /* Marcações de Grupos Fortes */
+        .tw-row-ataque { background-color: rgba(255, 60, 60, 0.18) !important; }
+        .tw-row-defesa { background-color: rgba(60, 255, 60, 0.18) !important; }
 
         .tw-zero { color: #666; opacity: 0.25; font-weight: normal; }
         .tw-val { color: #fff; font-weight: bold; }
@@ -75,28 +75,29 @@
     document.getElementById('tw-ui-close-btn').addEventListener('click', closeUI);
     backdrop.addEventListener('click', closeUI);
     
-    // Gestor de Teclado Global com bloqueio do atalho nativo do TW (A/D)
+    // Gestor de Teclado com captura estrita (fase de captura = true) para anular o TW
     function globalKeyHandler(e) {
         if (e.key === 'Escape') {
             closeUI();
             return;
         }
         
-        // Evita disparar se o utilizador estiver a escrever num input
         if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) return;
 
         const key = e.key.toLowerCase();
         if (e.key === 'ArrowRight' || key === 'd') {
-            e.preventDefault(); // Anula a mudança de aldeia nativa do jogo
+            e.preventDefault();
             e.stopPropagation();
+            e.stopImmediatePropagation();
             if (currentPage < totalPages) renderPage(currentPage + 1);
         } else if (e.key === 'ArrowLeft' || key === 'a') {
-            e.preventDefault(); // Anula a mudança de aldeia nativa do jogo
+            e.preventDefault();
             e.stopPropagation();
+            e.stopImmediatePropagation();
             if (currentPage > 1) renderPage(currentPage - 1);
         }
     }
-    document.addEventListener('keydown', globalKeyHandler);
+    document.addEventListener('keydown', globalKeyHandler, true);
 
     setTimeout(() => ui.classList.add('show'), 10);
 
@@ -105,6 +106,16 @@
     let currentPage = 1;
     let totalPages = 1;
     const itemsPerPage = 10;
+
+    // Função auxiliar para extrair IDs de qualquer página do TW de forma infalível por URL
+    function extractVillageIds(doc) {
+        const ids = new Set();
+        doc.querySelectorAll('a[href*="village="]').forEach(a => {
+            const match = a.href.match(/village=(\d+)/);
+            if (match) ids.add(match[1]);
+        });
+        return ids;
+    }
 
     async function loadGlobalOverview() {
         try {
@@ -123,17 +134,16 @@
             const dAtq = parser.parseFromString(resAtaque, 'text/html');
             const dDef = parser.parseFromString(resDefesa, 'text/html');
 
-            const ataqueIds = new Set();
-            dAtq.querySelectorAll('.quickedit-vn[data-id], .village_anchor[data-id]').forEach(el => ataqueIds.add(el.dataset.id));
-
-            const defesaIds = new Set();
-            dDef.querySelectorAll('.quickedit-vn[data-id], .village_anchor[data-id]').forEach(el => defesaIds.add(el.dataset.id));
+            const ataqueIds = extractVillageIds(dAtq);
+            const defesaIds = extractVillageIds(dDef);
 
             const farmMap = {};
             dP.querySelectorAll('#production_table tbody tr').forEach(tr => {
-                const anchor = tr.querySelector('.quickedit-vn[data-id], .village_anchor[data-id]');
+                const anchor = tr.querySelector('a[href*="village="]');
                 if (!anchor) return;
-                const vId = anchor.dataset.id;
+                const match = anchor.href.match(/village=(\d+)/);
+                if (!match) return;
+                const vId = match[1];
                 
                 tr.querySelectorAll('td').forEach(td => {
                     const txt = td.textContent.trim();
@@ -165,10 +175,12 @@
 
             allVillages = [];
             Array.from(unitsTable.querySelectorAll('tbody')).forEach(tb => {
-                const anchor = tb.querySelector('.quickedit-vn[data-id]') || tb.querySelector('.village_anchor[data-id]');
+                const anchor = tb.querySelector('a[href*="village="]');
                 if (!anchor) return;
+                const match = anchor.href.match(/village=(\d+)/);
+                if (!match) return;
+                const vId = match[1];
                 
-                const vId = anchor.dataset.id;
                 const nameEl = tb.querySelector('.quickedit-label');
                 const vName = nameEl ? nameEl.textContent.trim() : 'Aldeia';
 
