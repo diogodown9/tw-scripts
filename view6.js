@@ -75,18 +75,24 @@
     document.getElementById('tw-ui-close-btn').addEventListener('click', closeUI);
     backdrop.addEventListener('click', closeUI);
     
-    // Gestor de Teclado Global
+    // Gestor de Teclado Global com bloqueio do atalho nativo do TW (A/D)
     function globalKeyHandler(e) {
         if (e.key === 'Escape') {
             closeUI();
             return;
         }
-        // Evita disparar se o utilizador estiver a escrever nalguminput
+        
+        // Evita disparar se o utilizador estiver a escrever num input
         if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) return;
 
-        if (e.key === 'ArrowRight' || e.key.toLowerCase() === 'd') {
+        const key = e.key.toLowerCase();
+        if (e.key === 'ArrowRight' || key === 'd') {
+            e.preventDefault(); // Anula a mudança de aldeia nativa do jogo
+            e.stopPropagation();
             if (currentPage < totalPages) renderPage(currentPage + 1);
-        } else if (e.key === 'ArrowLeft' || e.key.toLowerCase() === 'a') {
+        } else if (e.key === 'ArrowLeft' || key === 'a') {
+            e.preventDefault(); // Anula a mudança de aldeia nativa do jogo
+            e.stopPropagation();
             if (currentPage > 1) renderPage(currentPage - 1);
         }
     }
@@ -104,7 +110,6 @@
         try {
             const baseUrl = game_data.link_base_pure;
             
-            // Requisição em paralelo: Tropas, Produção, Grupo Ataque (67279) e Grupo Defesa (67280)
             const [resUnits, resProd, resAtaque, resDefesa] = await Promise.all([
                 fetch(baseUrl + 'overview_villages&mode=units&type=complete&group=0&page=-1').then(r => r.text()),
                 fetch(baseUrl + 'overview_villages&mode=prod&group=0&page=-1').then(r => r.text()),
@@ -118,14 +123,12 @@
             const dAtq = parser.parseFromString(resAtaque, 'text/html');
             const dDef = parser.parseFromString(resDefesa, 'text/html');
 
-            // Mapear IDs dos Grupos
             const ataqueIds = new Set();
             dAtq.querySelectorAll('.quickedit-vn[data-id], .village_anchor[data-id]').forEach(el => ataqueIds.add(el.dataset.id));
 
             const defesaIds = new Set();
             dDef.querySelectorAll('.quickedit-vn[data-id], .village_anchor[data-id]').forEach(el => defesaIds.add(el.dataset.id));
 
-            // Mapear Fazenda
             const farmMap = {};
             dP.querySelectorAll('#production_table tbody tr').forEach(tr => {
                 const anchor = tr.querySelector('.quickedit-vn[data-id], .village_anchor[data-id]');
@@ -148,7 +151,6 @@
                 });
             });
 
-            // Mapear Tropas
             const unitsTable = dU.querySelector('#units_table');
             if (!unitsTable) throw new Error("Tabela geral de tropas não encontrada.");
 
@@ -190,7 +192,6 @@
 
                 const farm = farmMap[vId] || { txt: 'N/A', perc: 0, color: '#888' };
                 
-                // Determinar classe de fundo para o grupo
                 let rowClass = '';
                 if (ataqueIds.has(vId)) rowClass = 'tw-row-ataque';
                 else if (defesaIds.has(vId)) rowClass = 'tw-row-defesa';
