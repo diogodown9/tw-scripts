@@ -14,19 +14,28 @@
     style.id = `${uiId}-style`;
     style.innerHTML = `
         #${uiId}-backdrop { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.75); z-index: 99998; backdrop-filter: blur(4px); animation: fadeIn 0.2s ease; }
-        #${uiId} { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #181a1b; color: #e8e6e3; border: 1px solid #3a3e41; border-radius: 12px; z-index: 99999; padding: 25px; box-shadow: 0 15px 50px rgba(0,0,0,0.9); width: max-content; min-width: 800px; max-width: 95vw; max-height: 90vh; display: flex; flex-direction: column; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; opacity: 0; transition: all 0.2s ease-out; }
+        #${uiId} { 
+            position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); 
+            background: #181a1b; color: #e8e6e3; border: 1px solid #3a3e41; 
+            border-radius: 12px; z-index: 99999; padding: 25px; 
+            box-shadow: 0 15px 50px rgba(0,0,0,0.9); 
+            width: 95vw; max-width: 1100px; height: 85vh; max-height: 750px;
+            display: flex; flex-direction: column; 
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; 
+            opacity: 0; transition: all 0.2s ease-out; 
+        }
         #${uiId}.show { opacity: 1; }
         .tw-ui-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #3a3e41; padding-bottom: 15px; margin-bottom: 20px; flex-shrink: 0; }
         .tw-ui-title { font-size: 18px; font-weight: bold; color: #fff; display: flex; align-items: center; gap: 10px; }
         .tw-ui-close { cursor: pointer; color: #888; font-size: 28px; line-height: 20px; transition: 0.2s; user-select: none; }
         .tw-ui-close:hover { color: #ff5555; transform: scale(1.15); }
-        .tw-ov-container { overflow-y: auto; flex-grow: 1; padding-right: 5px; }
-        .tw-ov-container::-webkit-scrollbar { width: 6px; }
+        .tw-ov-container { overflow-y: auto; overflow-x: auto; flex-grow: 1; padding-right: 5px; }
+        .tw-ov-container::-webkit-scrollbar { width: 6px; height: 6px; }
         .tw-ov-container::-webkit-scrollbar-track { background: #1a1a1a; }
         .tw-ov-container::-webkit-scrollbar-thumb { background: #444; border-radius: 3px; }
         
         .tw-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-        .tw-table th, .tw-table td { padding: 10px 8px; border-bottom: 1px solid #2a2d30; text-align: center; vertical-align: middle; }
+        .tw-table th, .tw-table td { padding: 10px 8px; border-bottom: 1px solid #2a2d30; text-align: center; vertical-align: middle; white-space: nowrap; }
         .tw-table th { 
             background-color: #222426 !important; 
             background-image: none !important; 
@@ -38,9 +47,9 @@
         .tw-table tbody tr { transition: background 0.1s; }
         .tw-table tbody tr:hover { background: #26292c !important; }
         
-        /* Cores de Fundo Fortes para Grupos */
+        /* Cores de Fundo: Vermelho para Ataque, Azul para Defesa */
         .tw-row-ataque { background-color: rgba(255, 60, 60, 0.18) !important; }
-        .tw-row-defesa { background-color: rgba(60, 255, 60, 0.18) !important; }
+        .tw-row-defesa { background-color: rgba(60, 140, 255, 0.18) !important; }
 
         .tw-zero { color: #666; opacity: 0.25; font-weight: normal; }
         .tw-val { color: #fff; font-weight: bold; }
@@ -120,7 +129,6 @@
         try {
             const baseUrl = game_data.link_base_pure;
             
-            // Requisição direta às páginas de tropas globais e filtradas por ID de grupo exato
             const [resUnits, resProd, resAtaque, resDefesa] = await Promise.all([
                 fetch(baseUrl + 'overview_villages&mode=units&type=complete&group=0&page=-1').then(r => r.text()),
                 fetch(baseUrl + 'overview_villages&mode=prod&group=0&page=-1').then(r => r.text()),
