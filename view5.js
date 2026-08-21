@@ -5,9 +5,9 @@
         if(document.getElementById(uiId)) document.getElementById(uiId).remove();
         if(document.getElementById(`${uiId}-backdrop`)) document.getElementById(`${uiId}-backdrop`).remove();
         if(document.getElementById(`${uiId}-style`)) document.getElementById(`${uiId}-style`).remove();
-        document.removeEventListener('keydown', escListener);
+        document.removeEventListener('keydown', globalKeyHandler);
     }
-    function escListener(e) { if(e.key === 'Escape') closeUI(); }
+    
     if (document.getElementById(uiId)) { closeUI(); return; }
 
     const style = document.createElement('style');
@@ -36,8 +36,12 @@
             border-bottom: 2px solid #111 !important;
         }
         .tw-table tbody tr { transition: background 0.1s; }
-        .tw-table tbody tr:hover { background: #1e2023; }
+        .tw-table tbody tr:hover { background: #26292c !important; }
         
+        /* Marcações de Grupos */
+        .tw-row-ataque { background: rgba(255, 85, 85, 0.08); }
+        .tw-row-defesa { background: rgba(85, 255, 85, 0.08); }
+
         .tw-zero { color: #666; opacity: 0.25; font-weight: normal; }
         .tw-val { color: #fff; font-weight: bold; }
         .tw-farm-bar-bg { background: #111; height: 4px; border-radius: 2px; margin-top: 4px; overflow: hidden; width: 100%; }
@@ -61,38 +65,67 @@
     ui.id = uiId;
     ui.innerHTML = `
         <div class="tw-ui-header">
-            <div class="tw-ui-title" id="tw-ui-title"><div class="tw-spinner"></div> A compilar o império...</div>
+            <div class="tw-ui-title" id="tw-ui-title"><div class="tw-spinner"></div> A compilar império e grupos...</div>
             <span class="tw-ui-close" id="tw-ui-close-btn">&times;</span>
         </div>
-        <div id="tw-ui-content"><div style="text-align:center; padding: 40px; color:#888;">A extrair as tropas e capacidade da fazenda...</div></div>
+        <div id="tw-ui-content"><div style="text-align:center; padding: 40px; color:#888;">A carregar dados de tropas, fazenda e grupos...</div></div>
     `;
     document.body.appendChild(ui);
     
     document.getElementById('tw-ui-close-btn').addEventListener('click', closeUI);
     backdrop.addEventListener('click', closeUI);
-    document.addEventListener('keydown', escListener);
+    
+    // Gestor de Teclado Global
+    function globalKeyHandler(e) {
+        if (e.key === 'Escape') {
+            closeUI();
+            return;
+        }
+        // Evita disparar se o utilizador estiver a escrever nalguminput
+        if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) return;
+
+        if (e.key === 'ArrowRight' || e.key.toLowerCase() === 'd') {
+            if (currentPage < totalPages) renderPage(currentPage + 1);
+        } else if (e.key === 'ArrowLeft' || e.key.toLowerCase() === 'a') {
+            if (currentPage > 1) renderPage(currentPage - 1);
+        }
+    }
+    document.addEventListener('keydown', globalKeyHandler);
 
     setTimeout(() => ui.classList.add('show'), 10);
 
     let allVillages = [];
     let unitConfigs = [];
     let currentPage = 1;
+    let totalPages = 1;
     const itemsPerPage = 10;
 
     async function loadGlobalOverview() {
         try {
             const baseUrl = game_data.link_base_pure;
-            // Fetch paralelo: Tropas e Produção (para cruzar a Fazenda)
-            const [resUnits, resProd] = await Promise.all([
+            
+            // Requisição em paralelo: Tropas, Produção, Grupo Ataque (67279) e Grupo Defesa (67280)
+            const [resUnits, resProd, resAtaque, resDefesa] = await Promise.all([
                 fetch(baseUrl + 'overview_villages&mode=units&type=complete&group=0&page=-1').then(r => r.text()),
-                fetch(baseUrl + 'overview_villages&mode=prod&group=0&page=-1').then(r => r.text())
+                fetch(baseUrl + 'overview_villages&mode=prod&group=0&page=-1').then(r => r.text()),
+                fetch(baseUrl + 'overview_villages&mode=groups&type=dynamic&group=67279&page=-1').then(r => r.text()),
+                fetch(baseUrl + 'overview_villages&mode=groups&type=dynamic&group=67280&page=-1').then(r => r.text())
             ]);
             
             const parser = new DOMParser();
             const dU = parser.parseFromString(resUnits, 'text/html');
             const dP = parser.parseFromString(resProd, 'text/html');
+            const dAtq = parser.parseFromString(resAtaque, 'text/html');
+            const dDef = parser.parseFromString(resDefesa, 'text/html');
 
-            // 1. Extrair Dados da Fazenda
+            // Mapear IDs dos Grupos
+            const ataqueIds = new Set();
+            dAtq.querySelectorAll('.quickedit-vn[data-id], .village_anchor[data-id]').forEach(el => ataqueIds.add(el.dataset.id));
+
+            const defesaIds = new Set();
+            dDef.querySelectorAll('.quickedit-vn[data-id], .village_anchor[data-id]').forEach(el => defesaIds.add(el.dataset.id));
+
+            // Mapear Fazenda
             const farmMap = {};
             dP.querySelectorAll('#production_table tbody tr').forEach(tr => {
                 const anchor = tr.querySelector('.quickedit-vn[data-id], .village_anchor[data-id]');
@@ -101,7 +134,6 @@
                 
                 tr.querySelectorAll('td').forEach(td => {
                     const txt = td.textContent.trim();
-                    // Procura o padrão "Numero/Numero" mas ignora a célula se tiver uma tag <a> (que é o mercado)
                     if (/^\d+\/\d+$/.test(txt) && !td.querySelector('a')) {
                         const parts = txt.split('/');
                         const pop = parseInt(parts[0], 10);
@@ -116,15 +148,15 @@
                 });
             });
 
-            // 2. Extrair Tropas
+            // Mapear Tropas
             const unitsTable = dU.querySelector('#units_table');
-            if (!unitsTable) throw new Error("Tabela de tropas não encontrada.");
+            if (!unitsTable) throw new Error("Tabela geral de tropas não encontrada.");
 
             const headers = Array.from(unitsTable.querySelectorAll('thead th')).filter(th => th.querySelector('img[src*="unit_"]'));
             
             unitConfigs = headers.map(th => {
                 const img = th.querySelector('img');
-                const isMilitia = img.src.includes('militia'); // Filtro de Milícia
+                const isMilitia = img.src.includes('militia');
                 const isHidden = th.classList.contains('hidden') || th.style.display === 'none' || isMilitia;
                 return { src: img.src, isHidden: isHidden };
             });
@@ -157,9 +189,16 @@
                 });
 
                 const farm = farmMap[vId] || { txt: 'N/A', perc: 0, color: '#888' };
-                allVillages.push({ name: vName, farm, troops });
+                
+                // Determinar classe de fundo para o grupo
+                let rowClass = '';
+                if (ataqueIds.has(vId)) rowClass = 'tw-row-ataque';
+                else if (defesaIds.has(vId)) rowClass = 'tw-row-defesa';
+
+                allVillages.push({ name: vName, farm, troops, rowClass });
             });
 
+            totalPages = Math.ceil(allVillages.length / itemsPerPage);
             renderPage(1);
 
         } catch (err) {
@@ -170,7 +209,7 @@
 
     function renderPage(page) {
         currentPage = page;
-        const totalPages = Math.ceil(allVillages.length / itemsPerPage);
+        totalPages = Math.ceil(allVillages.length / itemsPerPage);
         const start = (page - 1) * itemsPerPage;
         const end = start + itemsPerPage;
         const currentVillages = allVillages.slice(start, end);
@@ -190,7 +229,7 @@
                     <tbody>`;
 
         currentVillages.forEach(v => {
-            html += `<tr>
+            html += `<tr class="${v.rowClass}">
                 <td style="text-align:left; font-weight:bold; color:#7fbfff;">${v.name}</td>
                 <td>
                     <div style="font-weight:bold; color:${v.farm.color}; font-size:12px;">${v.farm.txt} (${v.farm.perc}%)</div>
@@ -207,9 +246,9 @@
                 </table>
             </div>
             <div class="tw-pagination">
-                <button class="tw-btn-page" id="tw-btn-prev" ${currentPage === 1 ? 'disabled' : ''}>&#8592; Anterior</button>
+                <button class="tw-btn-page" id="tw-btn-prev" ${currentPage === 1 ? 'disabled' : ''}>&#8592; Anterior (A / ◄)</button>
                 <span style="font-weight:bold; color:#a8a095; font-size:13px;">Página ${currentPage} de ${totalPages}</span>
-                <button class="tw-btn-page" id="tw-btn-next" ${currentPage === totalPages ? 'disabled' : ''}>Próxima &#8594;</button>
+                <button class="tw-btn-page" id="tw-btn-next" ${currentPage === totalPages ? 'disabled' : ''}>Próxima (D / ►) &#8594;</button>
             </div>
         `;
 
