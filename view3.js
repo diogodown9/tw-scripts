@@ -1,7 +1,6 @@
 (async function () {
     const uiId = 'tw-master-ui';
     
-    // Limpeza rigorosa caso já esteja aberto
     function closeUI() {
         if(document.getElementById(uiId)) document.getElementById(uiId).remove();
         if(document.getElementById(`${uiId}-backdrop`)) document.getElementById(`${uiId}-backdrop`).remove();
@@ -11,28 +10,12 @@
     function escListener(e) { if(e.key === 'Escape') closeUI(); }
     if (document.getElementById(uiId)) { closeUI(); return; }
 
-    // --- 1. CSS PREMIUM (Dark Mode Profissional) ---
     const style = document.createElement('style');
     style.id = `${uiId}-style`;
     style.innerHTML = `
-        #${uiId}-backdrop {
-            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0, 0, 0, 0.75); z-index: 99998;
-            backdrop-filter: blur(4px); animation: fadeIn 0.2s ease;
-        }
-        #${uiId} {
-            position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
-            background: #181a1b; color: #e8e6e3; border: 1px solid #3a3e41;
-            border-radius: 12px; z-index: 99999; padding: 25px;
-            box-shadow: 0 15px 50px rgba(0,0,0,0.9); 
-            width: max-content; min-width: 440px; max-width: 95vw; max-height: 90vh;
-            display: flex; flex-direction: column;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            opacity: 0; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-        }
+        #${uiId}-backdrop { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.75); z-index: 99998; backdrop-filter: blur(4px); animation: fadeIn 0.2s ease; }
+        #${uiId} { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #181a1b; color: #e8e6e3; border: 1px solid #3a3e41; border-radius: 12px; z-index: 99999; padding: 25px; box-shadow: 0 15px 50px rgba(0,0,0,0.9); width: max-content; min-width: 440px; max-width: 95vw; max-height: 90vh; display: flex; flex-direction: column; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; opacity: 0; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
         #${uiId}.show { opacity: 1; }
-        
-        /* Cabeçalho */
         .tw-ui-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #3a3e41; padding-bottom: 15px; margin-bottom: 20px; flex-shrink: 0; }
         .tw-ui-title { font-size: 18px; font-weight: bold; color: #fff; display: flex; align-items: center; gap: 10px; }
         .tw-ui-controls { display: flex; align-items: center; gap: 15px; }
@@ -40,8 +23,6 @@
         .tw-btn-empire:hover { background: #303438; border-color: #7fbfff; box-shadow: 0 0 8px rgba(127,191,255,0.2); }
         .tw-ui-close { cursor: pointer; color: #888; font-size: 28px; line-height: 20px; transition: 0.2s; user-select: none; }
         .tw-ui-close:hover { color: #ff5555; transform: scale(1.15); }
-
-        /* Estilos da Vista Individual (Fazenda e Grid) */
         .tw-ui-info-card { background: #222426; border: 1px solid #3a3e41; border-radius: 8px; padding: 14px; margin-bottom: 22px; box-shadow: inset 0 2px 4px rgba(0,0,0,0.2); }
         .tw-ui-row { display: flex; justify-content: space-between; font-size: 14px; margin-bottom: 8px; }
         .tw-ui-row:last-child { margin-bottom: 0; }
@@ -51,8 +32,6 @@
         .tw-ui-unit { flex: 1; min-width: 48px; max-width: 70px; background: #222426; border: 1px solid #3a3e41; border-radius: 8px; padding: 10px 4px; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 6px; transition: 0.2s; }
         .tw-ui-unit:hover { background: #2a2d30; transform: translateY(-3px); border-color: #666; box-shadow: 0 4px 10px rgba(0,0,0,0.4); }
         .tw-ui-unit img { max-width: 100%; filter: drop-shadow(0 2px 2px rgba(0,0,0,0.5)); }
-
-        /* Estilos da Tabela Global (Dashboard) */
         .tw-ov-container { overflow-y: auto; flex-grow: 1; padding-right: 5px; }
         .tw-ov-container::-webkit-scrollbar { width: 6px; }
         .tw-ov-container::-webkit-scrollbar-track { background: #1a1a1a; }
@@ -62,29 +41,22 @@
         .tw-table th { background: #222426; position: sticky; top: 0; z-index: 2; color: #a8a095; }
         .tw-table tbody tr { transition: background 0.1s; }
         .tw-table tbody tr:hover { background: #1e2023; }
-        
-        /* Badges e Cores Profissionais */
         .tw-badge { padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px; }
         .tw-badge.ataque { background: rgba(255, 85, 85, 0.1); color: #ff6b6b; border: 1px solid rgba(255,85,85,0.3); }
         .tw-badge.defesa { background: rgba(85, 255, 85, 0.1); color: #6bff6b; border: 1px solid rgba(85,255,85,0.3); }
         .tw-badge.nenhum { background: rgba(136, 136, 136, 0.1); color: #888; border: 1px solid rgba(136,136,136,0.3); }
-        
         .tw-zero { color: #666; opacity: 0.25; font-weight: normal; }
         .tw-val { color: #fff; font-weight: bold; }
-        
-        /* Paginação */
         .tw-pagination { display: flex; justify-content: space-between; align-items: center; margin-top: 20px; border-top: 1px solid #3a3e41; padding-top: 15px; flex-shrink: 0; }
         .tw-btn-page { background: #2a2d30; color: #e8e6e3; border: 1px solid #444; padding: 6px 14px; border-radius: 6px; cursor: pointer; transition: 0.2s; font-weight: bold; }
         .tw-btn-page:hover:not(:disabled) { background: #3a3e41; border-color: #7fbfff; color: #fff; }
         .tw-btn-page:disabled { opacity: 0.3; cursor: not-allowed; }
-        
         .tw-spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid rgba(255,255,255,.3); border-radius: 50%; border-top-color: #fff; animation: spin 0.8s linear infinite; }
         @keyframes spin { to { transform: rotate(360deg); } }
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
     `;
     document.head.appendChild(style);
 
-    // --- 2. CRIAR INTERFACE BASE ---
     const backdrop = document.createElement('div');
     backdrop.id = `${uiId}-backdrop`;
     document.body.appendChild(backdrop);
@@ -109,14 +81,12 @@
 
     setTimeout(() => ui.classList.add('show'), 10);
 
-    // --- VARIÁVEIS GLOBAIS DE ESTADO ---
     let globalDataLoaded = false;
     let allVillages = [];
     let unitConfigs = [];
     let currentPage = 1;
     const itemsPerPage = 10;
 
-    // --- 3. LÓGICA 1: CARREGAR ALDEIA INDIVIDUAL ---
     async function loadSingleVillage() {
         try {
             const vId = game_data.village.id;
@@ -127,12 +97,12 @@
             const pPerc = ((p / pMax) * 100).toFixed(1);
             let pColor = pPerc >= 95 ? '#ff5555' : (pPerc >= 80 ? '#ffa500' : '#55ff55');
 
-            const urlUnits = game_data.link_base_pure + 'overview_villages&mode=units&type=complete&page=-1';
+            // CORREÇÃO AQUI: Adicionado &group=0 para ignorar filtros locais
+            const urlUnits = game_data.link_base_pure + 'overview_villages&mode=units&type=complete&group=0&page=-1';
             const resUnits = await fetch(urlUnits).then(r => r.text());
             
             const parser = new DOMParser();
             const dU = parser.parseFromString(resUnits, 'text/html');
-
             const unitsTable = dU.querySelector('#units_table');
             if (!unitsTable) throw new Error("Tabela de tropas não encontrada.");
 
@@ -140,7 +110,7 @@
             const tbodys = Array.from(unitsTable.querySelectorAll('tbody'));
             const villageTbody = tbodys.find(tb => tb.querySelector(`[data-id="${vId}"]`));
 
-            if (!villageTbody) throw new Error("A tua aldeia não foi encontrada na lista de tropas.");
+            if (!villageTbody) throw new Error("A tua aldeia não foi encontrada na lista de tropas global.");
 
             const rows = Array.from(villageTbody.querySelectorAll('tr'));
             let totalRow = rows.find(tr => tr.querySelector('td') && tr.querySelector('td').textContent.trim().toLowerCase() === 'total');
@@ -190,7 +160,6 @@
         }
     }
 
-    // --- 4. LÓGICA 2: CARREGAR DASHBOARD GLOBAL ---
     async function loadGlobalOverview() {
         const btnEmpire = document.getElementById('tw-btn-empire');
         btnEmpire.style.display = 'none';
@@ -199,8 +168,10 @@
         
         try {
             const baseUrl = game_data.link_base_pure;
+            
+            // CORREÇÃO AQUI: Adicionado &group=0 na requisição das tropas totais
             const [resUnits, resAtaque, resDefesa] = await Promise.all([
-                fetch(baseUrl + 'overview_villages&mode=units&type=complete&page=-1').then(r => r.text()),
+                fetch(baseUrl + 'overview_villages&mode=units&type=complete&group=0&page=-1').then(r => r.text()),
                 fetch(baseUrl + 'overview_villages&mode=groups&type=dynamic&group=67279&page=-1').then(r => r.text()),
                 fetch(baseUrl + 'overview_villages&mode=groups&type=dynamic&group=67280&page=-1').then(r => r.text())
             ]);
@@ -268,7 +239,6 @@
         }
     }
 
-    // --- 5. RENDERIZAÇÃO DA TABELA E PAGINAÇÃO ---
     function renderPage(page) {
         currentPage = page;
         const totalPages = Math.ceil(allVillages.length / itemsPerPage);
@@ -313,8 +283,6 @@
 
         document.getElementById('tw-ui-title').innerHTML = '🌍 Overview Geral do Império';
         document.getElementById('tw-ui-content').innerHTML = html;
-        
-        // A CORREÇÃO FOI FEITA AQUI. Substituído 'tw-ui' pelo ID correto: uiId ('tw-master-ui')
         document.getElementById(uiId).style.minWidth = '850px'; 
 
         const btnPrev = document.getElementById('tw-btn-prev');
@@ -323,7 +291,6 @@
         if(btnNext) btnNext.onclick = () => { if (currentPage < totalPages) renderPage(currentPage + 1); };
     }
 
-    // --- 6. INICIAR SCRIPT ---
     loadSingleVillage();
 
 })();
