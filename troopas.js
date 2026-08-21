@@ -125,6 +125,30 @@
         return ids;
     }
 
+    // Tabela padrão de capacidade da Fazenda por nível no TW
+    const farmCapacities = [
+        240, 281, 329, 386, 452, 530, 622, 729, 854, 1002,
+        1174, 1376, 1613, 1891, 2216, 2598, 3045, 3569, 4183, 4904,
+        5748, 6737, 7896, 9255, 10848, 12715, 14904, 17469, 20476, 24000
+    ];
+
+    function getFarmLevel(maxPop) {
+        // Trata bónus de fazenda (ex: 10% adicional = 26400)
+        let baseMax = maxPop;
+        if (baseMax === 26400 || baseMax > 24000) return 30;
+        
+        let closestLvl = 1;
+        let minDiff = Infinity;
+        for (let i = 0; i < farmCapacities.length; i++) {
+            let diff = Math.abs(farmCapacities[i] - baseMax);
+            if (diff < minDiff) {
+                minDiff = diff;
+                closestLvl = i + 1;
+            }
+        }
+        return closestLvl;
+    }
+
     async function loadGlobalOverview() {
         try {
             const baseUrl = game_data.link_base_pure;
@@ -158,11 +182,13 @@
                         const pop = parseInt(parts[0], 10);
                         const max = parseInt(parts[1], 10);
                         const perc = ((pop / max) * 100).toFixed(1);
+                        const lvl = getFarmLevel(max);
+                        
                         let color = '#55ff55';
                         if (perc >= 95) color = '#ff5555';
                         else if (perc >= 80) color = '#ffa500';
                         
-                        farmMap[vId] = { txt, perc, color };
+                        farmMap[vId] = { txt, perc, color, lvl };
                     }
                 });
             });
@@ -208,7 +234,7 @@
                     }
                 });
 
-                const farm = farmMap[vId] || { txt: 'N/A', perc: 0, color: '#888' };
+                const farm = farmMap[vId] || { txt: 'N/A', perc: 0, color: '#888', lvl: '?' };
                 
                 let rowClass = '';
                 if (ataqueIds.has(vId)) rowClass = 'tw-row-ataque';
@@ -239,7 +265,7 @@
                     <thead>
                         <tr>
                             <th style="text-align:left; min-width: 220px;">Aldeia</th>
-                            <th style="min-width: 120px;">Fazenda</th>`;
+                            <th style="min-width: 150px;">Fazenda</th>`;
         unitConfigs.forEach(u => {
             if (!u.isHidden) html += `<th><img src="${u.src}" style="filter: drop-shadow(0 2px 2px rgba(0,0,0,0.5));"></th>`;
         });
@@ -251,7 +277,9 @@
             html += `<tr class="${v.rowClass}">
                 <td style="text-align:left; font-weight:bold; color:#7fbfff;">${v.name}</td>
                 <td>
-                    <div style="font-weight:bold; color:${v.farm.color}; font-size:12px;">${v.farm.txt} (${v.farm.perc}%)</div>
+                    <div style="font-weight:bold; color:${v.farm.color}; font-size:12px;">
+                        <span style="color:#aaa; font-weight:normal; margin-right:4px;">Nv. ${v.farm.lvl} •</span>${v.farm.txt} (${v.farm.perc}%)
+                    </div>
                     <div class="tw-farm-bar-bg"><div class="tw-farm-bar" style="width:${v.farm.perc}%; background-color:${v.farm.color};"></div></div>
                 </td>`;
             v.troops.forEach(t => {
