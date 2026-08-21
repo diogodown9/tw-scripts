@@ -127,7 +127,6 @@
             const pPerc = ((p / pMax) * 100).toFixed(1);
             let pColor = pPerc >= 95 ? '#ff5555' : (pPerc >= 80 ? '#ffa500' : '#55ff55');
 
-            // Fetch das tropas com page=-1 para garantir que a aldeia é encontrada
             const urlUnits = game_data.link_base_pure + 'overview_villages&mode=units&type=complete&page=-1';
             const resUnits = await fetch(urlUnits).then(r => r.text());
             
@@ -181,7 +180,6 @@
                 <div class="tw-ui-grid">${tHtml}</div>
             `;
             
-            // Mostrar o botão de ver o império
             const btnEmpire = document.getElementById('tw-btn-empire');
             btnEmpire.style.display = 'block';
             btnEmpire.onclick = loadGlobalOverview;
@@ -201,7 +199,6 @@
         
         try {
             const baseUrl = game_data.link_base_pure;
-            // Fetch em paralelo: Tropas Gerais, Grupo Ataque e Grupo Defesa
             const [resUnits, resAtaque, resDefesa] = await Promise.all([
                 fetch(baseUrl + 'overview_villages&mode=units&type=complete&page=-1').then(r => r.text()),
                 fetch(baseUrl + 'overview_villages&mode=groups&type=dynamic&group=67279&page=-1').then(r => r.text()),
@@ -213,14 +210,12 @@
             const dAtq = parser.parseFromString(resAtaque, 'text/html');
             const dDef = parser.parseFromString(resDefesa, 'text/html');
 
-            // Mapear IDs dos Grupos (Usando a classe exata que forneceste)
             const ataqueIds = new Set();
             dAtq.querySelectorAll('.quickedit-vn[data-id]').forEach(el => ataqueIds.add(el.dataset.id));
 
             const defesaIds = new Set();
             dDef.querySelectorAll('.quickedit-vn[data-id]').forEach(el => defesaIds.add(el.dataset.id));
 
-            // Preparar Leitura das Tropas
             const unitsTable = dU.querySelector('#units_table');
             if (!unitsTable) throw new Error("Tabela geral de tropas não encontrada.");
 
@@ -318,9 +313,10 @@
 
         document.getElementById('tw-ui-title').innerHTML = '🌍 Overview Geral do Império';
         document.getElementById('tw-ui-content').innerHTML = html;
-        document.getElementById('tw-ui').style.minWidth = '850px'; // Expande a janela horizontalmente
+        
+        // A CORREÇÃO FOI FEITA AQUI. Substituído 'tw-ui' pelo ID correto: uiId ('tw-master-ui')
+        document.getElementById(uiId).style.minWidth = '850px'; 
 
-        // Ligar botões de navegação
         const btnPrev = document.getElementById('tw-btn-prev');
         const btnNext = document.getElementById('tw-btn-next');
         if(btnPrev) btnPrev.onclick = () => { if (currentPage > 1) renderPage(currentPage - 1); };
