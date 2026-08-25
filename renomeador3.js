@@ -1,24 +1,20 @@
 (function() {
     'use strict';
 
-    // 1. VERIFICA SE ESTÁ NA PÁGINA CORRETA. SE NÃO ESTIVER, REDIRECIONA PARA O COMBINADO.
+    // 1. Redirecionar para o Combinado se não estiver lá
     const urlParams = new URLSearchParams(window.location.search);
     if (urlParams.get('screen') !== 'overview_villages') {
-        // Pega no ID da aldeia atual usando os dados do jogo
         const villageId = (window.game_data && window.game_data.village) ? window.game_data.village.id : '';
-        // Redireciona para o Combinado
         window.location.href = `/game.php?village=${villageId}&screen=overview_villages&mode=combined`;
-        return; // Pára a execução para a página poder recarregar
+        return;
     }
 
-    // Se o painel já existir na página, o clique na barra apenas o esconde/mostra
     const existingContainer = document.getElementById('rename-container');
     if (existingContainer) {
         existingContainer.style.display = existingContainer.style.display === 'none' ? 'block' : 'none';
         return;
     }
 
-    // Verifica se os elementos necessários para injetar o script existem
     const modemenuElement = document.querySelector('.vis.modemenu') || document.querySelector('#paged_view_content');
     if (!modemenuElement) {
         alert("Erro: Não foi possível carregar a interface do script nesta página.");
@@ -46,23 +42,22 @@
 
     const contentRename = `
     <div id="rename-container" style="display: block; font-family: Verdana, Arial, sans-serif; padding: 20px; background: #f4e4bc; border: 2px solid #8c5f0d; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);">
-        
         <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #c1a264; padding-bottom: 10px; margin-bottom: 15px;">
-            <h3 id="rename-title" style="margin: 0; color: #603000; font-size: 18px;">🛠️ Opções de Renomeação</h3>
+            <h3 id="rename-title" style="margin: 0; color: #603000; font-size: 18px;">⚡ Opções de Renomeação Rápida</h3>
             <div>
                 <select id="language-select" style="padding: 4px; border: 1px solid #8c5f0d; border-radius: 4px; font-size: 12px; cursor: pointer; background: #fff;">
                     <option value="pt">Português</option>
                     <option value="en">English</option>
                 </select>
-                <button id="btn-close-renamer" style="margin-left: 10px; background: #a02c2c; color: #fff; border: 1px solid #601010; border-radius: 4px; padding: 4px 10px; cursor: pointer; font-weight: bold; box-shadow: 0 1px 3px rgba(0,0,0,0.3);">X</button>
+                <button id="btn-close-renamer" style="margin-left: 10px; background: #a02c2c; color: #fff; border: 1px solid #601010; border-radius: 4px; padding: 4px 10px; cursor: pointer; font-weight: bold;">X</button>
             </div>
         </div>
 
         <table id="rename-options-table" style="width: 100%; border-collapse: collapse; margin-bottom: 15px;">
             <thead>
                 <tr style="background: #deb887; border-bottom: 2px solid #8c5f0d;">
-                    <th style="text-align: left; padding: 10px; color: #4a2a00; border-radius: 4px 0 0 0;">Opção</th>
-                    <th style="text-align: left; padding: 10px; color: #4a2a00; border-radius: 0 4px 0 0;">Configuração</th>
+                    <th style="text-align: left; padding: 10px; color: #4a2a00;">Opção</th>
+                    <th style="text-align: left; padding: 10px; color: #4a2a00;">Configuração</th>
                 </tr>
             </thead>
             <tbody id="rename-options-list">
@@ -71,7 +66,7 @@
                         <input type="checkbox" id="textOption" class="rename-option" style="cursor: pointer; transform: scale(1.2);">
                         <label for="textOption" style="margin-left: 8px; cursor: pointer; font-weight: bold; color: #333; font-size: 13px;">Texto</label>
                     </td>
-                    <td style="padding: 10px;"><input type="text" id="textInput" placeholder="Digite o texto" style="width: 100%; padding: 6px; border: 1px solid #a37c44; border-radius: 3px; box-sizing: border-box;"></td>
+                    <td style="padding: 10px;"><input type="text" id="textInput" placeholder="Digite o texto" style="width: 100%; padding: 6px; border: 1px solid #a37c44; border-radius: 3px;"></td>
                 </tr>
                 <tr class="rename-option-container" style="border-bottom: 1px solid #dcb588;">
                     <td style="padding: 10px;">
@@ -102,7 +97,7 @@
                         <input type="checkbox" id="distanceOption" class="rename-option" style="cursor: pointer; transform: scale(1.2);">
                         <label for="distanceOption" style="margin-left: 8px; cursor: pointer; font-weight: bold; color: #333; font-size: 13px;">Distância (campos)</label>
                     </td>
-                    <td style="padding: 10px;"><input type="text" id="targetCoordInput" placeholder="Alvo (XXX|YYY)" style="width: 100%; padding: 6px; border: 1px solid #a37c44; border-radius: 3px; box-sizing: border-box;"></td>
+                    <td style="padding: 10px;"><input type="text" id="targetCoordInput" placeholder="Alvo (XXX|YYY)" style="width: 100%; padding: 6px; border: 1px solid #a37c44; border-radius: 3px;"></td>
                 </tr>
                 <tr class="rename-option-container">
                     <td style="padding: 10px;">
@@ -114,14 +109,14 @@
             </tbody>
         </table>
 
-        <div style="background: #fff; padding: 12px; border: 1px solid #c1a264; border-radius: 4px; margin-bottom: 20px; box-shadow: inset 0 1px 3px rgba(0,0,0,0.1);">
+        <div style="background: #fff; padding: 12px; border: 1px solid #c1a264; border-radius: 4px; margin-bottom: 20px;">
             <strong style="color: #603000; font-size: 12px; display: block; margin-bottom: 5px; text-transform: uppercase;">Pré-visualização:</strong>
             <input type="text" id="result" placeholder="Exemplo de resultado" style="width: 100%; border: none; background: transparent; font-size: 15px; font-weight: bold; color: #000; outline: none;" readonly="">
         </div>
         
         <div style="display: flex; justify-content: flex-end; gap: 10px;">
-            <button id="fix-outliers" class="btn" style="padding: 12px 15px; font-size: 14px; cursor: pointer; border-radius: 4px; background: linear-gradient(to bottom, #f0ad4e 0%, #eea236 100%); color: white; border: 1px solid #d58512; font-weight: bold; box-shadow: 0 2px 5px rgba(0,0,0,0.3); text-shadow: 1px 1px 1px rgba(0,0,0,0.2);">Auto-Corrigir Novas</button>
-            <button id="combine-options" class="btn" style="padding: 12px 20px; font-size: 14px; cursor: pointer; border-radius: 4px; background: linear-gradient(to bottom, #5cb85c 0%, #449d44 100%); color: white; border: 1px solid #398439; font-weight: bold; box-shadow: 0 2px 5px rgba(0,0,0,0.3); text-shadow: 1px 1px 1px rgba(0,0,0,0.2);">Renomear Todas</button>
+            <button id="fix-outliers" class="btn" style="padding: 10px 15px; font-size: 13px; cursor: pointer; border-radius: 4px; background: #f0ad4e; color: white; border: 1px solid #d58512; font-weight: bold;">Auto-Corrigir Novas</button>
+            <button id="combine-options" class="btn" style="padding: 10px 20px; font-size: 13px; cursor: pointer; border-radius: 4px; background: #5cb85c; color: white; border: 1px solid #398439; font-weight: bold;">Renomear Todas</button>
         </div>
     </div>`;
 
@@ -129,7 +124,8 @@
     container.innerHTML = contentRename;
     modemenuElement.parentNode.insertBefore(container, modemenuElement);
 
-    let currentOptions = []; 
+    let currentOptions = [];
+    let isProcessing = false;
 
     document.getElementById('btn-close-renamer').addEventListener('click', () => {
         document.getElementById('rename-container').style.display = 'none';
@@ -137,7 +133,7 @@
 
     function setLanguage(lang) {
         const t = translations[lang];
-        document.getElementById('rename-title').innerHTML = `🛠️ ${t.heading}`;
+        document.getElementById('rename-title').innerHTML = `⚡ ${t.heading}`;
         ['option', 'configuration'].forEach((key, i) => document.querySelector(`#rename-options-table th:nth-child(${i + 1})`).textContent = t.tableHeaders[key]);
         ['textOption', 'numberOption', 'kOption', 'randomCoordOption', 'distanceOption', 'randomNameOption'].forEach(opt => document.querySelector(`#${opt} + label`).textContent = t.options[opt]);
         ['textInput', 'digitInput', 'startNumberInput', 'targetCoordInput', 'result'].forEach(input => document.querySelector(`#${input}`).placeholder = t.placeholders[input]);
@@ -175,9 +171,7 @@
                 checkbox.checked = setting.checked;
                 Object.keys(setting.inputs).forEach(inputId => {
                     const inputElement = document.getElementById(inputId);
-                    if (inputElement) {
-                        inputElement.value = setting.inputs[inputId];
-                    }
+                    if (inputElement) inputElement.value = setting.inputs[inputId];
                 });
             }
         });
@@ -216,12 +210,7 @@
         const prefixes = ["Al", "Bar", "Car", "Del", "Eld", "Fal", "Gar", "Hal", "Il", "Jar", "Kal", "Lor"];
         const middles = ["dorn", "fell", "gorn", "hil", "mir", "nar", "pel", "quil", "rak", "sor", "tur"];
         const suffixes = ["dor", "mar", "rin", "ton", "vin", "wyn", "zar", "thur", "lak", "dil", "ros"];
-        
-        const prefix = prefixes[Math.floor(Math.random() * prefixes.length)];
-        const middle = middles[Math.floor(Math.random() * middles.length)];
-        const suffix = suffixes[Math.floor(Math.random() * suffixes.length)];
-        
-        return `${prefix}${middle}${suffix}`;
+        return `${prefixes[Math.floor(Math.random() * prefixes.length)]}${middles[Math.floor(Math.random() * middles.length)]}${suffixes[Math.floor(Math.random() * suffixes.length)]}`;
     }
 
     function generateVillageName(optionsArray, numberCounter, coords) {
@@ -245,63 +234,86 @@
         }).join(' ').trim();
     }
 
-    function processRenaming(villagesNodeList, startingNumber) {
-        let numberCounter = startingNumber;
+    // Execução paralela direta
+    async function processRenaming(villagesNodeList, startingNumber) {
+        if (isProcessing) return;
+        isProcessing = true;
 
-        villagesNodeList.forEach((element, index) => {
+        const csrfToken = window.game_data ? window.game_data.csrf : '';
+        let numberCounter = startingNumber;
+        const queue = [];
+
+        villagesNodeList.forEach(element => {
             const labelNode = element.querySelector('.quickedit-vn');
-            if(!labelNode) return;
-            
-            const textContent = element.querySelector('.quickedit-label').textContent;
+            if (!labelNode) return;
+
+            const villageId = labelNode.getAttribute('data-id') || (labelNode.querySelector('.rename-icon') ? labelNode.querySelector('.rename-icon').getAttribute('data-id') : null);
+            const quickeditLabel = element.querySelector('.quickedit-label');
+            const textContent = quickeditLabel ? quickeditLabel.textContent : '';
             const coordsMatches = textContent.match(/(\d{3}\|\d{3})/g);
             const coords = (coordsMatches && coordsMatches.length > 0 ? coordsMatches[coordsMatches.length - 1] : "000|000").split('|').map(Number);
 
-            const finalName = generateVillageName(currentOptions, numberCounter++, coords).slice(0, 32).replace(/[´^]/g, ''); 
+            const finalName = generateVillageName(currentOptions, numberCounter++, coords).slice(0, 32).replace(/[´^]/g, '');
 
-            setTimeout(() => {
-                const renameIcon = labelNode.querySelector('.rename-icon');
-                if (renameIcon) {
-                    renameIcon.click(); 
-                    
-                    setTimeout(() => {
-                        const quickEditSpan = labelNode.querySelector('.quickedit-edit');
-                        if (quickEditSpan) {
-                            const textInput = quickEditSpan.querySelector('input[type="text"]');
-                            const submitBtn = quickEditSpan.querySelector('.btn'); 
-
-                            if (textInput && submitBtn) {
-                                textInput.value = finalName;
-                                submitBtn.click(); 
-                                showCustomNotification(`Aldeia enviada!`);
-                            }
-                        }
-                    }, 150); 
-                }
-            }, index * 400); 
+            if (villageId) {
+                queue.push({ villageId, finalName, coords, quickeditLabel });
+            }
         });
+
+        if (queue.length === 0) {
+            isProcessing = false;
+            return;
+        }
+
+        showCustomNotification(`A renomear ${queue.length} aldeias em paralelo...`, "success");
+
+        const BATCH_SIZE = 4;
+        for (let i = 0; i < queue.length; i += BATCH_SIZE) {
+            const batch = queue.slice(i, i + BATCH_SIZE);
+
+            await Promise.all(batch.map(item => {
+                // Atualização visual instantânea
+                if (item.quickeditLabel) {
+                    item.quickeditLabel.innerHTML = `${item.finalName} <span class="grey">(${item.coords.join('|')}) K${Math.floor(item.coords[1] / 100)}${Math.floor(item.coords[0] / 100)}</span>`;
+                }
+
+                return fetch(`/game.php?village=${item.villageId}&screen=main&action=change_name`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: new URLSearchParams({ name: item.finalName, h: csrfToken })
+                });
+            }));
+
+            if (i + BATCH_SIZE < queue.length) {
+                await new Promise(r => setTimeout(r, 40));
+            }
+        }
+
+        isProcessing = false;
+        showCustomNotification(`Concluído! ${queue.length} aldeias renomeadas.`, "success");
     }
 
     document.getElementById('fix-outliers').addEventListener('click', function() {
         if (currentOptions.length === 0) {
-            showCustomNotification("Atenção: Seleciona pelo menos uma opção de renomeação.", "error");
+            showCustomNotification("Atenção: Seleciona pelo menos uma opção.", "error");
             return;
         }
 
         const textOpt = currentOptions.find(opt => opt.type === 'text');
         if (!textOpt || !textOpt.textInput) {
-            showCustomNotification("Para esta função, ativa e preenche a opção 'Texto' com o teu padrão.", "error");
+            showCustomNotification("Ativa e preenche a opção 'Texto' primeiro.", "error");
             return;
         }
 
         const baseText = textOpt.textInput.trim();
-        const lineVillages = document.querySelectorAll('.nowrap.row_a, .nowrap.row_b');
+        const lineVillages = Array.from(document.querySelectorAll('.nowrap.row_a, .nowrap.row_b'));
         
         let maxFoundNumber = 0;
         let villagesToRename = [];
 
         lineVillages.forEach((element) => {
             const labelNode = element.querySelector('.quickedit-vn');
-            if(!labelNode) return;
+            if (!labelNode) return;
             
             let currentName = element.querySelector('.quickedit-label').textContent;
             currentName = currentName.replace(/\(\d{3}\|\d{3}\)\sK\d{2}/g, '').trim(); 
@@ -311,9 +323,7 @@
                 const numMatch = remainingPart.match(/\d+/);
                 if (numMatch) {
                     const num = parseInt(numMatch[0]);
-                    if (num > maxFoundNumber) {
-                        maxFoundNumber = num;
-                    }
+                    if (num > maxFoundNumber) maxFoundNumber = num;
                 }
             } else {
                 villagesToRename.push(element);
@@ -321,20 +331,19 @@
         });
 
         if (villagesToRename.length === 0) {
-            showCustomNotification("Todas as aldeias já estão dentro do teu padrão!", "success");
+            showCustomNotification("Todas as aldeias já estão no padrão!", "success");
             return;
         }
 
-        showCustomNotification(`A corrigir ${villagesToRename.length} aldeias...`, "success");
         processRenaming(villagesToRename, maxFoundNumber + 1);
     });
 
     document.getElementById('combine-options').addEventListener('click', function() {
         if (currentOptions.length === 0) {
-            showCustomNotification("Atenção: Seleciona pelo menos uma opção de renomeação.", "error");
+            showCustomNotification("Atenção: Seleciona pelo menos uma opção.", "error");
             return;
         }
-        const lineVillages = document.querySelectorAll('.nowrap.row_a, .nowrap.row_b');
+        const lineVillages = Array.from(document.querySelectorAll('.nowrap.row_a, .nowrap.row_b'));
         let startingNumber = parseInt(currentOptions.find(opt => opt.type === 'number')?.startNumberInput) || 1;
         processRenaming(lineVillages, startingNumber);
     });
@@ -343,13 +352,14 @@
     document.querySelectorAll('.rename-option, #textInput, #digitInput, #startNumberInput, #targetCoordInput').forEach(input => input.addEventListener('input', combineOptions));
     
     function showCustomNotification(message, type = "success") {
-        if(!document.getElementById('customNotificationContainer')) {
-            const container = document.createElement('div');
+        let container = document.getElementById('customNotificationContainer');
+        if (!container) {
+            container = document.createElement('div');
             container.id = 'customNotificationContainer';
             container.style.position = 'fixed';
             container.style.bottom = '30px';
             container.style.left = '15px';
-            container.style.zIndex = '1000';
+            container.style.zIndex = '10000';
             container.style.display = 'flex';
             container.style.flexDirection = 'column';
             container.style.gap = '5px';
@@ -363,17 +373,13 @@
         notification.style.color = '#fff';
         notification.style.borderRadius = '3px';
         notification.style.boxShadow = '0 3px 6px rgba(0,0,0,0.3)';
-        notification.style.opacity = '0';
-        notification.style.transition = 'opacity 0.3s';
         notification.style.fontSize = '12px';
         notification.style.fontWeight = 'bold';
         
-        document.getElementById('customNotificationContainer').appendChild(notification);
-        setTimeout(() => notification.style.opacity = '1', 10);
+        container.appendChild(notification);
         setTimeout(() => {
-            notification.style.opacity = '0';
-            setTimeout(() => notification.remove(), 300);
-        }, 2000);
+            notification.remove();
+        }, 2200);
     }
 
     loadSettings();
