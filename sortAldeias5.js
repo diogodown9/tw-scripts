@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         TW - Renomear Aldeias por Ordem de Conquista
+// @name         TW - Renomear Aldeias por Ordem de Conquista (com barra de progresso)
 // @namespace    https://github.com/
-// @version      3.3.0
-// @description  Renomeia todas as aldeias por ordem cronológica sem erros de cache
+// @version      3.4.0
+// @description  Renomeia todas as aldeias por ordem cronológica com barra de progresso visual
 // @author       d0wn
 // @match        https://*.tribalwars.com.pt/game.php*
 // @match        https://*.tribos.com.pt/game.php*
@@ -26,7 +26,7 @@
 
         console.log('[TW-Rename] A carregar dados...');
 
-        // 1. Obter a lista REAL e ATUALIZADA de todas as tuas aldeias via página do jogador
+        // 1. Obter a lista REAL e ATUALIZADA de todas as tuas aldeias
         const [overviewRes, cRes] = await Promise.all([
             fetch(`/game.php?screen=overview_villages&mode=combined&page=-1`),
             fetch('/map/conquer.txt')
@@ -47,8 +47,6 @@
                 const fullText = label ? label.textContent.trim() : link.innerText.trim();
                 const coordsMatch = fullText.match(/\((\d{3}\|\d{3})\)/) || fullText.match(/(\d{3}\|\d{3})/);
                 const coords = coordsMatch ? coordsMatch[1] : '000|000';
-                
-                // Nome limpo (sem coordenadas/continente)
                 const cleanName = fullText.replace(/\(\d{3}\|\d{3}\)\s*K\d{2}/gi, '').trim();
 
                 myVillages.push({ id, name: cleanName, coords });
@@ -60,7 +58,7 @@
             return;
         }
 
-        // 2. Mapear última conquista registada de cada aldeia
+        // 2. Mapear última conquista registada
         const latestConquests = new Map();
         cText.trim().split('\n').forEach(line => {
             const parts = line.split(',');
@@ -78,7 +76,7 @@
             }
         });
 
-        // 3. Ordenação cronológica (aldeia inicial primeiro, restantes por timestamp)
+        // 3. Ordenação cronológica
         const initialList = [];
         const conqueredList = [];
 
@@ -104,7 +102,6 @@
                 .replace('{coords}', v.coords)
                 .replace('{name}', v.name);
 
-            // Verifica se o nome precisa de ser alterado
             if (v.name !== targetName && !v.name.startsWith(`#${nr}`)) {
                 queue.push({ id: v.id, targetName });
             }
@@ -119,7 +116,18 @@
             return;
         }
 
-        // 5. Envio sequencial seguro
+        // Criar elemento visual da barra de progresso no ecrã
+        const progressBox = document.createElement('div');
+        progressBox.style.cssText = 'position:fixed; top:20px; left:50%; transform:translateX(-50%); z-index:99999; background:#f4e4bc; border:2px solid #8c5f0d; padding:15px 25px; border-radius:6px; box-shadow:0 4px 15px rgba(0,0,0,0.5); font-family:Verdana,Arial,sans-serif; text-align:center; width:350px;';
+        progressBox.innerHTML = `
+            <div id="tw-progress-text" style="font-weight:bold; color:#603000; margin-bottom:8px; font-size:13px;">A renomear 0/${queue.length}...</div>
+            <div style="background:#e0c997; border:1px solid #a37c44; border-radius:4px; height:18px; width:100%; overflow:hidden;">
+                <div id="tw-progress-bar" style="background:linear-gradient(to bottom, #5cb85c 0%, #449d44 100%); width:0%; height:100%; transition:width 0.1s ease;"></div>
+            </div>
+        `;
+        document.body.appendChild(progressBox);
+
+        // 5. Envio sequencial com atualização da barra de progresso
         for (let i = 0; i < queue.length; i++) {
             const item = queue[i];
 
@@ -132,13 +140,17 @@
                 })
             });
 
-            console.log(`[TW-Rename] (${i + 1}/${queue.length}) -> ${item.targetName}`);
+            // Atualizar valores da barra
+            const percent = Math.round(((i + 1) / queue.length) * 100);
+            document.getElementById('tw-progress-text').innerText = `A renomear ${i + 1}/${queue.length} (${percent}%)...`;
+            document.getElementById('tw-progress-bar').style.width = `${percent}%`;
 
             if (CONFIG.delayMs > 0 && i < queue.length - 1) {
                 await new Promise(r => setTimeout(r, CONFIG.delayMs));
             }
         }
 
+        progressBox.remove();
         UI.SuccessMessage(`Concluído! ${queue.length} aldeias renomeadas.`);
 
         if (CONFIG.autoReload) {
