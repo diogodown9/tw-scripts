@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TW - Renomear Aldeias por Ordem de Conquista
 // @namespace    https://github.com/
-// @version      3.1.0
-// @description  Renomeação rápida e segura de aldeias por ordem cronológica
+// @version      3.2.0
+// @description  Renomeação rápida e garantida de aldeias por ordem cronológica
 // @author       d0wn
 // @match        https://*.tribalwars.com.pt/game.php*
 // @match        https://*.tribos.com.pt/game.php*
@@ -14,8 +14,7 @@
 
     const CONFIG = {
         format: "#{nr} - {coords}", // Tags: {nr}, {coords}, {name}
-        concurrency: 3,             // Pedidos em simultâneo (valor seguro para TW)
-        delayBetweenBatchesMs: 40,  // Intervalo mínimo entre batches
+        delayMs: 35,                // Delay mínimo e seguro entre pedidos
         autoReload: true
     };
 
@@ -35,7 +34,7 @@
 
         const [vText, cText] = await Promise.all([vRes.text(), cRes.text()]);
 
-        // 2. Extrair todas as aldeias do jogador
+        // 2. Mapear todas as aldeias do jogador
         const myVillages = [];
         vText.trim().split('\n').forEach(line => {
             const parts = line.split(',');
@@ -86,7 +85,7 @@
         conqueredList.sort((a, b) => a.conquerTime - b.conquerTime);
         const fullOrderedList = [...initialList, ...conqueredList];
 
-        // 5. Montar fila de renomeação
+        // 5. Montar lista de renomeação
         const padLen = Math.max(3, String(fullOrderedList.length).length);
         const queue = [];
 
@@ -103,41 +102,38 @@
         });
 
         if (queue.length === 0) {
-            UI.SuccessMessage('Todas as aldeias já estão com a numeração correta.');
+            UI.SuccessMessage('Todas as aldeias já se encontram ordenadas.');
             return;
         }
 
-        if (!confirm(`Total de aldeias: ${fullOrderedList.length}\nAldeias a renomear: ${queue.length}\n\nAvançar com a renomeação rápida?`)) {
+        if (!confirm(`Total de aldeias: ${fullOrderedList.length}\nAldeias a renomear: ${queue.length}\n\nAvançar?`)) {
             return;
         }
 
-        // 6. Execução por blocos rápidos via endpoint AJAX nativo
-        for (let i = 0; i < queue.length; i += CONFIG.concurrency) {
-            const chunk = queue.slice(i, i + CONFIG.concurrency);
+        // 6. Envio com o endpoint correto e delay ultra-baixo
+        for (let i = 0; i < queue.length; i++) {
+            const item = queue[i];
 
-            await Promise.all(chunk.map(item =>
-                fetch(`/game.php?village=${item.id}&screen=overview_villages&action=change_village_name`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                    body: new URLSearchParams({
-                        name: item.targetName,
-                        id: item.id,
-                        h: csrfToken
-                    })
+            await fetch(`/game.php?village=${item.id}&screen=main&action=change_name`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: new URLSearchParams({
+                    name: item.targetName,
+                    h: csrfToken
                 })
-            ));
+            });
 
-            console.log(`[TW-Rename] Concluído: ${Math.min(i + CONFIG.concurrency, queue.length)}/${queue.length}`);
-            
-            if (i + CONFIG.concurrency < queue.length) {
-                await new Promise(r => setTimeout(r, CONFIG.delayBetweenBatchesMs));
+            console.log(`[TW-Rename] (${i + 1}/${queue.length}) -> ${item.targetName}`);
+
+            if (CONFIG.delayMs > 0 && i < queue.length - 1) {
+                await new Promise(r => setTimeout(r, CONFIG.delayMs));
             }
         }
 
-        UI.SuccessMessage(`Sucesso! ${queue.length} aldeias renomeadas.`);
+        UI.SuccessMessage(`Concluído! ${queue.length} aldeias renomeadas.`);
 
         if (CONFIG.autoReload) {
-            setTimeout(() => location.reload(), 600);
+            setTimeout(() => location.reload(), 500);
         }
 
     } catch (err) {
