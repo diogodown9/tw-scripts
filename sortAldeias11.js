@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TW - Gestor Total de Renomeação (Ordem Conquistas + Custom UI)
 // @namespace    https://github.com/
-// @version      4.0.0
-// @description  Menu completo de opções customizáveis com ordenação por conquistas e barra de progresso
+// @version      4.1.0
+// @description  Menu completo de opções customizáveis com fecho automático do painel durante o progresso
 // @author       d0wn
 // @match        https://*.tribalwars.com.pt/game.php*
 // @match        https://*.tribos.com.pt/game.php*
@@ -13,7 +13,7 @@
     'use strict';
 
     const CONFIG = {
-        delayMs: 65,      // Intervalo ideal entre requisições (sem erros de rate limit)
+        delayMs: 65,      // Intervalo ideal entre requisições
         autoReload: true
     };
 
@@ -247,7 +247,6 @@
         }).filter(Boolean).join(' ').trim();
     }
 
-    // Obter aldeias completas da conta + conquistas
     async function loadAccountData() {
         const playerId = parseInt(game_data.player.id);
         const [overviewRes, cRes] = await Promise.all([
@@ -296,6 +295,10 @@
     async function executeRenaming(queue) {
         if (isProcessing || queue.length === 0) return;
         isProcessing = true;
+
+        // Fecha o painel de opções imediatamente
+        const uiPanel = document.getElementById('rename-container');
+        if (uiPanel) uiPanel.style.display = 'none';
 
         const csrfToken = game_data.csrf;
         const total = queue.length;
@@ -423,7 +426,6 @@
             return;
         }
 
-        // Ordenar os outliers cronologicamente
         outliers.sort((a, b) => (latestConquests.get(a.id) || 0) - (latestConquests.get(b.id) || 0));
 
         let currentNum = maxFoundNumber + 1;
@@ -432,6 +434,8 @@
             coords: v.coords,
             targetName: generateVillageName(currentOptions, currentNum++, v.coords).slice(0, 32).replace(/[´^]/g, '')
         }));
+
+        if (!confirm(`Foram detetadas ${outliers.length} novas aldeias fora do padrão.\n\nAvançar com a auto-correção?`)) return;
 
         await executeRenaming(queue);
     });
