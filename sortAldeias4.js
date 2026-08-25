@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TW - Renomear Aldeias por Ordem de Conquista
 // @namespace    https://github.com/
-// @version      3.2.0
-// @description  Renomeação rápida e garantida de aldeias por ordem cronológica
+// @version      3.3.0
+// @description  Renomeia todas as aldeias por ordem cronológica sem erros de cache
 // @author       d0wn
 // @match        https://*.tribalwars.com.pt/game.php*
 // @match        https://*.tribos.com.pt/game.php*
@@ -14,7 +14,7 @@
 
     const CONFIG = {
         format: "#{nr} - {coords}", // Tags: {nr}, {coords}, {name}
-        delayMs: 35,                // Delay mínimo e seguro entre pedidos
+        delayMs: 60,                // Intervalo estável entre requisições
         autoReload: true
     };
 
@@ -24,35 +24,43 @@
         const playerId = parseInt(game_data.player.id);
         const csrfToken = game_data.csrf;
 
-        console.log('[TW-Rename] A descarregar base de dados...');
+        console.log('[TW-Rename] A carregar dados...');
 
-        // 1. Download paralelo dos ficheiros de aldeias e conquistas
-        const [vRes, cRes] = await Promise.all([
-            fetch('/map/village.txt'),
+        // 1. Obter a lista REAL e ATUALIZADA de todas as tuas aldeias via página do jogador
+        const [overviewRes, cRes] = await Promise.all([
+            fetch(`/game.php?screen=overview_villages&mode=combined&page=-1`),
             fetch('/map/conquer.txt')
         ]);
 
-        const [vText, cText] = await Promise.all([vRes.text(), cRes.text()]);
+        const [overviewHtml, cText] = await Promise.all([overviewRes.text(), cRes.text()]);
 
-        // 2. Mapear todas as aldeias do jogador
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(overviewHtml, 'text/html');
+        const rows = doc.querySelectorAll('#combined_table tr[class*="nowrap"]');
+
         const myVillages = [];
-        vText.trim().split('\n').forEach(line => {
-            const parts = line.split(',');
-            if (parts.length >= 5 && parseInt(parts[4]) === playerId) {
-                myVillages.push({
-                    id: parseInt(parts[0]),
-                    name: decodeURIComponent(parts[1].replace(/\+/g, ' ')),
-                    coords: `${parts[2]}|${parts[3]}`
-                });
+        rows.forEach(row => {
+            const link = row.querySelector('.quickedit-vn');
+            if (link) {
+                const id = parseInt(link.getAttribute('data-id'));
+                const label = row.querySelector('.quickedit-label');
+                const fullText = label ? label.textContent.trim() : link.innerText.trim();
+                const coordsMatch = fullText.match(/\((\d{3}\|\d{3})\)/) || fullText.match(/(\d{3}\|\d{3})/);
+                const coords = coordsMatch ? coordsMatch[1] : '000|000';
+                
+                // Nome limpo (sem coordenadas/continente)
+                const cleanName = fullText.replace(/\(\d{3}\|\d{3}\)\s*K\d{2}/gi, '').trim();
+
+                myVillages.push({ id, name: cleanName, coords });
             }
         });
 
         if (myVillages.length === 0) {
-            UI.ErrorMessage('Nenhuma aldeia encontrada para este jogador.');
+            UI.ErrorMessage('Nenhuma aldeia encontrada na visualização combinada.');
             return;
         }
 
-        // 3. Mapear última conquista registada de cada aldeia
+        // 2. Mapear última conquista registada de cada aldeia
         const latestConquests = new Map();
         cText.trim().split('\n').forEach(line => {
             const parts = line.split(',');
@@ -70,7 +78,7 @@
             }
         });
 
-        // 4. Ordenar aldeias cronologicamente
+        // 3. Ordenação cronológica (aldeia inicial primeiro, restantes por timestamp)
         const initialList = [];
         const conqueredList = [];
 
@@ -85,7 +93,7 @@
         conqueredList.sort((a, b) => a.conquerTime - b.conquerTime);
         const fullOrderedList = [...initialList, ...conqueredList];
 
-        // 5. Montar lista de renomeação
+        // 4. Montar lista com nomes alvo
         const padLen = Math.max(3, String(fullOrderedList.length).length);
         const queue = [];
 
@@ -96,13 +104,14 @@
                 .replace('{coords}', v.coords)
                 .replace('{name}', v.name);
 
-            if (v.name !== targetName) {
+            // Verifica se o nome precisa de ser alterado
+            if (v.name !== targetName && !v.name.startsWith(`#${nr}`)) {
                 queue.push({ id: v.id, targetName });
             }
         });
 
         if (queue.length === 0) {
-            UI.SuccessMessage('Todas as aldeias já se encontram ordenadas.');
+            UI.SuccessMessage('Todas as aldeias já se encontram com o nome correto.');
             return;
         }
 
@@ -110,7 +119,7 @@
             return;
         }
 
-        // 6. Envio com o endpoint correto e delay ultra-baixo
+        // 5. Envio sequencial seguro
         for (let i = 0; i < queue.length; i++) {
             const item = queue[i];
 
@@ -133,7 +142,7 @@
         UI.SuccessMessage(`Concluído! ${queue.length} aldeias renomeadas.`);
 
         if (CONFIG.autoReload) {
-            setTimeout(() => location.reload(), 500);
+            setTimeout(() => location.reload(), 600);
         }
 
     } catch (err) {
