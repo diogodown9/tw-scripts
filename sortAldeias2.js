@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TW - Renomear Aldeias por Ordem de Conquista
 // @namespace    https://github.com/
-// @version      3.0.0
-// @description  Renomeia todas as aldeias do jogador por ordem cronológica sem limite de paginação
+// @version      3.1.0
+// @description  Renomeação rápida e segura de aldeias por ordem cronológica
 // @author       d0wn
 // @match        https://*.tribalwars.com.pt/game.php*
 // @match        https://*.tribos.com.pt/game.php*
@@ -14,7 +14,8 @@
 
     const CONFIG = {
         format: "#{nr} - {coords}", // Tags: {nr}, {coords}, {name}
-        delayMs: 120,
+        concurrency: 3,             // Pedidos em simultâneo (valor seguro para TW)
+        delayBetweenBatchesMs: 40,  // Intervalo mínimo entre batches
         autoReload: true
     };
 
@@ -26,7 +27,7 @@
 
         console.log('[TW-Rename] A descarregar base de dados...');
 
-        // 1. Obter ficheiros de dados do mundo em paralelo
+        // 1. Download paralelo dos ficheiros de aldeias e conquistas
         const [vRes, cRes] = await Promise.all([
             fetch('/map/village.txt'),
             fetch('/map/conquer.txt')
@@ -34,7 +35,7 @@
 
         const [vText, cText] = await Promise.all([vRes.text(), cRes.text()]);
 
-        // 2. Extrair TODAS as aldeias que pertencem ao jogador
+        // 2. Extrair todas as aldeias do jogador
         const myVillages = [];
         vText.trim().split('\n').forEach(line => {
             const parts = line.split(',');
@@ -52,7 +53,7 @@
             return;
         }
 
-        // 3. Mapear a ÚLTIMA conquista registada de cada aldeia tua
+        // 3. Mapear última conquista registada de cada aldeia
         const latestConquests = new Map();
         cText.trim().split('\n').forEach(line => {
             const parts = line.split(',');
@@ -70,7 +71,7 @@
             }
         });
 
-        // 4. Ordenar aldeias: iniciais primeiro (sem registo de conquista), restantes por timestamp
+        // 4. Ordenar aldeias cronologicamente
         const initialList = [];
         const conqueredList = [];
 
@@ -82,11 +83,10 @@
             }
         });
 
-        // Ordenação cronológica crescente
         conqueredList.sort((a, b) => a.conquerTime - b.conquerTime);
         const fullOrderedList = [...initialList, ...conqueredList];
 
-        // 5. Determinar quais aldeias precisam de novo nome
+        // 5. Montar fila de renomeação
         const padLen = Math.max(3, String(fullOrderedList.length).length);
         const queue = [];
 
@@ -103,36 +103,45 @@
         });
 
         if (queue.length === 0) {
-            UI.SuccessMessage('Todas as aldeias já estão ordenadas.');
+            UI.SuccessMessage('Todas as aldeias já estão com a numeração correta.');
             return;
         }
 
-        if (!confirm(`Total de aldeias detidas: ${fullOrderedList.length}\nAldeias a renomear: ${queue.length}\n\nDesejas continuar?`)) {
+        if (!confirm(`Total de aldeias: ${fullOrderedList.length}\nAldeias a renomear: ${queue.length}\n\nAvançar com a renomeação rápida?`)) {
             return;
         }
 
-        // 6. Enviar pedidos de renomeação sequenciais
-        for (let i = 0; i < queue.length; i++) {
-            const item = queue[i];
+        // 6. Execução por blocos rápidos via endpoint AJAX nativo
+        for (let i = 0; i < queue.length; i += CONFIG.concurrency) {
+            const chunk = queue.slice(i, i + CONFIG.concurrency);
 
-            await fetch(`/game.php?village=${item.id}&screen=main&action=change_name`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                body: new URLSearchParams({ name: item.targetName, h: csrfToken })
-            });
+            await Promise.all(chunk.map(item =>
+                fetch(`/game.php?village=${item.id}&screen=overview_villages&action=change_village_name`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: new URLSearchParams({
+                        name: item.targetName,
+                        id: item.id,
+                        h: csrfToken
+                    })
+                })
+            ));
 
-            console.log(`[TW-Rename] (${i + 1}/${queue.length}) Aldeia ${item.id} -> ${item.targetName}`);
-            await new Promise(r => setTimeout(r, CONFIG.delayMs));
+            console.log(`[TW-Rename] Concluído: ${Math.min(i + CONFIG.concurrency, queue.length)}/${queue.length}`);
+            
+            if (i + CONFIG.concurrency < queue.length) {
+                await new Promise(r => setTimeout(r, CONFIG.delayBetweenBatchesMs));
+            }
         }
 
-        UI.SuccessMessage(`Concluído! ${queue.length} aldeias atualizadas com sucesso.`);
-        
+        UI.SuccessMessage(`Sucesso! ${queue.length} aldeias renomeadas.`);
+
         if (CONFIG.autoReload) {
-            setTimeout(() => location.reload(), 800);
+            setTimeout(() => location.reload(), 600);
         }
 
     } catch (err) {
-        console.error('[TW-Rename] Erro fatal:', err);
-        UI.ErrorMessage('Erro ao processar as aldeias.');
+        console.error('[TW-Rename] Erro:', err);
+        UI.ErrorMessage('Erro ao renomear as aldeias.');
     }
 })();
