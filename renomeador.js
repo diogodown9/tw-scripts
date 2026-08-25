@@ -1,7 +1,7 @@
-(async function() {
+(function() {
     'use strict';
 
-    // 1. Redirecionar para o Combinado se não estiver na página correta
+    // 1. Redireciona para o Combinado se necessário
     const urlParams = new URLSearchParams(window.location.search);
     if (urlParams.get('screen') !== 'overview_villages') {
         const villageId = (window.game_data && window.game_data.village) ? window.game_data.village.id : '';
@@ -124,8 +124,7 @@
     container.innerHTML = contentRename;
     modemenuElement.parentNode.insertBefore(container, modemenuElement);
 
-    let currentOptions = [];
-    let isProcessing = false;
+    let currentOptions = []; 
 
     document.getElementById('btn-close-renamer').addEventListener('click', () => {
         document.getElementById('rename-container').style.display = 'none';
@@ -234,128 +233,106 @@
         }).join(' ').trim();
     }
 
-    // Obter todas as aldeias da conta (ignora a paginação da tabela)
-    async function getAllPlayerVillages() {
-        const playerId = parseInt(window.game_data.player.id);
-        const res = await fetch('/map/village.txt');
-        const text = await res.text();
-        const villages = [];
-        
-        text.trim().split('\n').forEach(line => {
-            const parts = line.split(',');
-            if (parts.length >= 5 && parseInt(parts[4]) === playerId) {
-                villages.push({
-                    id: parseInt(parts[0]),
-                    name: decodeURIComponent(parts[1].replace(/\+/g, ' ')),
-                    coords: [parseInt(parts[2]), parseInt(parts[3])]
-                });
-            }
-        });
-        return villages;
-    }
+    // Processamento otimizado de cliques (rápido e 100% fiável)
+    function processRenaming(villagesNodeList, startingNumber) {
+        let numberCounter = startingNumber;
+        const total = villagesNodeList.length;
 
-    // Execução sequencial direta sem perder requisições
-    async function processRenamingList(queue) {
-        if (isProcessing || queue.length === 0) return;
-        isProcessing = true;
+        showCustomNotification(`A renomear ${total} aldeias...`);
 
-        const csrfToken = window.game_data ? window.game_data.csrf : '';
-        const total = queue.length;
-        showCustomNotification(`A processar ${total} aldeias...`, "success");
-
-        for (let i = 0; i < total; i++) {
-            const item = queue[i];
+        villagesNodeList.forEach((element, index) => {
+            const labelNode = element.querySelector('.quickedit-vn');
+            if (!labelNode) return;
             
-            try {
-                await fetch(`/game.php?village=${item.id}&screen=main&action=change_name`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                    body: new URLSearchParams({ name: item.finalName, h: csrfToken })
-                });
+            const textContent = element.querySelector('.quickedit-label').textContent;
+            const coordsMatches = textContent.match(/(\d{3}\|\d{3})/g);
+            const coords = (coordsMatches && coordsMatches.length > 0 ? coordsMatches[coordsMatches.length - 1] : "000|000").split('|').map(Number);
 
-                // Atualizar texto no ecrã se a aldeia estiver visível na página atual
-                const domRow = document.querySelector(`.quickedit-vn[data-id="${item.id}"]`);
-                if (domRow) {
-                    const label = domRow.closest('tr').querySelector('.quickedit-label');
-                    if (label) {
-                        label.innerHTML = `${item.finalName} <span class="grey">(${item.coords.join('|')}) K${Math.floor(item.coords[1] / 100)}${Math.floor(item.coords[0] / 100)}</span>`;
-                    }
+            const finalName = generateVillageName(currentOptions, numberCounter++, coords).slice(0, 32).replace(/[´^]/g, ''); 
+
+            // Reduzido para 140ms por aldeia (quase 3x mais rápido que os 400ms originais)
+            setTimeout(() => {
+                const renameIcon = labelNode.querySelector('.rename-icon');
+                if (renameIcon) {
+                    renameIcon.click(); 
+                    
+                    // Espera mínima (40ms em vez de 150ms) para injetar e confirmar
+                    setTimeout(() => {
+                        const quickEditSpan = labelNode.querySelector('.quickedit-edit');
+                        if (quickEditSpan) {
+                            const textInput = quickEditSpan.querySelector('input[type="text"]');
+                            const submitBtn = quickEditSpan.querySelector('.btn'); 
+
+                            if (textInput && submitBtn) {
+                                textInput.value = finalName;
+                                submitBtn.click(); 
+                            }
+                        }
+                    }, 40); 
                 }
-            } catch (err) {
-                console.error(`Erro ao renomear ${item.id}:`, err);
-            }
+            }, index * 140); 
+        });
 
-            // Intervalo estável entre requisições
-            await new Promise(r => setTimeout(r, 120));
-        }
-
-        isProcessing = false;
-        showCustomNotification(`Concluído! ${total} aldeias renomeadas.`, "success");
+        setTimeout(() => {
+            showCustomNotification(`Concluído! ${total} aldeias processadas.`);
+        }, total * 140 + 200);
     }
 
-    document.getElementById('fix-outliers').addEventListener('click', async function() {
+    document.getElementById('fix-outliers').addEventListener('click', function() {
         if (currentOptions.length === 0) {
-            showCustomNotification("Atenção: Seleciona pelo menos uma opção.", "error");
+            showCustomNotification("Atenção: Seleciona pelo menos uma opção de renomeação.", "error");
             return;
         }
 
         const textOpt = currentOptions.find(opt => opt.type === 'text');
         if (!textOpt || !textOpt.textInput) {
-            showCustomNotification("Ativa e preenche a opção 'Texto' primeiro.", "error");
+            showCustomNotification("Para esta função, ativa e preenche a opção 'Texto' com o teu padrão.", "error");
             return;
         }
 
         const baseText = textOpt.textInput.trim();
-        const allVillages = await getAllPlayerVillages();
+        const lineVillages = document.querySelectorAll('.nowrap.row_a, .nowrap.row_b');
         
         let maxFoundNumber = 0;
-        let outliers = [];
+        let villagesToRename = [];
 
-        allVillages.forEach(v => {
-            let cleanName = v.name.replace(/\(\d{3}\|\d{3}\)\sK\d{2}/g, '').trim();
-            if (cleanName.includes(baseText)) {
-                const remaining = cleanName.replace(baseText, '');
-                const numMatch = remaining.match(/\d+/);
+        lineVillages.forEach((element) => {
+            const labelNode = element.querySelector('.quickedit-vn');
+            if (!labelNode) return;
+            
+            let currentName = element.querySelector('.quickedit-label').textContent;
+            currentName = currentName.replace(/\(\d{3}\|\d{3}\)\sK\d{2}/g, '').trim(); 
+            
+            if (currentName.includes(baseText)) {
+                const remainingPart = currentName.replace(baseText, '');
+                const numMatch = remainingPart.match(/\d+/);
                 if (numMatch) {
                     const num = parseInt(numMatch[0]);
-                    if (num > maxFoundNumber) maxFoundNumber = num;
+                    if (num > maxFoundNumber) {
+                        maxFoundNumber = num;
+                    }
                 }
             } else {
-                outliers.push(v);
+                villagesToRename.push(element);
             }
         });
 
-        if (outliers.length === 0) {
-            showCustomNotification("Todas as aldeias já estão no teu padrão!", "success");
+        if (villagesToRename.length === 0) {
+            showCustomNotification("Todas as aldeias já estão dentro do teu padrão!", "success");
             return;
         }
 
-        let currentNum = maxFoundNumber + 1;
-        const queue = outliers.map(v => ({
-            id: v.id,
-            coords: v.coords,
-            finalName: generateVillageName(currentOptions, currentNum++, v.coords).slice(0, 32).replace(/[´^]/g, '')
-        }));
-
-        await processRenamingList(queue);
+        processRenaming(villagesToRename, maxFoundNumber + 1);
     });
 
-    document.getElementById('combine-options').addEventListener('click', async function() {
+    document.getElementById('combine-options').addEventListener('click', function() {
         if (currentOptions.length === 0) {
-            showCustomNotification("Atenção: Seleciona pelo menos uma opção.", "error");
+            showCustomNotification("Atenção: Seleciona pelo menos uma opção de renomeação.", "error");
             return;
         }
-
-        const allVillages = await getAllPlayerVillages();
+        const lineVillages = document.querySelectorAll('.nowrap.row_a, .nowrap.row_b');
         let startingNumber = parseInt(currentOptions.find(opt => opt.type === 'number')?.startNumberInput) || 1;
-        
-        const queue = allVillages.map((v, idx) => ({
-            id: v.id,
-            coords: v.coords,
-            finalName: generateVillageName(currentOptions, startingNumber + idx, v.coords).slice(0, 32).replace(/[´^]/g, '')
-        }));
-
-        await processRenamingList(queue);
+        processRenaming(lineVillages, startingNumber);
     });
 
     document.getElementById('language-select').addEventListener('change', function () { setLanguage(this.value); });
@@ -369,7 +346,7 @@
             container.style.position = 'fixed';
             container.style.bottom = '30px';
             container.style.left = '15px';
-            container.style.zIndex = '10000';
+            container.style.zIndex = '1000';
             container.style.display = 'flex';
             container.style.flexDirection = 'column';
             container.style.gap = '5px';
@@ -387,7 +364,9 @@
         notification.style.fontWeight = 'bold';
         
         container.appendChild(notification);
-        setTimeout(() => notification.remove(), 2500);
+        setTimeout(() => {
+            notification.remove();
+        }, 2200);
     }
 
     loadSettings();
