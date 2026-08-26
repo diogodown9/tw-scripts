@@ -2,7 +2,7 @@
     'use strict';
 
     const PANEL_ID = 'tw-left-villages-panel';
-    const CACHE_PREFIX = 'tw-villages-cache-v16_';
+    const CACHE_PREFIX = 'tw-villages-cache-v17_';
     const CACHE_TIME = 60 * 60 * 1000; // 1 hora de memória
     
     // Chave de ordenação única por mundo e jogador
@@ -22,7 +22,7 @@
     const savedLeft = localStorage.getItem('tw-villages-pos-left');
     const savedSide = localStorage.getItem('tw-villages-panel-side') || 'left';
 
-    // ESTILOS (UI EXPANDIDA)
+    // ESTILOS
     const style = document.createElement('style');
     style.textContent = `
         #tw-left-villages-panel * { font-family: Verdana, Arial, sans-serif; box-sizing: border-box; }
@@ -52,19 +52,16 @@
         
         .tw-village-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #004600; font-weight: 700; font-size: 11.5px; flex-grow: 1; }
         
-        .tw-village-actions { display: flex; gap: 3px; align-items: center; margin-left: 6px; flex-shrink: 0; }
+        .tw-village-actions { display: flex; gap: 4px; align-items: center; margin-left: 6px; flex-shrink: 0; }
         
-        .tw-btn-arrow { background: #f4e4bc; border: 1px solid #8c5f0d; border-radius: 3px; padding: 2px 4px; font-size: 10px; cursor: pointer; line-height: 11px; }
-        .tw-btn-arrow:hover { background: #deb887; }
-        
-        .tw-btn-eye, .tw-btn-troops { background: #f4e4bc; border: 1px solid #8c5f0d; border-radius: 3px; padding: 3px 5px; font-size: 11px; cursor: pointer; text-decoration: none; color: #333; margin-right: 3px; }
+        .tw-btn-eye, .tw-btn-troops { background: #f4e4bc; border: 1px solid #8c5f0d; border-radius: 3px; padding: 3px 5px; font-size: 11px; cursor: pointer; text-decoration: none; color: #333; }
         .tw-btn-eye:hover, .tw-btn-troops:hover { background: #deb887; }
         .tw-btn-troops.active { background: #8c5f0d; color: #fff; }
         
-        .tw-btn-copy { background: linear-gradient(to bottom, #3498db 0%, #2980b9 100%); color: #fff; border: 1px solid #1c5982; border-radius: 3px; padding: 3px 6px; font-size: 11px; cursor: pointer; font-weight: bold; }
+        .tw-btn-copy { background: linear-gradient(to bottom, #3498db 0%, #2980b9 100%); color: #fff; border: 1px solid #1c5982; border-radius: 3px; padding: 3px 8px; font-size: 11px; cursor: pointer; font-weight: bold; }
         .tw-btn-copy:hover { background: linear-gradient(to bottom, #2980b9 0%, #1c5982 100%); }
 
-        /* Painel expansível de tropas maior */
+        /* Painel expansível de tropas */
         .tw-troops-panel { display: none; background: #222426; color: #fff; padding: 7px; font-size: 11px; border-top: 1px dashed #555; }
         .tw-troops-table { width: 100%; border-collapse: collapse; text-align: center; }
         .tw-troops-table th, .tw-troops-table td { padding: 3px 2px; white-space: nowrap; }
@@ -142,22 +139,10 @@
     
     const currentVillageId = (window.game_data && window.game_data.village) ? String(window.game_data.village.id) : urlParams.get('village');
 
-    // ARMAZENAMENTO E ORDENAÇÃO MANUAL
+    // PERSISTÊNCIA DA ORDEM
     function persistCurrentOrder(list = allVillages) {
         const orderIds = list.map(v => String(v.id));
         localStorage.setItem(ORDER_STORAGE_KEY, JSON.stringify(orderIds));
-    }
-
-    function moveVillage(index, direction) {
-        const targetIndex = index + direction;
-        if (targetIndex < 0 || targetIndex >= allVillages.length) return;
-
-        const temp = allVillages[index];
-        allVillages[index] = allVillages[targetIndex];
-        allVillages[targetIndex] = temp;
-
-        persistCurrentOrder();
-        renderVillages();
     }
 
     // MÉTODO /map/conquer.txt
@@ -356,8 +341,6 @@
                     <span class="tw-village-name">${v.label}</span>
                 </div>
                 <div class="tw-village-actions">
-                    <button class="tw-btn-arrow tw-btn-up" title="Mover para cima" ${index === 0 ? 'disabled style="opacity:0.4;cursor:default;"' : ''}>▲</button>
-                    <button class="tw-btn-arrow tw-btn-down" title="Mover para baixo" ${index === allVillages.length - 1 ? 'disabled style="opacity:0.4;cursor:default;"' : ''}>▼</button>
                     <button class="tw-btn-copy" data-coord="${v.coord}">Copiar</button>
                 </div>
             `;
@@ -418,16 +401,6 @@
                 btnTroops.classList.toggle('active', willOpen);
                 if (willOpen) openTroopPanels.add(String(v.id));
                 else openTroopPanels.delete(String(v.id));
-            });
-
-            row.querySelector('.tw-btn-up').addEventListener('click', (e) => {
-                e.stopPropagation();
-                moveVillage(index, -1);
-            });
-
-            row.querySelector('.tw-btn-down').addEventListener('click', (e) => {
-                e.stopPropagation();
-                moveVillage(index, 1);
             });
 
             row.querySelector('.tw-btn-copy').addEventListener('click', (e) => {
