@@ -2,13 +2,13 @@
     'use strict';
 
     const PANEL_ID = 'tw-left-villages-panel';
-    const CACHE_PREFIX = 'tw-villages-cache-v13_';
+    const CACHE_PREFIX = 'tw-villages-cache-v14_';
     const CACHE_TIME = 60 * 60 * 1000; // 1 hora de memória
     
-    // Identificador único por mundo e jogador
+    // Chave de ordenação única por mundo e jogador
     const worldId = (window.game_data && window.game_data.world) ? window.game_data.world : 'tw';
-    const playerId = (window.game_data && window.game_data.player) ? String(window.game_data.player.id) : 'player';
-    const ORDER_STORAGE_KEY = `tw-village-order-real_${worldId}_${playerId}`;
+    const playerId = (window.game_data && window.game_data.player) ? String(window.game_data.player.id) : '0';
+    const ORDER_STORAGE_KEY = `tw-village-order-conquer_${worldId}_${playerId}`;
 
     // EFEITO LIGA/DESLIGA
     const existingPanel = document.getElementById(PANEL_ID);
@@ -46,7 +46,7 @@
         .tw-village-both:hover { background-color: #d9bfee !important; }
         
         .tw-village-info { display: flex; align-items: center; overflow: hidden; flex-grow: 1; min-width: 0; }
-        .tw-village-pos { font-size: 10px; font-weight: bold; color: #735018; margin-right: 4px; min-width: 24px; }
+        .tw-village-pos { font-size: 10px; font-weight: bold; color: #735018; margin-right: 4px; min-width: 24px; flex-shrink: 0; }
         .tw-village-cb { margin: 0 4px 0 0 !important; width: 12px; height: 12px; cursor: pointer; flex-shrink: 0; }
         
         .tw-village-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #004600; font-weight: 700; font-size: 11px; flex-grow: 1; }
@@ -107,7 +107,7 @@
                     <input type="checkbox" id="tw-select-all" style="margin: 0 4px 0 0; width: 12px; height: 12px;"> Todas
                 </label>
                 <div style="display: flex; gap: 4px;">
-                    <button id="tw-reset-order" title="Sincronizar com histórico real de conquistas do perfil" style="background: linear-gradient(to bottom, #d9534f 0%, #c9302c 100%); color: white; border: 1px solid #ac2925; border-radius: 3px; padding: 2px 5px; font-size: 10px; cursor: pointer; font-weight: bold;">↺ Conquista</button>
+                    <button id="tw-reset-order" title="Sincronizar com /map/conquer.txt (Ordem real de conquista)" style="background: linear-gradient(to bottom, #d9534f 0%, #c9302c 100%); color: white; border: 1px solid #ac2925; border-radius: 3px; padding: 2px 5px; font-size: 10px; cursor: pointer; font-weight: bold;">↺ Conquista</button>
                     <button id="tw-copy-selected" style="background: linear-gradient(to bottom, #5cb85c 0%, #449d44 100%); color: white; border: 1px solid #398439; border-radius: 3px; padding: 2px 6px; font-size: 10px; cursor: pointer; font-weight: bold;">Copiar</button>
                 </div>
             </div>
@@ -127,7 +127,7 @@
     
     const currentVillageId = (window.game_data && window.game_data.village) ? String(window.game_data.village.id) : urlParams.get('village');
 
-    // ARMAZENAMENTO E ORDENAÇÃO
+    // ARMAZENAMENTO E ORDENAÇÃO MANUAL
     function persistCurrentOrder(list = allVillages) {
         const orderIds = list.map(v => String(v.id));
         localStorage.setItem(ORDER_STORAGE_KEY, JSON.stringify(orderIds));
@@ -145,58 +145,34 @@
         renderVillages();
     }
 
-    // OBTENÇÃO DA CRONOLOGIA REAL VIA HISTÓRICO DO PERFIL DO JOGADOR
-    function fetchRealConquestOrder() {
-        return new Promise((resolve) => {
-            const pId = (window.game_data && window.game_data.player) ? window.game_data.player.id : null;
-            if (!pId) return resolve(null);
+    // MÉTODO /map/conquer.txt PARA OBTER A CRONOLOGIA EXATA
+    async function fetchConquerMapData() {
+        try {
+            const pId = parseInt(playerId, 10);
+            const response = await fetch('/map/conquer.txt');
+            const cText = await response.text();
 
-            $.ajax({
-                url: `/game.php?screen=info_player&mode=conquer&id=${pId}`,
-                type: 'GET',
-                cache: false,
-                success: function(data) {
-                    try {
-                        const doc = new DOMParser().parseFromString(data, 'text/html');
-                        let conquerRows = [];
-                        const myName = (window.game_data && window.game_data.player) ? window.game_data.player.name : '';
-
-                        doc.querySelectorAll('table.vis tr').forEach(tr => {
-                            const tds = tr.querySelectorAll('td');
-                            if (tds.length >= 4) {
-                                const villageLink = tds[0].querySelector('a');
-                                const newOwner = tds[3].textContent.trim();
-                                const isMine = myName ? newOwner.includes(myName) : true;
-
-                                if (villageLink && isMine) {
-                                    const coordMatch = villageLink.textContent.match(/\d{3}\|\d{3}/);
-                                    if (coordMatch) {
-                                        conquerRows.push(coordMatch[0]);
-                                    }
-                                }
-                            }
-                        });
-
-                        // Inverter a lista do perfil (que vem da mais recente para a mais antiga)
-                        conquerRows.reverse();
-
-                        const chronologicalCoords = [];
-                        conquerRows.forEach(coord => {
-                            if (!chronologicalCoords.includes(coord)) {
-                                chronologicalCoords.push(coord);
-                            }
-                        });
-
-                        resolve(chronologicalCoords);
-                    } catch (e) {
-                        resolve(null);
+            const latestConquests = new Map();
+            cText.trim().split('\n').forEach(line => {
+                const parts = line.split(',');
+                if (parts.length >= 4) {
+                    const vId = String(parts[0]);
+                    const timestamp = parseInt(parts[1], 10);
+                    const newOwner = parseInt(parts[2], 10);
+                    
+                    if (newOwner === pId) {
+                        const currentMax = latestConquests.get(vId) || 0;
+                        if (timestamp > currentMax) {
+                            latestConquests.set(vId, timestamp);
+                        }
                     }
-                },
-                error: function() {
-                    resolve(null);
                 }
             });
-        });
+
+            return latestConquests;
+        } catch (e) {
+            return null;
+        }
     }
 
     async function applyConquestSorting(villagesList, forceFetch = false) {
@@ -208,6 +184,7 @@
             } catch(e) {}
         }
 
+        // Se já existe ordem guardada e não foi pedido reset
         if (Array.isArray(savedOrder) && savedOrder.length > 0 && !forceFetch) {
             villagesList.sort((a, b) => {
                 let idxA = savedOrder.indexOf(String(a.id));
@@ -221,24 +198,27 @@
             return villagesList;
         }
 
-        const conquestCoords = await fetchRealConquestOrder();
+        // Lê dados de conquista do /map/conquer.txt
+        const latestConquests = await fetchConquerMapData();
 
-        if (conquestCoords && conquestCoords.length > 0) {
-            const founded = [];
-            const conquered = [];
+        if (latestConquests) {
+            const initialList = [];
+            const conqueredList = [];
 
             villagesList.forEach(v => {
-                const cIdx = conquestCoords.indexOf(v.coord);
-                if (cIdx === -1) {
-                    founded.push(v);
+                const strId = String(v.id);
+                if (latestConquests.has(strId)) {
+                    conqueredList.push({ ...v, conquerTime: latestConquests.get(strId) });
                 } else {
-                    conquered.push({ village: v, orderIndex: cIdx });
+                    initialList.push({ ...v, conquerTime: 0 }); // Aldeia(s) fundada(s) / arranque
                 }
             });
 
-            conquered.sort((a, b) => a.orderIndex - b.orderIndex);
+            // Ordena conquistas por data ascendente (da mais antiga para a mais recente)
+            conqueredList.sort((a, b) => a.conquerTime - b.conquerTime);
 
-            const finalSorted = [...founded, ...conquered.map(item => item.village)];
+            // Fundadas primeiro, seguidas pelas conquistadas em ordem cronológica
+            const finalSorted = [...initialList, ...conqueredList];
             persistCurrentOrder(finalSorted);
             return finalSorted;
         }
@@ -285,8 +265,8 @@
     });
 
     document.getElementById('tw-reset-order').addEventListener('click', async () => {
-        if (!confirm('Desejas reanalisar o histórico e repor a ordem real de conquista?')) return;
-        showNotification('A obter conquistas...', 'success');
+        if (!confirm('Desejas repor a ordem real de conquista a partir do /map/conquer.txt?')) return;
+        showNotification('A carregar histórico de conquistas...', 'success');
         allVillages = await applyConquestSorting(allVillages, true);
         renderVillages();
         showNotification('Ordem de conquista recalculada!');
@@ -343,7 +323,7 @@
                 else if (v.isDef) colorClass = 'tw-village-def';
             }
 
-            row.className = `tw-village-row ${rowClass} ${colorClass} ${v.id === currentVillageId ? 'current-village' : ''}`;
+            row.className = `tw-village-row ${rowClass} ${colorClass} ${String(v.id) === currentVillageId ? 'current-village' : ''}`;
             
             let goUrl = `/game.php?village=${v.id}&screen=${currentScreen}&group=${activeGroup}`;
             if (currentMode) {
@@ -416,7 +396,7 @@
                             groupSelect.value = groupId; 
                         }
                         renderVillages();
-                        showNotification("Carregado da memória instantânea!");
+                        showNotification("Carregado da memória!");
                         return; 
                     }
                 } catch (e) { }
@@ -467,6 +447,7 @@
                         allVillages.push({ id, label, coord: cMatch ? cMatch[0] : '', isAtk: false, isDef: false });
                     });
                     
+                    // Ordena via /map/conquer.txt
                     allVillages = await applyConquestSorting(allVillages, forceReload);
                     renderVillages(); 
 
