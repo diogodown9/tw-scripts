@@ -2,7 +2,7 @@
     'use strict';
 
     const PANEL_ID = 'tw-left-villages-panel';
-    const CACHE_PREFIX = 'tw-villages-cache-v17_';
+    const CACHE_PREFIX = 'tw-villages-cache-v18_';
     const CACHE_TIME = 60 * 60 * 1000; // 1 hora de memória
     
     // Chave de ordenação única por mundo e jogador
@@ -31,7 +31,7 @@
         #tw-villages-list::-webkit-scrollbar-thumb { background: #8c5f0d; border-radius: 2px; }
         
         .tw-village-container { border-bottom: 1px solid #c4a475; }
-        .tw-village-row { display: flex; align-items: center; justify-content: space-between; padding: 5px 8px; cursor: pointer; transition: background-color 0.2s; min-height: 32px; }
+        .tw-village-row { display: flex; align-items: center; justify-content: space-between; padding: 4px 8px; cursor: pointer; transition: background-color 0.2s; min-height: 34px; }
         
         .tw-village-row.row_a { background-color: #fff5da; }
         .tw-village-row.row_b { background-color: #f0e2be; }
@@ -46,20 +46,32 @@
         .tw-village-def:hover { background-color: #bfd9ee !important; }
         .tw-village-both:hover { background-color: #d9bfee !important; }
         
-        .tw-village-info { display: flex; align-items: center; overflow: hidden; flex-grow: 1; min-width: 0; }
-        .tw-village-pos { font-size: 11px; font-weight: bold; color: #735018; margin-right: 6px; min-width: 26px; flex-shrink: 0; }
-        .tw-village-cb { margin: 0 6px 0 0 !important; width: 14px; height: 14px; cursor: pointer; flex-shrink: 0; }
+        .tw-village-info { display: flex; align-items: center; overflow: hidden; flex-grow: 1; min-width: 0; padding-right: 5px; }
+        .tw-village-pos { font-size: 11px; font-weight: bold; color: #735018; margin-right: 6px; min-width: 28px; flex-shrink: 0; }
+        .tw-village-cb { margin: 0 6px 0 0 !important; width: 15px; height: 15px; cursor: pointer; flex-shrink: 0; }
         
-        .tw-village-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #004600; font-weight: 700; font-size: 11.5px; flex-grow: 1; }
+        .tw-village-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #004600; font-weight: 700; font-size: 12px; flex-grow: 1; }
         
-        .tw-village-actions { display: flex; gap: 4px; align-items: center; margin-left: 6px; flex-shrink: 0; }
+        /* Botões à direita e maiores */
+        .tw-village-actions { display: flex; gap: 4px; align-items: center; flex-shrink: 0; }
         
-        .tw-btn-eye, .tw-btn-troops { background: #f4e4bc; border: 1px solid #8c5f0d; border-radius: 3px; padding: 3px 5px; font-size: 11px; cursor: pointer; text-decoration: none; color: #333; }
+        .tw-btn-eye, .tw-btn-troops { 
+            background: #f4e4bc; 
+            border: 1px solid #8c5f0d; 
+            border-radius: 3px; 
+            padding: 3px 7px; 
+            font-size: 13px; 
+            cursor: pointer; 
+            text-decoration: none; 
+            color: #333; 
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 28px;
+            height: 24px;
+        }
         .tw-btn-eye:hover, .tw-btn-troops:hover { background: #deb887; }
         .tw-btn-troops.active { background: #8c5f0d; color: #fff; }
-        
-        .tw-btn-copy { background: linear-gradient(to bottom, #3498db 0%, #2980b9 100%); color: #fff; border: 1px solid #1c5982; border-radius: 3px; padding: 3px 8px; font-size: 11px; cursor: pointer; font-weight: bold; }
-        .tw-btn-copy:hover { background: linear-gradient(to bottom, #2980b9 0%, #1c5982 100%); }
 
         /* Painel expansível de tropas */
         .tw-troops-panel { display: none; background: #222426; color: #fff; padding: 7px; font-size: 11px; border-top: 1px dashed #555; }
@@ -87,7 +99,7 @@
         else panel.style.left = '10px';
     }
     
-    panel.style.width = '420px'; 
+    panel.style.width = '390px'; 
     panel.style.maxHeight = 'calc(100vh - 140px)'; 
     panel.style.backgroundColor = '#e3d5b3';
     panel.style.border = '2px solid #8c5f0d';
@@ -332,16 +344,16 @@
             const posNumber = `#${index + 1}`;
             const isTroopOpen = openTroopPanels.has(String(v.id));
 
+            // Informações à esquerda e botões 👁️ e ⚔️ à direita
             row.innerHTML = `
                 <div class="tw-village-info" title="${v.label}">
                     <span class="tw-village-pos">${posNumber}</span>
-                    <a href="${goUrl}" class="tw-btn-eye" title="Ir para a aldeia">👁️</a>
-                    <button class="tw-btn-troops ${isTroopOpen ? 'active' : ''}" title="Ver Tropas">⚔️</button>
                     <input type="checkbox" class="tw-village-cb" data-coord="${v.coord}">
                     <span class="tw-village-name">${v.label}</span>
                 </div>
                 <div class="tw-village-actions">
-                    <button class="tw-btn-copy" data-coord="${v.coord}">Copiar</button>
+                    <button class="tw-btn-troops ${isTroopOpen ? 'active' : ''}" title="Ver Tropas">⚔️</button>
+                    <a href="${goUrl}" class="tw-btn-eye" title="Ir para a aldeia">👁️</a>
                 </div>
             `;
 
@@ -387,9 +399,9 @@
             }
 
             row.querySelector('.tw-village-info').addEventListener('click', (e) => {
-                if(e.target.closest('a') || e.target.closest('.tw-btn-troops')) return;
                 if(e.target.type !== 'checkbox') {
-                    const cb = row.querySelector('.tw-village-cb'); cb.checked = !cb.checked;
+                    const cb = row.querySelector('.tw-village-cb'); 
+                    cb.checked = !cb.checked;
                 }
             });
 
@@ -401,10 +413,6 @@
                 btnTroops.classList.toggle('active', willOpen);
                 if (willOpen) openTroopPanels.add(String(v.id));
                 else openTroopPanels.delete(String(v.id));
-            });
-
-            row.querySelector('.tw-btn-copy').addEventListener('click', (e) => {
-                e.stopPropagation(); copyText(e.currentTarget.getAttribute('data-coord'));
             });
 
             container.appendChild(row);
