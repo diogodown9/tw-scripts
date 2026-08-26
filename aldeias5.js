@@ -2,7 +2,7 @@
     'use strict';
 
     const PANEL_ID = 'tw-left-villages-panel';
-    const CACHE_PREFIX = 'tw-villages-cache-v14_';
+    const CACHE_PREFIX = 'tw-villages-cache-v15_';
     const CACHE_TIME = 60 * 60 * 1000; // 1 hora de memória
     
     // Chave de ordenação única por mundo e jogador
@@ -30,7 +30,8 @@
         #tw-villages-list::-webkit-scrollbar-track { background: #e3d5b3; border-left: 1px solid #8c5f0d; }
         #tw-villages-list::-webkit-scrollbar-thumb { background: #8c5f0d; }
         
-        .tw-village-row { display: flex; align-items: center; justify-content: space-between; padding: 3px 6px; border-bottom: 1px solid #e3d5b3; cursor: pointer; transition: background-color 0.2s; }
+        .tw-village-container { border-bottom: 1px solid #c4a475; }
+        .tw-village-row { display: flex; align-items: center; justify-content: space-between; padding: 3px 6px; cursor: pointer; transition: background-color 0.2s; }
         
         .tw-village-row.row_a { background-color: #fff5da; }
         .tw-village-row.row_b { background-color: #f0e2be; }
@@ -56,11 +57,22 @@
         .tw-btn-arrow { background: #f4e4bc; border: 1px solid #8c5f0d; border-radius: 2px; padding: 1px 3px; font-size: 9px; cursor: pointer; line-height: 10px; }
         .tw-btn-arrow:hover { background: #deb887; }
         
-        .tw-btn-eye { background: #f4e4bc; border: 1px solid #8c5f0d; border-radius: 2px; padding: 2px 4px; font-size: 10px; cursor: pointer; text-decoration: none; color: #333; margin-right: 3px; }
-        .tw-btn-eye:hover { background: #deb887; }
+        .tw-btn-eye, .tw-btn-troops { background: #f4e4bc; border: 1px solid #8c5f0d; border-radius: 2px; padding: 2px 4px; font-size: 10px; cursor: pointer; text-decoration: none; color: #333; margin-right: 2px; }
+        .tw-btn-eye:hover, .tw-btn-troops:hover { background: #deb887; }
+        .tw-btn-troops.active { background: #8c5f0d; color: #fff; }
         
         .tw-btn-copy { background: linear-gradient(to bottom, #3498db 0%, #2980b9 100%); color: #fff; border: 1px solid #1c5982; border-radius: 3px; padding: 2px 5px; font-size: 10px; cursor: pointer; font-weight: bold; }
         .tw-btn-copy:hover { background: linear-gradient(to bottom, #2980b9 0%, #1c5982 100%); }
+
+        /* Painel expansível de tropas */
+        .tw-troops-panel { display: none; background: #222426; color: #fff; padding: 5px; font-size: 10px; border-top: 1px dashed #555; }
+        .tw-troops-table { width: 100%; border-collapse: collapse; text-align: center; }
+        .tw-troops-table th, .tw-troops-table td { padding: 2px; white-space: nowrap; }
+        .tw-troops-table th { border-bottom: 1px solid #444; }
+        .tw-troops-table td { font-size: 9.5px; }
+        .tw-troops-lbl { font-weight: bold; text-align: left !important; color: #deb887; padding-right: 4px !important; font-size: 9px !important; }
+        .tw-troops-zero { color: #666; }
+        .tw-troops-val { color: #fff; font-weight: bold; }
     `;
     document.head.appendChild(style);
 
@@ -78,7 +90,7 @@
         else panel.style.left = '10px';
     }
     
-    panel.style.width = '330px'; 
+    panel.style.width = '350px'; 
     panel.style.maxHeight = 'calc(100vh - 170px)'; 
     panel.style.backgroundColor = '#e3d5b3';
     panel.style.border = '2px solid #8c5f0d';
@@ -120,6 +132,9 @@
     document.body.appendChild(panel);
 
     let allVillages = [];
+    let unitHeaders = []; // Guarda imagens dos tipos de unidades disponíveis no mundo
+    let openTroopPanels = new Set(); // Mantém abertos os painéis ao filtrar ou mover
+
     const urlParams = new URLSearchParams(window.location.search);
     let currentGroupId = urlParams.get('group') || '0'; 
     const listContainer = document.getElementById('tw-villages-list');
@@ -184,7 +199,6 @@
             } catch(e) {}
         }
 
-        // Se já existe ordem guardada e não foi pedido reset
         if (Array.isArray(savedOrder) && savedOrder.length > 0 && !forceFetch) {
             villagesList.sort((a, b) => {
                 let idxA = savedOrder.indexOf(String(a.id));
@@ -198,7 +212,6 @@
             return villagesList;
         }
 
-        // Lê dados de conquista do /map/conquer.txt
         const latestConquests = await fetchConquerMapData();
 
         if (latestConquests) {
@@ -210,14 +223,12 @@
                 if (latestConquests.has(strId)) {
                     conqueredList.push({ ...v, conquerTime: latestConquests.get(strId) });
                 } else {
-                    initialList.push({ ...v, conquerTime: 0 }); // Aldeia(s) fundada(s) / arranque
+                    initialList.push({ ...v, conquerTime: 0 });
                 }
             });
 
-            // Ordena conquistas por data ascendente (da mais antiga para a mais recente)
             conqueredList.sort((a, b) => a.conquerTime - b.conquerTime);
 
-            // Fundadas primeiro, seguidas pelas conquistadas em ordem cronológica
             const finalSorted = [...initialList, ...conqueredList];
             persistCurrentOrder(finalSorted);
             return finalSorted;
@@ -313,6 +324,9 @@
             count++;
             visibleCount++;
             
+            const container = document.createElement('div');
+            container.className = 'tw-village-container';
+
             const row = document.createElement('div');
             const rowClass = (visibleCount % 2 === 0) ? 'row_b' : 'row_a';
             
@@ -331,11 +345,13 @@
             }
 
             const posNumber = `#${index + 1}`;
+            const isTroopOpen = openTroopPanels.has(String(v.id));
 
             row.innerHTML = `
                 <div class="tw-village-info" title="${v.label}">
                     <span class="tw-village-pos">${posNumber}</span>
                     <a href="${goUrl}" class="tw-btn-eye" title="Ir para a aldeia">👁️</a>
+                    <button class="tw-btn-troops ${isTroopOpen ? 'active' : ''}" title="Ver Tropas">⚔️</button>
                     <input type="checkbox" class="tw-village-cb" data-coord="${v.coord}">
                     <span class="tw-village-name">${v.label}</span>
                 </div>
@@ -346,11 +362,64 @@
                 </div>
             `;
 
+            // Construção do painel retrátil de tropas
+            const troopPanel = document.createElement('div');
+            troopPanel.className = 'tw-troops-panel';
+            troopPanel.style.display = isTroopOpen ? 'block' : 'none';
+
+            if (unitHeaders.length > 0 && v.troops) {
+                let ths = unitHeaders.map(u => `<th><img src="${u.src}" width="14" height="14"></th>`).join('');
+                
+                let hereTds = v.troops.here.map(count => {
+                    const cClass = count === 0 ? 'tw-troops-zero' : 'tw-troops-val';
+                    return `<td class="${cClass}">${count}</td>`;
+                }).join('');
+
+                let totalTds = v.troops.total.map(count => {
+                    const cClass = count === 0 ? 'tw-troops-zero' : 'tw-troops-val';
+                    return `<td class="${cClass}">${count}</td>`;
+                }).join('');
+
+                troopPanel.innerHTML = `
+                    <table class="tw-troops-table">
+                        <thead>
+                            <tr>
+                                <th class="tw-troops-lbl">Tipo</th>
+                                ${ths}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td class="tw-troops-lbl" title="Tropas presentes na aldeia (próprias + apoios)">Na Aldeia:</td>
+                                ${hereTds}
+                            </tr>
+                            <tr>
+                                <td class="tw-troops-lbl" title="Total de tropas pertencentes a esta aldeia">Total:</td>
+                                ${totalTds}
+                            </tr>
+                        </tbody>
+                    </table>
+                `;
+            } else {
+                troopPanel.innerHTML = `<div style="text-align:center; color:#aaa; font-size:10px;">Sem dados de tropas disponíveis.</div>`;
+            }
+
+            // Ações de clique
             row.querySelector('.tw-village-info').addEventListener('click', (e) => {
-                if(e.target.closest('a')) return;
+                if(e.target.closest('a') || e.target.closest('.tw-btn-troops')) return;
                 if(e.target.type !== 'checkbox') {
                     const cb = row.querySelector('.tw-village-cb'); cb.checked = !cb.checked;
                 }
+            });
+
+            const btnTroops = row.querySelector('.tw-btn-troops');
+            btnTroops.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const willOpen = troopPanel.style.display === 'none';
+                troopPanel.style.display = willOpen ? 'block' : 'none';
+                btnTroops.classList.toggle('active', willOpen);
+                if (willOpen) openTroopPanels.add(String(v.id));
+                else openTroopPanels.delete(String(v.id));
             });
 
             row.querySelector('.tw-btn-up').addEventListener('click', (e) => {
@@ -367,7 +436,9 @@
                 e.stopPropagation(); copyText(e.currentTarget.getAttribute('data-coord'));
             });
 
-            listContainer.appendChild(row);
+            container.appendChild(row);
+            container.appendChild(troopPanel);
+            listContainer.appendChild(container);
         });
         
         if(count === 0) listContainer.innerHTML = '<div style="color:#a02c2c; text-align:center; padding: 20px 10px; font-weight: bold; font-size: 11px;">Nenhuma aldeia encontrada.</div>';
@@ -377,7 +448,8 @@
         const cacheData = {
             timestamp: Date.now(),
             villages: allVillages,
-            groupsHTML: groupsHTML
+            groupsHTML: groupsHTML,
+            unitHeaders: unitHeaders
         };
         localStorage.setItem(CACHE_PREFIX + groupId, JSON.stringify(cacheData));
     }
@@ -389,6 +461,7 @@
                 try {
                     const parsed = JSON.parse(cachedString);
                     if (Date.now() - parsed.timestamp < CACHE_TIME) {
+                        unitHeaders = parsed.unitHeaders || [];
                         allVillages = await applyConquestSorting(parsed.villages);
                         if (parsed.groupsHTML) {
                             groupSelect.innerHTML = parsed.groupsHTML;
@@ -403,125 +476,181 @@
             }
         }
 
-        listContainer.innerHTML = '<div style="text-align: center; margin-top: 20px; font-size: 11px; font-weight: bold; color: #603000;"><img src="https://dspt.innogamescdn.com/asset/876c6ddb/graphic/throbber.gif"><br>A analisar e ordenar conquistas...</div>';
+        listContainer.innerHTML = '<div style="text-align: center; margin-top: 20px; font-size: 11px; font-weight: bold; color: #603000;"><img src="https://dspt.innogamescdn.com/asset/876c6ddb/graphic/throbber.gif"><br>A analisar dados e tropas...</div>';
         
-        $.ajax({
-            url: `/game.php?screen=overview_villages&mode=prod&group=${groupId}&page=-1`,
-            type: 'GET',
-            cache: false, 
-            success: async function(data) {
-                try {
-                    const doc = new DOMParser().parseFromString(data, 'text/html');
-                    
-                    let groupsFound = new Map();
-                    groupsFound.set('0', 'Todos os grupos');
-                    
-                    doc.querySelectorAll('select[name="group_id"] option').forEach(opt => {
-                        let id = opt.value;
-                        let name = opt.textContent.trim().replace(/^\[|\]$/g, '');
-                        if(id && id !== '0' && name) groupsFound.set(id, name);
-                    });
-                    
-                    doc.querySelectorAll('.group-menu-item').forEach(link => {
-                        let id = link.getAttribute('data-group-id');
-                        let name = link.textContent.trim().replace(/^\[|\]$/g, '');
-                        if(id && id !== '0' && name) groupsFound.set(id, name);
-                    });
+        try {
+            // 1. Obter Produção e Tropas Totais em paralelo
+            const [prodHtml, unitsHtml] = await Promise.all([
+                $.ajax({ url: `/game.php?screen=overview_villages&mode=prod&group=${groupId}&page=-1`, type: 'GET', cache: false }),
+                $.ajax({ url: `/game.php?screen=overview_villages&mode=units&type=complete&group=${groupId}&page=-1`, type: 'GET', cache: false })
+            ]);
 
-                    let savedGroupsHTML = '';
-                    if (groupsFound.size > 1) {
-                        groupSelect.style.display = 'block';
-                        groupSelect.innerHTML = '';
-                        groupsFound.forEach((name, id) => {
-                            let sel = (id === groupId) ? 'selected' : '';
-                            savedGroupsHTML += `<option value="${id}" ${sel}>${name}</option>`;
-                        });
-                        groupSelect.innerHTML = savedGroupsHTML;
-                    }
+            const doc = new DOMParser().parseFromString(prodHtml, 'text/html');
+            const dUnits = new DOMParser().parseFromString(unitsHtml, 'text/html');
+            
+            // Leitura de Grupos
+            let groupsFound = new Map();
+            groupsFound.set('0', 'Todos os grupos');
+            
+            doc.querySelectorAll('select[name="group_id"] option').forEach(opt => {
+                let id = opt.value;
+                let name = opt.textContent.trim().replace(/^\[|\]$/g, '');
+                if(id && id !== '0' && name) groupsFound.set(id, name);
+            });
+            
+            doc.querySelectorAll('.group-menu-item').forEach(link => {
+                let id = link.getAttribute('data-group-id');
+                let name = link.textContent.trim().replace(/^\[|\]$/g, '');
+                if(id && id !== '0' && name) groupsFound.set(id, name);
+            });
 
-                    allVillages = [];
-                    doc.querySelectorAll('span.quickedit-vn').forEach(row => {
-                        const id = row.getAttribute('data-id');
-                        const label = row.querySelector('.quickedit-label').textContent.trim();
-                        const cMatch = label.match(/\d{3}\|\d{3}/);
-                        allVillages.push({ id, label, coord: cMatch ? cMatch[0] : '', isAtk: false, isDef: false });
-                    });
-                    
-                    // Ordena via /map/conquer.txt
-                    allVillages = await applyConquestSorting(allVillages, forceReload);
-                    renderVillages(); 
-
-                    if (groupId === '0' && groupsFound.size > 1) {
-                        let atkIds = [];
-                        let defIds = [];
-                        
-                        groupsFound.forEach((name, id) => {
-                            if (/\b(ataque|off|atk|ataq|limpeza)\b/i.test(name)) atkIds.push(id);
-                            if (/\b(defesa|def|apoio|blind)\b/i.test(name)) defIds.push(id);
-                        });
-
-                        let fetchPromises = [];
-
-                        atkIds.forEach(id => {
-                            fetchPromises.push($.ajax({
-                                url: `/game.php?screen=overview_villages&mode=prod&group=${id}&page=-1`,
-                                cache: false 
-                            }).then(html => {
-                                let tempDoc = new DOMParser().parseFromString(html, 'text/html');
-                                tempDoc.querySelectorAll('span.quickedit-vn').forEach(row => {
-                                    let v = allVillages.find(village => village.id === row.getAttribute('data-id'));
-                                    if (v) v.isAtk = true;
-                                });
-                            }));
-                        });
-
-                        defIds.forEach(id => {
-                            fetchPromises.push($.ajax({
-                                url: `/game.php?screen=overview_villages&mode=prod&group=${id}&page=-1`,
-                                cache: false 
-                            }).then(html => {
-                                let tempDoc = new DOMParser().parseFromString(html, 'text/html');
-                                tempDoc.querySelectorAll('span.quickedit-vn').forEach(row => {
-                                    let v = allVillages.find(village => village.id === row.getAttribute('data-id'));
-                                    if (v) v.isDef = true;
-                                });
-                            }));
-                        });
-
-                        if (fetchPromises.length > 0) {
-                            Promise.all(fetchPromises).then(() => {
-                                renderVillages(); 
-                                saveToCache(groupId, savedGroupsHTML); 
-                                
-                                $.ajax({
-                                    url: `/game.php?screen=overview_villages&mode=prod&group=${groupId}&page=-1`,
-                                    type: 'GET',
-                                    cache: false 
-                                });
-                                showNotification("Dados atualizados e memorizados!");
-                            });
-                        } else {
-                            saveToCache(groupId, savedGroupsHTML);
-                        }
-                    } else {
-                        saveToCache(groupId, savedGroupsHTML);
-                        if(forceReload) showNotification("Dados atualizados e memorizados!");
-                    }
-
-                } catch(err) {
-                    listContainer.innerHTML = '<div style="color:#a02c2c; text-align:center; padding: 20px; font-weight: bold; font-size: 11px;">Erro ao processar dados.</div>';
-                }
-            },
-            error: function() {
-                listContainer.innerHTML = '<div style="color:#a02c2c; text-align:center; padding: 20px; font-weight: bold; font-size: 11px;">Erro de ligação.</div>';
+            let savedGroupsHTML = '';
+            if (groupsFound.size > 1) {
+                groupSelect.style.display = 'block';
+                groupSelect.innerHTML = '';
+                groupsFound.forEach((name, id) => {
+                    let sel = (id === groupId) ? 'selected' : '';
+                    savedGroupsHTML += `<option value="${id}" ${sel}>${name}</option>`;
+                });
+                groupSelect.innerHTML = savedGroupsHTML;
             }
-        });
+
+            // Parser de Tropas (Cabeçalhos e Contagens)
+            const unitsTable = dUnits.querySelector('#units_table');
+            const troopsMap = {};
+
+            if (unitsTable) {
+                const headerThs = Array.from(unitsTable.querySelectorAll('thead th')).filter(th => th.querySelector('img[src*="unit_"]'));
+                
+                unitHeaders = headerThs.map(th => {
+                    const img = th.querySelector('img');
+                    const isMilitia = img.src.includes('militia');
+                    const isHidden = th.classList.contains('hidden') || th.style.display === 'none' || isMilitia;
+                    return { src: img.src, isHidden: isHidden };
+                }).filter(u => !u.isHidden);
+
+                Array.from(unitsTable.querySelectorAll('tbody')).forEach(tb => {
+                    const anchor = tb.querySelector('a[href*="village="]');
+                    if (!anchor) return;
+                    const match = anchor.href.match(/village=(\d+)/);
+                    if (!match) return;
+                    const vId = match[1];
+
+                    const rows = Array.from(tb.querySelectorAll('tr'));
+                    
+                    // Linha 1: Na Aldeia (próprias + apoio)
+                    let hereRow = rows.find(tr => {
+                        const td = tr.querySelector('td');
+                        return td && /(na aldeia|im dorf|in the village|no próprio|en la aldea)/i.test(td.textContent);
+                    }) || rows[0];
+
+                    // Linha Total: Tropas totais
+                    let totalRow = rows.find(tr => {
+                        const td = tr.querySelector('td');
+                        return td && /(total|gesamt)/i.test(td.textContent);
+                    }) || rows[rows.length - 1];
+
+                    const hereCells = Array.from(hereRow.querySelectorAll('td.unit-item'));
+                    const totalCells = Array.from(totalRow.querySelectorAll('td.unit-item'));
+
+                    const hereUnits = [];
+                    const totalUnits = [];
+
+                    headerThs.forEach((th, i) => {
+                        const img = th.querySelector('img');
+                        if (img.src.includes('militia') || th.classList.contains('hidden') || th.style.display === 'none') return;
+
+                        const hCell = hereCells[i];
+                        const tCell = totalCells[i];
+
+                        hereUnits.push(hCell ? (parseInt(hCell.textContent.replace(/\./g, '').trim(), 10) || 0) : 0);
+                        totalUnits.push(tCell ? (parseInt(tCell.textContent.replace(/\./g, '').trim(), 10) || 0) : 0);
+                    });
+
+                    troopsMap[vId] = { here: hereUnits, total: totalUnits };
+                });
+            }
+
+            allVillages = [];
+            doc.querySelectorAll('span.quickedit-vn').forEach(row => {
+                const id = row.getAttribute('data-id');
+                const label = row.querySelector('.quickedit-label').textContent.trim();
+                const cMatch = label.match(/\d{3}\|\d{3}/);
+                allVillages.push({ 
+                    id, 
+                    label, 
+                    coord: cMatch ? cMatch[0] : '', 
+                    isAtk: false, 
+                    isDef: false,
+                    troops: troopsMap[id] || { here: [], total: [] }
+                });
+            });
+            
+            // Ordenar via /map/conquer.txt
+            allVillages = await applyConquestSorting(allVillages, forceReload);
+            renderVillages(); 
+
+            // Grupos dinâmicos de Atk / Def para colorir
+            if (groupId === '0' && groupsFound.size > 1) {
+                let atkIds = [];
+                let defIds = [];
+                
+                groupsFound.forEach((name, id) => {
+                    if (/\b(ataque|off|atk|ataq|limpeza)\b/i.test(name)) atkIds.push(id);
+                    if (/\b(defesa|def|apoio|blind)\b/i.test(name)) defIds.push(id);
+                });
+
+                let fetchPromises = [];
+
+                atkIds.forEach(id => {
+                    fetchPromises.push($.ajax({
+                        url: `/game.php?screen=overview_villages&mode=prod&group=${id}&page=-1`,
+                        cache: false 
+                    }).then(html => {
+                        let tempDoc = new DOMParser().parseFromString(html, 'text/html');
+                        tempDoc.querySelectorAll('span.quickedit-vn').forEach(row => {
+                            let v = allVillages.find(village => village.id === row.getAttribute('data-id'));
+                            if (v) v.isAtk = true;
+                        });
+                    }));
+                });
+
+                defIds.forEach(id => {
+                    fetchPromises.push($.ajax({
+                        url: `/game.php?screen=overview_villages&mode=prod&group=${id}&page=-1`,
+                        cache: false 
+                    }).then(html => {
+                        let tempDoc = new DOMParser().parseFromString(html, 'text/html');
+                        tempDoc.querySelectorAll('span.quickedit-vn').forEach(row => {
+                            let v = allVillages.find(village => village.id === row.getAttribute('data-id'));
+                            if (v) v.isDef = true;
+                        });
+                    }));
+                });
+
+                if (fetchPromises.length > 0) {
+                    Promise.all(fetchPromises).then(() => {
+                        renderVillages(); 
+                        saveToCache(groupId, savedGroupsHTML); 
+                        showNotification("Dados e tropas carregados com sucesso!");
+                    });
+                } else {
+                    saveToCache(groupId, savedGroupsHTML);
+                }
+            } else {
+                saveToCache(groupId, savedGroupsHTML);
+                if(forceReload) showNotification("Dados e tropas atualizados!");
+            }
+
+        } catch(err) {
+            listContainer.innerHTML = '<div style="color:#a02c2c; text-align:center; padding: 20px; font-weight: bold; font-size: 11px;">Erro ao processar dados de tropas.</div>';
+        }
     }
 
     document.getElementById('tw-select-all').addEventListener('change', (e) => {
         const isChecked = e.target.checked;
         document.querySelectorAll('.tw-village-cb').forEach(cb => {
-            if(cb.closest('.tw-village-row').style.display !== 'none') cb.checked = isChecked;
+            if(cb.closest('.tw-village-container').style.display !== 'none') cb.checked = isChecked;
         });
     });
 
