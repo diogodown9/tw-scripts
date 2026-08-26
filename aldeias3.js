@@ -2,7 +2,7 @@
     'use strict';
 
     const PANEL_ID = 'tw-left-villages-panel';
-    const CACHE_PREFIX = 'tw-villages-cache-v12_';
+    const CACHE_PREFIX = 'tw-villages-cache-v13_';
     const CACHE_TIME = 60 * 60 * 1000; // 1 hora de memória
     
     // Identificador único por mundo e jogador
@@ -107,7 +107,7 @@
                     <input type="checkbox" id="tw-select-all" style="margin: 0 4px 0 0; width: 12px; height: 12px;"> Todas
                 </label>
                 <div style="display: flex; gap: 4px;">
-                    <button id="tw-reset-order" title="Sincronizar com histórico real de conquistas" style="background: linear-gradient(to bottom, #d9534f 0%, #c9302c 100%); color: white; border: 1px solid #ac2925; border-radius: 3px; padding: 2px 5px; font-size: 10px; cursor: pointer; font-weight: bold;">↺ Conquista</button>
+                    <button id="tw-reset-order" title="Sincronizar com histórico real de conquistas do perfil" style="background: linear-gradient(to bottom, #d9534f 0%, #c9302c 100%); color: white; border: 1px solid #ac2925; border-radius: 3px; padding: 2px 5px; font-size: 10px; cursor: pointer; font-weight: bold;">↺ Conquista</button>
                     <button id="tw-copy-selected" style="background: linear-gradient(to bottom, #5cb85c 0%, #449d44 100%); color: white; border: 1px solid #398439; border-radius: 3px; padding: 2px 6px; font-size: 10px; cursor: pointer; font-weight: bold;">Copiar</button>
                 </div>
             </div>
@@ -145,50 +145,49 @@
         renderVillages();
     }
 
-    // OBTENÇÃO DA CRONOLOGIA REAL DE CONQUISTA
+    // OBTENÇÃO DA CRONOLOGIA REAL VIA HISTÓRICO DO PERFIL DO JOGADOR
     function fetchRealConquestOrder() {
         return new Promise((resolve) => {
+            const pId = (window.game_data && window.game_data.player) ? window.game_data.player.id : null;
+            if (!pId) return resolve(null);
+
             $.ajax({
-                url: `/game.php?screen=report&mode=all&type=conquer&page=-1`,
+                url: `/game.php?screen=info_player&mode=conquer&id=${pId}`,
                 type: 'GET',
                 cache: false,
                 success: function(data) {
                     try {
                         const doc = new DOMParser().parseFromString(data, 'text/html');
-                        let conquerEvents = []; // Guarda { coord, timestamp }
+                        let conquerRows = [];
+                        const myName = (window.game_data && window.game_data.player) ? window.game_data.player.name : '';
 
-                        doc.querySelectorAll('#report_list tr').forEach(tr => {
-                            const link = tr.querySelector('.report-link');
-                            const dateTd = tr.querySelectorAll('td')[1];
-                            if (!link) return;
+                        doc.querySelectorAll('table.vis tr').forEach(tr => {
+                            const tds = tr.querySelectorAll('td');
+                            if (tds.length >= 4) {
+                                const villageLink = tds[0].querySelector('a');
+                                const newOwner = tds[3].textContent.trim();
+                                const isMine = myName ? newOwner.includes(myName) : true;
 
-                            const text = link.textContent;
-                            // Filtro de conquistas bem sucedidas (noblagens)
-                            if (/(conquistou|nobled|erovert|geadelt|adelt)/i.test(text) || text.includes('(')) {
-                                const coordMatch = text.match(/\d{3}\|\d{3}/);
-                                if (coordMatch) {
-                                    let timeVal = 0;
-                                    if (dateTd) {
-                                        const parsedDate = Date.parse(dateTd.textContent.trim());
-                                        timeVal = isNaN(parsedDate) ? 0 : parsedDate;
+                                if (villageLink && isMine) {
+                                    const coordMatch = villageLink.textContent.match(/\d{3}\|\d{3}/);
+                                    if (coordMatch) {
+                                        conquerRows.push(coordMatch[0]);
                                     }
-                                    conquerEvents.push({ coord: coordMatch[0], time: timeVal });
                                 }
                             }
                         });
 
-                        // Ordenar do relatório mais antigo para o mais recente
-                        conquerEvents.sort((a, b) => a.time - b.time);
-                        
-                        // Extrair ordem cronológica única de coordenadas
-                        const chronCoords = [];
-                        conquerEvents.forEach(ev => {
-                            if (!chronCoords.includes(ev.coord)) {
-                                chronCoords.push(ev.coord);
+                        // Inverter a lista do perfil (que vem da mais recente para a mais antiga)
+                        conquerRows.reverse();
+
+                        const chronologicalCoords = [];
+                        conquerRows.forEach(coord => {
+                            if (!chronologicalCoords.includes(coord)) {
+                                chronologicalCoords.push(coord);
                             }
                         });
 
-                        resolve(chronCoords);
+                        resolve(chronologicalCoords);
                     } catch (e) {
                         resolve(null);
                     }
@@ -209,8 +208,7 @@
             } catch(e) {}
         }
 
-        // Se já existir ordem guardada e válida
-        if (Array.isArray(savedOrder) && savedOrder.length > 0) {
+        if (Array.isArray(savedOrder) && savedOrder.length > 0 && !forceFetch) {
             villagesList.sort((a, b) => {
                 let idxA = savedOrder.indexOf(String(a.id));
                 let idxB = savedOrder.indexOf(String(b.id));
@@ -218,21 +216,19 @@
                 if (idxA !== -1 && idxB !== -1) return idxA - idxB;
                 if (idxA !== -1) return -1;
                 if (idxB !== -1) return 1;
-                return 0; // Mantém fallback seguro
+                return 0;
             });
             return villagesList;
         }
 
-        // Caso contrário, procura os relatórios de conquista do jogador
-        const chronCoords = await fetchRealConquestOrder();
+        const conquestCoords = await fetchRealConquestOrder();
 
-        if (chronCoords && chronCoords.length > 0) {
-            // As aldeias que NÃO aparecem nos relatórios de conquista são as FUNDADAS / ORIGINAIS
+        if (conquestCoords && conquestCoords.length > 0) {
             const founded = [];
             const conquered = [];
 
             villagesList.forEach(v => {
-                const cIdx = chronCoords.indexOf(v.coord);
+                const cIdx = conquestCoords.indexOf(v.coord);
                 if (cIdx === -1) {
                     founded.push(v);
                 } else {
@@ -240,16 +236,13 @@
                 }
             });
 
-            // Ordena as conquistadas pela data do relatório
             conquered.sort((a, b) => a.orderIndex - b.orderIndex);
 
-            // Junta: 1º Fundadas, 2º Conquistadas por antiguidade
-            const sortedList = [...founded, ...conquered.map(item => item.village)];
-            persistCurrentOrder(sortedList);
-            return sortedList;
+            const finalSorted = [...founded, ...conquered.map(item => item.village)];
+            persistCurrentOrder(finalSorted);
+            return finalSorted;
         }
 
-        // Fallback: se não encontrar relatórios, preserva a lista recebida
         persistCurrentOrder(villagesList);
         return villagesList;
     }
@@ -293,7 +286,7 @@
 
     document.getElementById('tw-reset-order').addEventListener('click', async () => {
         if (!confirm('Desejas reanalisar o histórico e repor a ordem real de conquista?')) return;
-        showNotification('A analisar conquistas...', 'success');
+        showNotification('A obter conquistas...', 'success');
         allVillages = await applyConquestSorting(allVillages, true);
         renderVillages();
         showNotification('Ordem de conquista recalculada!');
@@ -474,7 +467,6 @@
                         allVillages.push({ id, label, coord: cMatch ? cMatch[0] : '', isAtk: false, isDef: false });
                     });
                     
-                    // Aplica a ordem cronológica real de conquista
                     allVillages = await applyConquestSorting(allVillages, forceReload);
                     renderVillages(); 
 
