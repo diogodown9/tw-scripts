@@ -67,8 +67,7 @@
         .tw-btn-page:hover:not(:disabled) { background: #3a3e41; border-color: #7fbfff; color: #fff; }
         .tw-btn-page:disabled { opacity: 0.3; cursor: not-allowed; }
         
-        /* Layout do Contador */
-        .tw-counter-grid { display: grid; grid-template-columns: 1.2fr 1fr; gap: 20px; height: 100%; overflow-y: auto; }
+        .tw-counter-grid { display: grid; grid-template-columns: 1.15fr 1fr; gap: 20px; height: 100%; overflow-y: auto; }
         .tw-card { background: #1c1f21; border: 1px solid #2e3235; border-radius: 8px; padding: 12px 16px; margin-bottom: 12px; }
         .tw-card-title { font-weight: bold; color: #e5c07b; margin-bottom: 8px; font-size: 13px; border-bottom: 1px solid #2e3235; padding-bottom: 4px; }
         .tw-category-link { color: #7fbfff; text-decoration: none; cursor: pointer; font-weight: 500; }
@@ -89,12 +88,12 @@
     ui.id = uiId;
     ui.innerHTML = `
         <div class="tw-ui-header">
-            <div class="tw-ui-title" id="tw-ui-title"><div class="tw-spinner"></div> A compilar império, tropas e dados globais...</div>
+            <div class="tw-ui-title" id="tw-ui-title"><div class="tw-spinner"></div> A compilar império e tropas...</div>
             <span class="tw-ui-close" id="tw-ui-close-btn">&times;</span>
         </div>
         <div class="tw-tabs" id="tw-tabs-bar" style="display:none;">
             <button class="tw-tab-btn active" id="btn-tab-overview">📊 Visão Geral por Aldeia</button>
-            <button class="tw-tab-btn" id="btn-tab-counter">⚔️ Contador & Grupos de Ataque/Defesa</button>
+            <button class="tw-tab-btn" id="btn-tab-counter">⚔️ Contador & Grupos de Tropas</button>
         </div>
         <div id="tw-ui-content" style="flex-grow:1; display:flex; flex-direction:column; overflow:hidden;">
             <div style="text-align:center; padding: 40px; color:#888;">A carregar dados do mundo e aldeias...</div>
@@ -126,13 +125,26 @@
 
     let allVillages = [];
     let unitConfigs = [];
-    let unitPopMap = {};
-    let unitNames = [];
     let currentPage = 1;
     let totalPages = 1;
     let activeTab = 'overview';
     const itemsPerPage = 10;
     let counterSummaryData = null;
+
+    // População oficial por unidade no TW
+    const defaultUnitPop = {
+        spear: 1, sword: 1, axe: 1, archer: 1, spy: 2,
+        light: 4, marcher: 5, heavy: 6, ram: 5, catapult: 8,
+        knight: 10, snob: 100, militia: 0
+    };
+
+    const unitNamesPt = {
+        spear: 'Lanceiros', sword: 'Espadachins', axe: 'Víkings',
+        archer: 'Arqueiros', spy: 'Batedores', light: 'Cavalaria Leve',
+        marcher: 'Arqueiros a Cavalo', heavy: 'Cavalaria Pesada',
+        ram: 'Aríetes', catapult: 'Catapultas', knight: 'Paladino',
+        snob: 'Nobres', militia: 'Milícia'
+    };
 
     const farmCapacities = [
         240, 281, 329, 386, 452, 530, 622, 729, 854, 1002,
@@ -161,7 +173,6 @@
         return ids;
     }
 
-    // Estrutura de categorias de tropas do Troops Counter
     const outputCategories = {
         'Full Train Nuke': { group: 'Nobres', desc: 'Full Train Nukes', criteria: [{ unit: 'snob', minpop: 400 }, { unit: 'offense', minpop: 19600 }] },
         'Full Defense Train': { group: 'Nobres', desc: 'Full Defense Trains', criteria: [{ unit: 'snob', minpop: 400 }, { unit: 'defense', minpop: 19600 }] },
@@ -186,27 +197,24 @@
         'Other': { group: 'Outras', desc: 'Em Desenvolvimento (<5k)', criteria: [{ unit: 'snob', maxpop: 100 }, { unit: 'spy', maxpop: 5000 }, { unit: 'defense', maxpop: 5000 }, { unit: 'offense', maxpop: 5000 }] }
     };
 
-    const defTypes = ['spear', 'sword', 'heavy', 'catapult', 'archer', 'militia'];
-    const offTypes = ['axe', 'light', 'ram', 'catapult', 'marcher'];
+    const defUnits = ['spear', 'sword', 'heavy', 'catapult', 'archer', 'militia'];
+    const offUnits = ['axe', 'light', 'ram', 'catapult', 'marcher'];
+
+    function parseUnitType(src) {
+        const m = src.match(/unit_([a-z_]+)\.png/i);
+        return m ? m[1].toLowerCase() : '';
+    }
 
     async function loadGlobalData() {
         try {
             const baseUrl = game_data.link_base_pure;
             
-            const [resUnits, resProd, resAtaque, resDefesa, resUnitInfo] = await Promise.all([
+            const [resUnits, resProd, resAtaque, resDefesa] = await Promise.all([
                 fetch(baseUrl + 'overview_villages&mode=units&type=complete&group=0&page=-1').then(r => r.text()),
                 fetch(baseUrl + 'overview_villages&mode=prod&group=0&page=-1').then(r => r.text()),
                 fetch(baseUrl + 'overview_villages&mode=units&type=complete&group=67279&page=-1').then(r => r.text()).catch(() => ''),
-                fetch(baseUrl + 'overview_villages&mode=units&type=complete&group=67280&page=-1').then(r => r.text()).catch(() => ''),
-                fetch('/interface.php?func=get_unit_info').then(r => r.text())
+                fetch(baseUrl + 'overview_villages&mode=units&type=complete&group=67280&page=-1').then(r => r.text()).catch(() => '')
             ]);
-            
-            // Populações das unidades
-            const xmlDoc = new DOMParser().parseFromString(resUnitInfo, 'text/xml');
-            xmlDoc.querySelectorAll('config > *').forEach(node => {
-                const popNode = node.querySelector('pop');
-                unitPopMap[node.nodeName] = popNode ? parseInt(popNode.textContent, 10) : 1;
-            });
 
             const parser = new DOMParser();
             const dU = parser.parseFromString(resUnits, 'text/html');
@@ -244,25 +252,21 @@
             const unitsTable = dU.querySelector('#units_table');
             if (!unitsTable) throw new Error("Tabela de tropas não encontrada.");
 
-            const headers = Array.from(unitsTable.querySelectorAll('thead th')).filter(th => th.querySelector('img[src*="unit_"]'));
+            const rawHeaders = Array.from(unitsTable.querySelectorAll('thead th')).filter(th => th.querySelector('img[src*="unit_"]'));
             
             unitConfigs = [];
-            unitNames = [];
-            headers.forEach(th => {
+            rawHeaders.forEach(th => {
                 const img = th.querySelector('img');
                 const src = img.src;
-                const unitMatch = src.match(/unit_([a-z]+)\.png/);
-                const uName = unitMatch ? unitMatch[1] : '';
-                const isMilitia = src.includes('militia');
+                const uName = parseUnitType(src);
+                const isMilitia = uName === 'militia';
                 const isHidden = th.classList.contains('hidden') || th.style.display === 'none' || isMilitia;
                 
-                unitNames.push(uName);
                 unitConfigs.push({ name: uName, src: src, isHidden: isHidden });
             });
 
             allVillages = [];
             
-            // Inicializar resumo do Troops Counter
             const summary = {
                 totalPop: 0,
                 totalCount: 0,
@@ -270,9 +274,10 @@
                 categories: {}
             };
             
-            unitNames.forEach(u => {
-                summary.units[u] = { count: 0, pop: 0 };
+            unitConfigs.forEach(u => {
+                if (u.name) summary.units[u.name] = { count: 0, pop: 0, src: u.src };
             });
+
             Object.keys(outputCategories).forEach(cat => {
                 summary.categories[cat] = { count: 0, coords: [] };
             });
@@ -297,35 +302,35 @@
                 const unitCells = Array.from(totalRow.querySelectorAll('td.unit-item'));
                 if (unitCells.length === 0) return;
 
-                const troops = [];
+                const villageTroops = [];
                 const vTotals = { defense: 0, offense: 0, spy: 0, snob: 0, catapult: 0 };
 
-                headers.forEach((th, i) => {
-                    const uName = unitNames[i];
+                unitConfigs.forEach((u, i) => {
+                    const uName = u.name;
                     const cell = unitCells[i];
-                    const count = (cell && !cell.classList.contains('hidden')) ? (parseInt(cell.textContent.replace(/\./g, '').trim()) || 0) : 0;
+                    const count = (cell && !cell.classList.contains('hidden')) ? (parseInt(cell.textContent.replace(/\./g, '').trim(), 10) || 0) : 0;
                     
-                    if (!unitConfigs[i].isHidden) troops.push(count);
+                    if (!u.isHidden) villageTroops.push(count);
 
-                    const popMultiplier = unitPopMap[uName] || 1;
-                    const popTotal = count * popMultiplier;
+                    if (uName && summary.units[uName]) {
+                        const popCost = defaultUnitPop[uName] || 1;
+                        const popTotal = count * popCost;
 
-                    if (summary.units[uName]) {
                         summary.units[uName].count += count;
                         summary.units[uName].pop += popTotal;
-                    }
-                    summary.totalCount += count;
-                    summary.totalPop += popTotal;
 
-                    // Acumuladores locais da aldeia
-                    if (defTypes.includes(uName)) vTotals.defense += popTotal;
-                    if (offTypes.includes(uName)) vTotals.offense += popTotal;
-                    if (uName === 'spy') vTotals.spy += popTotal;
-                    if (uName === 'snob') vTotals.snob += popTotal;
-                    if (uName === 'catapult') vTotals.catapult += popTotal;
+                        summary.totalCount += count;
+                        summary.totalPop += popTotal;
+
+                        if (defUnits.includes(uName)) vTotals.defense += popTotal;
+                        if (offUnits.includes(uName)) vTotals.offense += popTotal;
+                        if (uName === 'spy') vTotals.spy += popTotal;
+                        if (uName === 'snob') vTotals.snob += popTotal;
+                        if (uName === 'catapult') vTotals.catapult += popTotal;
+                    }
                 });
 
-                // Classificar nos grupos de Nukes / Defesa
+                // Classificação da aldeia
                 for (const [catName, catData] of Object.entries(outputCategories)) {
                     let valid = true;
                     for (const crit of catData.criteria) {
@@ -345,7 +350,7 @@
                 if (ataqueIds.has(vId)) rowClass = 'tw-row-ataque';
                 else if (defesaIds.has(vId)) rowClass = 'tw-row-defesa';
 
-                allVillages.push({ id: vId, name: vName, coords, farm, troops, rowClass });
+                allVillages.push({ id: vId, name: vName, coords, farm, troops: villageTroops, rowClass });
             });
 
             counterSummaryData = summary;
@@ -372,7 +377,7 @@
             document.getElementById('tw-ui-title').innerHTML = `📊 Visão Geral (${allVillages.length} aldeias)`;
             renderOverviewPage(currentPage);
         } else {
-            document.getElementById('tw-ui-title').innerHTML = '⚔️ Contador de Tropas & Categorias';
+            document.getElementById('tw-ui-title').innerHTML = '⚔️ Contador de Tropas & Grupos';
             renderCounterTab();
         }
     }
@@ -438,7 +443,6 @@
         const playerPts = parseInt(game_data.player.points, 10) || 1;
         const ratio = (s.totalPop / playerPts).toFixed(2);
 
-        // Agrupar por categoria principal
         const groups = { 'Nobres': [], 'Ataque': [], 'Defesa': [], 'Exploração': [], 'Outras': [] };
         for (const [key, val] of Object.entries(outputCategories)) {
             groups[val.group].push({ key, desc: val.desc, count: s.categories[key].count, coords: s.categories[key].coords });
@@ -447,7 +451,6 @@
         let html = `
             <div class="tw-tab-content active">
                 <div class="tw-counter-grid">
-                    <!-- Coluna da Esquerda: Categorias e Coordenadas -->
                     <div style="display:flex; flex-direction:column; gap:10px;">
                         <div class="tw-card" style="margin-bottom:0;">
                             <div style="display:flex; justify-content:space-between; font-size:13px; margin-bottom:8px;">
@@ -465,7 +468,7 @@
             html += `<div class="tw-card-title">${grpTitle}</div>
                      <table style="width:100%; font-size:13px; margin-bottom:12px;">`;
             items.forEach(it => {
-                const countStyle = it.count > 0 ? 'color:#fff; font-weight:bold;' : 'color:#666;';
+                const countStyle = it.count > 0 ? 'color:#55ff55; font-weight:bold;' : 'color:#555;';
                 html += `<tr>
                     <td style="padding:3px 0;">
                         <a href="javascript:void(0);" class="tw-category-link" data-cat="${it.key}">» ${it.desc}</a>
@@ -484,26 +487,27 @@
                         </div>
                     </div>
 
-                    <!-- Coluna da Direita: Totais por Unidade -->
                     <div style="display:flex; flex-direction:column; gap:10px; overflow-y:auto;">
                         <div class="tw-card">
                             <div class="tw-card-title">Contagem Total por Unidade</div>
                             <table style="width:100%; font-size:13px;">
                                 <thead>
                                     <tr style="color:#888; border-bottom:1px solid #333;">
-                                        <th style="text-align:left; padding-bottom:4px;">Unidade</th>
-                                        <th style="text-align:right; padding-bottom:4px;">Qtd</th>
-                                        <th style="text-align:right; padding-bottom:4px;">População</th>
+                                        <th style="text-align:left; padding-bottom:6px;">Unidade</th>
+                                        <th style="text-align:right; padding-bottom:6px;">Quantidade</th>
+                                        <th style="text-align:right; padding-bottom:6px;">População</th>
                                     </tr>
                                 </thead>
                                 <tbody>`;
         
         unitConfigs.forEach(u => {
-            const uData = s.units[u.name] || { count: 0, pop: 0 };
+            const uData = s.units[u.name];
+            if (!uData) return;
             const countClass = uData.count > 0 ? 'color:#fff; font-weight:bold;' : 'color:#555;';
+            const label = unitNamesPt[u.name] || u.name;
             html += `<tr>
-                <td style="padding:4px 0; text-align:left; display:flex; align-items:center; gap:6px;">
-                    <img src="${u.src}"> <span style="text-transform:capitalize;">${u.name}</span>
+                <td style="padding:4px 0; text-align:left; display:flex; align-items:center; gap:8px;">
+                    <img src="${u.src}"> <span>${label}</span>
                 </td>
                 <td style="text-align:right; ${countClass}">${uData.count.toLocaleString('pt-PT')}</td>
                 <td style="text-align:right; color:#a8a095;">${uData.pop.toLocaleString('pt-PT')}</td>
@@ -520,7 +524,6 @@
 
         document.getElementById('tw-ui-content').innerHTML = html;
 
-        // Adicionar eventos de clique para copiar/selecionar coordenadas
         document.querySelectorAll('.tw-category-link').forEach(link => {
             link.onclick = (e) => {
                 const catKey = e.currentTarget.getAttribute('data-cat');
