@@ -134,7 +134,6 @@
     let counterSummaryData = null;
     let selectedCatKey = null;
 
-    // Velocidade base em minutos por campo
     const unitSpeedMinutes = {
         spy: 9, light: 10, heavy: 11, axe: 18, sword: 22,
         spear: 18, archer: 18, marcher: 10, ram: 30, catapult: 30,
@@ -444,9 +443,7 @@
                 return { coord, dist, timeStr: formatDuration(totalSeconds) };
             });
 
-            // Ordena da mais próxima para a mais distante
             listWithDist.sort((a, b) => a.dist - b.dist);
-
             lines = listWithDist.map(item => `${item.coord} - ${item.dist.toFixed(1)} campos (${item.timeStr})`);
             label.innerHTML = `Alvo: <b style="color:#7fbfff;">${target}</b> | ${outputCategories[selectedCatKey].desc} (${catObj.coords.length})`;
         } else {
@@ -481,7 +478,6 @@
                             </div>
                         </div>
 
-                        <!-- Painel Tático de Distância ao Alvo -->
                         <div class="tw-card" style="margin-bottom:0; background:#181b1d;">
                             <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:6px;">
                                 <div style="display:flex; align-items:center; gap:6px;">
@@ -576,10 +572,27 @@
         document.getElementById('tw-target-coord').oninput = updateTargetCalculations;
         document.getElementById('tw-target-unit').onchange = updateTargetCalculations;
 
+        // Copia estritamente as coordenadas limpas separadas por espaço
         document.getElementById('tw-btn-copy-coords').onclick = () => {
             const box = document.getElementById('tw-coords-output');
             if (!box.value) return;
-            navigator.clipboard.writeText(box.value).then(() => {
+            
+            const rawText = box.value;
+            const matchedCoords = rawText.match(/\d{3}\|\d{3}/g);
+            if (!matchedCoords || matchedCoords.length === 0) return;
+
+            const targetInput = document.getElementById('tw-target-coord');
+            const targetVal = targetInput ? targetInput.value.trim() : '';
+
+            // Se havia um alvo inserido, o primeiro match capturado é o próprio alvo se estiver na label; filtramos se necessário
+            let finalCoords = matchedCoords;
+            if (rawText.includes(' - ') && /^\d{3}\|\d{3}$/.test(targetVal)) {
+                finalCoords = matchedCoords.filter(c => c !== targetVal || rawText.startsWith(c));
+            }
+
+            const cleanCoordsStr = finalCoords.join(' ');
+
+            navigator.clipboard.writeText(cleanCoordsStr).then(() => {
                 const btn = document.getElementById('tw-btn-copy-coords');
                 btn.innerText = 'Copiado!';
                 btn.style.color = '#55ff55';
