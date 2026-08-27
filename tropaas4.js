@@ -67,11 +67,16 @@
         .tw-counter-grid::-webkit-scrollbar-thumb { background: #444; border-radius: 3px; }
         
         .tw-card { background: #1c1f21; border: 1px solid #2e3235; border-radius: 8px; padding: 12px 16px; margin-bottom: 12px; }
-        .tw-card-title { font-weight: bold; color: #e5c07b; margin-bottom: 8px; font-size: 13px; border-bottom: 1px solid #2e3235; padding-bottom: 4px; }
+        .tw-card-title { font-weight: bold; color: #e5c07b; margin-bottom: 8px; font-size: 13px; border-bottom: 1px solid #2e3235; padding-bottom: 4px; display: flex; justify-content: space-between; align-items: center; }
         .tw-category-link { color: #7fbfff; text-decoration: none; cursor: pointer; font-weight: 500; }
         .tw-category-link:hover { text-decoration: underline; color: #fff; }
-        .tw-coords-box { width: 100%; height: 65px; background: #111; border: 1px solid #3a3e41; color: #98c379; font-family: monospace; font-size: 12px; padding: 8px; border-radius: 6px; box-sizing: border-box; resize: none; }
+        .tw-coords-box { width: 100%; height: 85px; background: #111; border: 1px solid #3a3e41; color: #98c379; font-family: monospace; font-size: 12px; padding: 8px; border-radius: 6px; box-sizing: border-box; resize: none; }
         
+        .tw-target-input { background: #111; border: 1px solid #444; color: #fff; padding: 4px 8px; border-radius: 4px; width: 90px; font-size: 12px; text-align: center; }
+        .tw-target-select { background: #111; border: 1px solid #444; color: #fff; padding: 3px 6px; border-radius: 4px; font-size: 12px; }
+        .tw-btn-copy { background: #2a2d30; color: #7fbfff; border: 1px solid #444; padding: 3px 8px; border-radius: 4px; font-size: 11px; cursor: pointer; font-weight: bold; transition: 0.2s; }
+        .tw-btn-copy:hover { background: #7fbfff; color: #111; }
+
         .tw-spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid rgba(255,255,255,.3); border-radius: 50%; border-top-color: #fff; animation: spin 0.8s linear infinite; }
         @keyframes spin { to { transform: rotate(360deg); } }
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
@@ -91,7 +96,7 @@
         </div>
         <div class="tw-tabs" id="tw-tabs-bar" style="display:none;">
             <button class="tw-tab-btn active" id="btn-tab-overview">📊 Visão Geral por Aldeia</button>
-            <button class="tw-tab-btn" id="btn-tab-counter">⚔️ Contador & Grupos de Tropas</button>
+            <button class="tw-tab-btn" id="btn-tab-counter">⚔️ Contador & Planeador Tático</button>
         </div>
         <div id="tw-ui-content" style="flex-grow:1; display:flex; flex-direction:column; overflow:hidden;">
             <div style="text-align:center; padding: 40px; color:#888;">A carregar dados do mundo e aldeias...</div>
@@ -127,6 +132,14 @@
     let activeTab = 'overview';
     const itemsPerPage = 10;
     let counterSummaryData = null;
+    let selectedCatKey = null;
+
+    // Velocidade base em minutos por campo
+    const unitSpeedMinutes = {
+        spy: 9, light: 10, heavy: 11, axe: 18, sword: 22,
+        spear: 18, archer: 18, marcher: 10, ram: 30, catapult: 30,
+        knight: 10, snob: 35
+    };
 
     const defaultUnitPop = {
         spear: 1, sword: 1, axe: 1, archer: 1, spy: 2,
@@ -185,6 +198,19 @@
     const defUnits = ['spear', 'sword', 'heavy', 'catapult', 'archer', 'militia'];
     const offUnits = ['axe', 'light', 'ram', 'catapult', 'marcher'];
 
+    function calcDistance(coordA, coordB) {
+        const [x1, y1] = coordA.split('|').map(Number);
+        const [x2, y2] = coordB.split('|').map(Number);
+        return Math.hypot(x2 - x1, y2 - y1);
+    }
+
+    function formatDuration(totalSeconds) {
+        const h = Math.floor(totalSeconds / 3600);
+        const m = Math.floor((totalSeconds % 3600) / 60);
+        const s = Math.floor(totalSeconds % 60);
+        return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+    }
+
     async function loadGlobalData() {
         try {
             const baseUrl = game_data.link_base_pure;
@@ -232,13 +258,11 @@
             const unitsTable = dU.querySelector('#units_table');
             if (!unitsTable) throw new Error("A tabela de tropas não foi encontrada.");
 
-            // APLICAR LÓGICA DO SCRIPT INICIAL:
             const headers = Array.from(unitsTable.querySelectorAll('thead th')).filter(th => th.querySelector('img[src*="unit_"]'));
             
             unitConfigs = headers.map(th => {
                 const img = th.querySelector('img');
                 let uName = '';
-                // Novo regex robusto que ignora qualquer query string (?1) e apanha estritamente o nome
                 const match = img.src.match(/unit_([a-z0-9_]+)/i);
                 if (match) uName = match[1];
 
@@ -266,14 +290,12 @@
                 let totalRow = rows.find(tr => tr.querySelector('td') && tr.querySelector('td').textContent.trim().toLowerCase() === 'total');
                 if (!totalRow) totalRow = rows[rows.length - 1];
 
-                // APLICAR LÓGICA DO SCRIPT INICIAL:
                 const unitCells = Array.from(totalRow.querySelectorAll('td.unit-item'));
                 if (unitCells.length === 0) return;
 
                 const villageTroops = [];
                 const vTotals = { defense: 0, offense: 0, spy: 0, snob: 0, catapult: 0 };
 
-                // APLICAR LÓGICA DO SCRIPT INICIAL: Iterar paralelamente headers e unitCells
                 headers.forEach((th, i) => {
                     const u = unitConfigs[i];
                     const cell = unitCells[i];
@@ -283,9 +305,7 @@
                         count = parseInt(cell.textContent.replace(/\./g, '').trim(), 10) || 0;
                     }
 
-                    if (!u.isHidden) {
-                        villageTroops.push(count);
-                    }
+                    if (!u.isHidden) villageTroops.push(count);
 
                     if (u.name && summary.units[u.name]) {
                         const popTotal = count * (defaultUnitPop[u.name] || 1);
@@ -302,7 +322,6 @@
                     }
                 });
 
-                // Classificação nos grupos
                 for (const [catName, catData] of Object.entries(outputCategories)) {
                     let valid = true;
                     for (const crit of catData.criteria) {
@@ -347,7 +366,7 @@
             document.getElementById('tw-ui-title').innerHTML = `📊 Visão Geral (${allVillages.length} aldeias)`;
             renderOverviewPage(currentPage);
         } else {
-            document.getElementById('tw-ui-title').innerHTML = '⚔️ Contador de Tropas & Grupos';
+            document.getElementById('tw-ui-title').innerHTML = '⚔️ Contador & Planeador Tático';
             renderCounterTab();
         }
     }
@@ -404,6 +423,40 @@
         if (document.getElementById('tw-btn-next')) document.getElementById('tw-btn-next').onclick = () => { if (currentPage < totalPages) renderOverviewPage(currentPage + 1); };
     }
 
+    function updateTargetCalculations() {
+        if (!selectedCatKey) return;
+        const catObj = counterSummaryData.categories[selectedCatKey];
+        const targetInput = document.getElementById('tw-target-coord');
+        const unitSelect = document.getElementById('tw-target-unit');
+        const box = document.getElementById('tw-coords-output');
+        const label = document.getElementById('tw-coords-label');
+        
+        const target = targetInput ? targetInput.value.trim() : '';
+        const unit = unitSelect ? unitSelect.value : 'ram';
+        const isTargetValid = /^\d{3}\|\d{3}$/.test(target);
+
+        let lines = [];
+        if (isTargetValid) {
+            const listWithDist = catObj.coords.map(coord => {
+                const dist = calcDistance(coord, target);
+                const baseMin = unitSpeedMinutes[unit] || 30;
+                const totalSeconds = dist * baseMin * 60;
+                return { coord, dist, timeStr: formatDuration(totalSeconds) };
+            });
+
+            // Ordena da mais próxima para a mais distante
+            listWithDist.sort((a, b) => a.dist - b.dist);
+
+            lines = listWithDist.map(item => `${item.coord} - ${item.dist.toFixed(1)} campos (${item.timeStr})`);
+            label.innerHTML = `Alvo: <b style="color:#7fbfff;">${target}</b> | ${outputCategories[selectedCatKey].desc} (${catObj.coords.length})`;
+        } else {
+            lines = [catObj.coords.join(' ')];
+            label.innerHTML = `Coordenadas: <b style="color:#fff;">${outputCategories[selectedCatKey].desc}</b> (${catObj.coords.length})`;
+        }
+
+        box.value = lines.join('\n');
+    }
+
     function renderCounterTab() {
         const s = counterSummaryData;
         const playerPts = parseInt(game_data.player.points.replace(/\./g, ''), 10) || 1;
@@ -428,6 +481,28 @@
                             </div>
                         </div>
 
+                        <!-- Painel Tático de Distância ao Alvo -->
+                        <div class="tw-card" style="margin-bottom:0; background:#181b1d;">
+                            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:6px;">
+                                <div style="display:flex; align-items:center; gap:6px;">
+                                    <span style="font-size:12px; font-weight:bold; color:#e5c07b;">🎯 Alvo Inimigo:</span>
+                                    <input type="text" id="tw-target-coord" class="tw-target-input" placeholder="xxx|yyy" maxlength="7">
+                                </div>
+                                <div style="display:flex; align-items:center; gap:6px;">
+                                    <span style="font-size:12px; color:#aaa;">Unidade:</span>
+                                    <select id="tw-target-unit" class="tw-target-select">
+                                        <option value="ram" selected>Aríete / Catapulta (30m)</option>
+                                        <option value="snob">Nobre (35m)</option>
+                                        <option value="axe">Viking / Lanceiro (18m)</option>
+                                        <option value="sword">Espadachim (22m)</option>
+                                        <option value="light">Cav. Leve (10m)</option>
+                                        <option value="heavy">Cav. Pesada (11m)</option>
+                                        <option value="spy">Batedor (9m)</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+
                         <div class="tw-card" style="flex-grow:1; margin-bottom:0; overflow-y:auto;">`;
 
         for (const [grpTitle, items] of Object.entries(groups)) {
@@ -447,8 +522,11 @@
 
         html += `       </div>
                         <div class="tw-card" style="margin-bottom:0;">
-                            <div class="tw-card-title" id="tw-coords-label">Coordenadas: (Clica numa categoria acima)</div>
-                            <textarea id="tw-coords-output" class="tw-coords-box" readonly placeholder="Clica numa categoria para exportar as coordenadas..."></textarea>
+                            <div class="tw-card-title">
+                                <span id="tw-coords-label">Coordenadas: (Clica numa categoria acima)</span>
+                                <button class="tw-btn-copy" id="tw-btn-copy-coords">Copiar</button>
+                            </div>
+                            <textarea id="tw-coords-output" class="tw-coords-box" readonly placeholder="Clica numa categoria para calcular as distâncias e exportar..."></textarea>
                         </div>
                     </div>
 
@@ -490,16 +568,27 @@
 
         document.querySelectorAll('.tw-category-link').forEach(link => {
             link.onclick = (e) => {
-                const catKey = e.currentTarget.getAttribute('data-cat');
-                const catObj = s.categories[catKey];
-                const label = document.getElementById('tw-coords-label');
-                const box = document.getElementById('tw-coords-output');
-                
-                label.innerHTML = `Coordenadas: <b style="color:#fff;">${outputCategories[catKey].desc}</b> (${catObj.coords.length})`;
-                box.value = catObj.coords.join(' ');
-                box.focus(); box.select();
+                selectedCatKey = e.currentTarget.getAttribute('data-cat');
+                updateTargetCalculations();
             };
         });
+
+        document.getElementById('tw-target-coord').oninput = updateTargetCalculations;
+        document.getElementById('tw-target-unit').onchange = updateTargetCalculations;
+
+        document.getElementById('tw-btn-copy-coords').onclick = () => {
+            const box = document.getElementById('tw-coords-output');
+            if (!box.value) return;
+            navigator.clipboard.writeText(box.value).then(() => {
+                const btn = document.getElementById('tw-btn-copy-coords');
+                btn.innerText = 'Copiado!';
+                btn.style.color = '#55ff55';
+                setTimeout(() => {
+                    btn.innerText = 'Copiar';
+                    btn.style.color = '#7fbfff';
+                }, 1500);
+            });
+        };
     }
 
     loadGlobalData();
