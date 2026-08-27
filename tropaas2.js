@@ -45,12 +45,7 @@
         
         .tw-table { width: 100%; border-collapse: collapse; font-size: 13px; }
         .tw-table th, .tw-table td { padding: 8px 6px; border-bottom: 1px solid #2a2d30; text-align: center; vertical-align: middle; white-space: nowrap; }
-        .tw-table th { 
-            background-color: #222426 !important; 
-            position: sticky; top: 0; z-index: 2; 
-            color: #a8a095 !important; 
-            border-bottom: 2px solid #111 !important;
-        }
+        .tw-table th { background-color: #222426 !important; position: sticky; top: 0; z-index: 2; color: #a8a095 !important; border-bottom: 2px solid #111 !important; }
         .tw-table tbody tr { transition: background 0.1s; }
         .tw-table tbody tr:hover { background: #26292c !important; }
         
@@ -67,7 +62,10 @@
         .tw-btn-page:hover:not(:disabled) { background: #3a3e41; border-color: #7fbfff; color: #fff; }
         .tw-btn-page:disabled { opacity: 0.3; cursor: not-allowed; }
         
-        .tw-counter-grid { display: grid; grid-template-columns: 1.15fr 1fr; gap: 20px; height: 100%; overflow-y: auto; }
+        .tw-counter-grid { display: grid; grid-template-columns: 1.15fr 1fr; gap: 20px; height: 100%; overflow-y: auto; padding-right:5px; }
+        .tw-counter-grid::-webkit-scrollbar { width: 6px; }
+        .tw-counter-grid::-webkit-scrollbar-thumb { background: #444; border-radius: 3px; }
+        
         .tw-card { background: #1c1f21; border: 1px solid #2e3235; border-radius: 8px; padding: 12px 16px; margin-bottom: 12px; }
         .tw-card-title { font-weight: bold; color: #e5c07b; margin-bottom: 8px; font-size: 13px; border-bottom: 1px solid #2e3235; padding-bottom: 4px; }
         .tw-category-link { color: #7fbfff; text-decoration: none; cursor: pointer; font-weight: 500; }
@@ -107,7 +105,6 @@
     function globalKeyHandler(e) {
         if (e.key === 'Escape') { closeUI(); return; }
         if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) return;
-
         const key = e.key.toLowerCase();
         if (activeTab === 'overview') {
             if (e.key === 'ArrowRight' || key === 'd') {
@@ -131,7 +128,7 @@
     const itemsPerPage = 10;
     let counterSummaryData = null;
 
-    // População oficial por unidade no TW
+    // Custos oficiais de população por unidade
     const defaultUnitPop = {
         spear: 1, sword: 1, axe: 1, archer: 1, spy: 2,
         light: 4, marcher: 5, heavy: 6, ram: 5, catapult: 8,
@@ -147,9 +144,9 @@
     };
 
     const farmCapacities = [
-        240, 281, 329, 386, 452, 530, 622, 729, 854, 1002,
-        1174, 1376, 1613, 1891, 2216, 2598, 3045, 3569, 4183, 4904,
-        5748, 6737, 7896, 9255, 10848, 12715, 14904, 17469, 20476, 24000
+        240, 281, 329, 386, 452, 530, 622, 729, 854, 1002, 1174, 1376, 1613, 
+        1891, 2216, 2598, 3045, 3569, 4183, 4904, 5748, 6737, 7896, 9255, 
+        10848, 12715, 14904, 17469, 20476, 24000
     ];
 
     function getFarmLevel(maxPop) {
@@ -161,16 +158,6 @@
             if (diff < minDiff) { minDiff = diff; closestLvl = i + 1; }
         }
         return closestLvl;
-    }
-
-    function extractIds(htmlText) {
-        const ids = new Set();
-        const doc = new DOMParser().parseFromString(htmlText, 'text/html');
-        doc.querySelectorAll('a[href*="village="]').forEach(a => {
-            const match = a.href.match(/village=(\d+)/);
-            if (match) ids.add(match[1]);
-        });
-        return ids;
     }
 
     const outputCategories = {
@@ -209,6 +196,7 @@
         try {
             const baseUrl = game_data.link_base_pure;
             
+            // Requisita todas as vistas em simultâneo para maior velocidade
             const [resUnits, resProd, resAtaque, resDefesa] = await Promise.all([
                 fetch(baseUrl + 'overview_villages&mode=units&type=complete&group=0&page=-1').then(r => r.text()),
                 fetch(baseUrl + 'overview_villages&mode=prod&group=0&page=-1').then(r => r.text()),
@@ -220,6 +208,16 @@
             const dU = parser.parseFromString(resUnits, 'text/html');
             const dP = parser.parseFromString(resProd, 'text/html');
 
+            const extractIds = (html) => {
+                const ids = new Set();
+                const doc = parser.parseFromString(html, 'text/html');
+                doc.querySelectorAll('a[href*="village="]').forEach(a => {
+                    const match = a.href.match(/village=(\d+)/);
+                    if (match) ids.add(match[1]);
+                });
+                return ids;
+            };
+
             const ataqueIds = extractIds(resAtaque);
             const defesaIds = extractIds(resDefesa);
 
@@ -227,80 +225,57 @@
             dP.querySelectorAll('#production_table tbody tr').forEach(tr => {
                 const anchor = tr.querySelector('a[href*="village="]');
                 if (!anchor) return;
-                const match = anchor.href.match(/village=(\d+)/);
-                if (!match) return;
-                const vId = match[1];
+                const vId = anchor.href.match(/village=(\d+)/)[1];
                 
                 tr.querySelectorAll('td').forEach(td => {
                     const txt = td.textContent.trim();
                     if (/^\d+\/\d+$/.test(txt) && !td.querySelector('a')) {
-                        const parts = txt.split('/');
-                        const pop = parseInt(parts[0], 10);
-                        const max = parseInt(parts[1], 10);
+                        const [pop, max] = txt.split('/').map(n => parseInt(n, 10));
                         const perc = ((pop / max) * 100).toFixed(1);
-                        const lvl = getFarmLevel(max);
-                        
-                        let color = '#55ff55';
-                        if (perc >= 95) color = '#ff5555';
-                        else if (perc >= 80) color = '#ffa500';
-                        
-                        farmMap[vId] = { txt, perc, color, lvl };
+                        farmMap[vId] = { txt, perc, lvl: getFarmLevel(max), color: perc >= 95 ? '#ff5555' : perc >= 80 ? '#ffa500' : '#55ff55' };
                     }
                 });
             });
 
             const unitsTable = dU.querySelector('#units_table');
-            if (!unitsTable) throw new Error("Tabela de tropas não encontrada.");
+            if (!unitsTable) throw new Error("A tabela de tropas não foi encontrada.");
 
-            const rawHeaders = Array.from(unitsTable.querySelectorAll('thead th')).filter(th => th.querySelector('img[src*="unit_"]'));
-            
             unitConfigs = [];
-            rawHeaders.forEach(th => {
-                const img = th.querySelector('img');
-                const src = img.src;
+            Array.from(unitsTable.querySelectorAll('thead th')).filter(th => th.querySelector('img[src*="unit_"]')).forEach(th => {
+                const src = th.querySelector('img').src;
                 const uName = parseUnitType(src);
-                const isMilitia = uName === 'militia';
-                const isHidden = th.classList.contains('hidden') || th.style.display === 'none' || isMilitia;
-                
-                unitConfigs.push({ name: uName, src: src, isHidden: isHidden });
+                unitConfigs.push({ 
+                    name: uName, src: src, 
+                    isHidden: th.classList.contains('hidden') || th.style.display === 'none' || uName === 'militia' 
+                });
             });
 
             allVillages = [];
+            const summary = { totalPop: 0, totalCount: 0, units: {}, categories: {} };
             
-            const summary = {
-                totalPop: 0,
-                totalCount: 0,
-                units: {},
-                categories: {}
-            };
-            
-            unitConfigs.forEach(u => {
-                if (u.name) summary.units[u.name] = { count: 0, pop: 0, src: u.src };
-            });
+            unitConfigs.forEach(u => { if (u.name) summary.units[u.name] = { count: 0, pop: 0, src: u.src }; });
+            Object.keys(outputCategories).forEach(cat => summary.categories[cat] = { count: 0, coords: [] });
 
-            Object.keys(outputCategories).forEach(cat => {
-                summary.categories[cat] = { count: 0, coords: [] };
-            });
-
+            // Extração de dados da tabela (Corrige a falha das tropas a 0)
             Array.from(unitsTable.querySelectorAll('tbody')).forEach(tb => {
                 const anchor = tb.querySelector('a[href*="village="]');
                 if (!anchor) return;
-                const match = anchor.href.match(/village=(\d+)/);
-                if (!match) return;
-                const vId = match[1];
                 
-                const nameEl = tb.querySelector('.quickedit-label');
-                const vName = nameEl ? nameEl.textContent.trim() : 'Aldeia';
-
-                const coordMatch = vName.match(/(\d+\|\d+)/);
-                const coords = coordMatch ? coordMatch[1] : '';
+                const vId = anchor.href.match(/village=(\d+)/)[1];
+                const vName = (tb.querySelector('.quickedit-label') || anchor).textContent.trim();
+                const coordsMatch = vName.match(/(\d+\|\d+)/);
+                const coords = coordsMatch ? coordsMatch[1] : '';
 
                 const rows = Array.from(tb.querySelectorAll('tr'));
-                let totalRow = rows.find(tr => tr.querySelector('td') && tr.querySelector('td').textContent.trim().toLowerCase() === 'total');
-                if (!totalRow) totalRow = rows[rows.length - 1];
+                // Procura a linha que contenha "Total"
+                let totalRow = rows.find(tr => {
+                    const firstTd = tr.querySelector('td');
+                    return firstTd && firstTd.textContent.toLowerCase().includes('total');
+                }) || rows[rows.length - 1]; // Fallback para a última linha
 
-                const unitCells = Array.from(totalRow.querySelectorAll('td.unit-item'));
-                if (unitCells.length === 0) return;
+                // Pega nos TDs e corta apenas os que representam tropas, alinhando com o cabeçalho
+                const tds = Array.from(totalRow.querySelectorAll('td'));
+                const unitCells = tds.length > unitConfigs.length ? tds.slice(-unitConfigs.length) : tds;
 
                 const villageTroops = [];
                 const vTotals = { defense: 0, offense: 0, spy: 0, snob: 0, catapult: 0 };
@@ -308,17 +283,15 @@
                 unitConfigs.forEach((u, i) => {
                     const uName = u.name;
                     const cell = unitCells[i];
-                    const count = (cell && !cell.classList.contains('hidden')) ? (parseInt(cell.textContent.replace(/\./g, '').trim(), 10) || 0) : 0;
+                    // Conversão rigorosa do número, ignorando pontos nos milhares
+                    const count = cell ? (parseInt(cell.textContent.replace(/\./g, '').trim(), 10) || 0) : 0;
                     
                     if (!u.isHidden) villageTroops.push(count);
 
                     if (uName && summary.units[uName]) {
-                        const popCost = defaultUnitPop[uName] || 1;
-                        const popTotal = count * popCost;
-
+                        const popTotal = count * (defaultUnitPop[uName] || 1);
                         summary.units[uName].count += count;
                         summary.units[uName].pop += popTotal;
-
                         summary.totalCount += count;
                         summary.totalPop += popTotal;
 
@@ -330,7 +303,7 @@
                     }
                 });
 
-                // Classificação da aldeia
+                // Analisar os grupos
                 for (const [catName, catData] of Object.entries(outputCategories)) {
                     let valid = true;
                     for (const crit of catData.criteria) {
@@ -344,13 +317,11 @@
                     }
                 }
 
-                const farm = farmMap[vId] || { txt: 'N/A', perc: 0, color: '#888', lvl: '?' };
-                
-                let rowClass = '';
-                if (ataqueIds.has(vId)) rowClass = 'tw-row-ataque';
-                else if (defesaIds.has(vId)) rowClass = 'tw-row-defesa';
-
-                allVillages.push({ id: vId, name: vName, coords, farm, troops: villageTroops, rowClass });
+                const rowClass = ataqueIds.has(vId) ? 'tw-row-ataque' : (defesaIds.has(vId) ? 'tw-row-defesa' : '');
+                allVillages.push({ 
+                    id: vId, name: vName, coords, troops: villageTroops, rowClass,
+                    farm: farmMap[vId] || { txt: 'N/A', perc: 0, color: '#888', lvl: '?' } 
+                });
             });
 
             counterSummaryData = summary;
@@ -363,7 +334,7 @@
             switchTab('overview');
 
         } catch (err) {
-            document.getElementById('tw-ui-title').innerHTML = '❌ Erro de Leitura';
+            document.getElementById('tw-ui-title').innerHTML = '❌ Erro Crítico';
             document.getElementById('tw-ui-content').innerHTML = `<div style="color:#ff5555; text-align:center; padding:30px;">${err.message}</div>`;
         }
     }
@@ -429,18 +400,14 @@
                 </div>
             </div>
         `;
-
         document.getElementById('tw-ui-content').innerHTML = html;
-
-        const btnPrev = document.getElementById('tw-btn-prev');
-        const btnNext = document.getElementById('tw-btn-next');
-        if (btnPrev) btnPrev.onclick = () => { if (currentPage > 1) renderOverviewPage(currentPage - 1); };
-        if (btnNext) btnNext.onclick = () => { if (currentPage < totalPages) renderOverviewPage(currentPage + 1); };
+        if (document.getElementById('tw-btn-prev')) document.getElementById('tw-btn-prev').onclick = () => { if (currentPage > 1) renderOverviewPage(currentPage - 1); };
+        if (document.getElementById('tw-btn-next')) document.getElementById('tw-btn-next').onclick = () => { if (currentPage < totalPages) renderOverviewPage(currentPage + 1); };
     }
 
     function renderCounterTab() {
         const s = counterSummaryData;
-        const playerPts = parseInt(game_data.player.points, 10) || 1;
+        const playerPts = parseInt(game_data.player.points.replace(/\./g, ''), 10) || 1;
         const ratio = (s.totalPop / playerPts).toFixed(2);
 
         const groups = { 'Nobres': [], 'Ataque': [], 'Defesa': [], 'Exploração': [], 'Outras': [] };
@@ -480,17 +447,16 @@
         }
 
         html += `       </div>
-
                         <div class="tw-card" style="margin-bottom:0;">
                             <div class="tw-card-title" id="tw-coords-label">Coordenadas: (Clica numa categoria acima)</div>
                             <textarea id="tw-coords-output" class="tw-coords-box" readonly placeholder="Clica numa categoria para exportar as coordenadas..."></textarea>
                         </div>
                     </div>
 
-                    <div style="display:flex; flex-direction:column; gap:10px; overflow-y:auto;">
-                        <div class="tw-card">
+                    <div style="display:flex; flex-direction:column; gap:10px; overflow-y:auto; padding-right:5px;">
+                        <div class="tw-card" style="margin-bottom:0;">
                             <div class="tw-card-title">Contagem Total por Unidade</div>
-                            <table style="width:100%; font-size:13px;">
+                            <table style="width:100%; font-size:13px; border-collapse: collapse;">
                                 <thead>
                                     <tr style="color:#888; border-bottom:1px solid #333;">
                                         <th style="text-align:left; padding-bottom:6px;">Unidade</th>
@@ -505,9 +471,9 @@
             if (!uData) return;
             const countClass = uData.count > 0 ? 'color:#fff; font-weight:bold;' : 'color:#555;';
             const label = unitNamesPt[u.name] || u.name;
-            html += `<tr>
-                <td style="padding:4px 0; text-align:left; display:flex; align-items:center; gap:8px;">
-                    <img src="${u.src}"> <span>${label}</span>
+            html += `<tr style="border-bottom:1px solid #2a2d30;">
+                <td style="padding:6px 0; text-align:left; display:flex; align-items:center; gap:8px;">
+                    <img src="${u.src}" style="filter: drop-shadow(0 1px 1px rgba(0,0,0,0.5));"> <span>${label}</span>
                 </td>
                 <td style="text-align:right; ${countClass}">${uData.count.toLocaleString('pt-PT')}</td>
                 <td style="text-align:right; color:#a8a095;">${uData.pop.toLocaleString('pt-PT')}</td>
@@ -521,26 +487,21 @@
                 </div>
             </div>
         `;
-
         document.getElementById('tw-ui-content').innerHTML = html;
 
         document.querySelectorAll('.tw-category-link').forEach(link => {
             link.onclick = (e) => {
                 const catKey = e.currentTarget.getAttribute('data-cat');
                 const catObj = s.categories[catKey];
-                const desc = outputCategories[catKey].desc;
-                
                 const label = document.getElementById('tw-coords-label');
                 const box = document.getElementById('tw-coords-output');
                 
-                label.innerHTML = `Coordenadas: <b>${desc}</b> (${catObj.coords.length})`;
+                label.innerHTML = `Coordenadas: <b style="color:#fff;">${outputCategories[catKey].desc}</b> (${catObj.coords.length})`;
                 box.value = catObj.coords.join(' ');
-                box.focus();
-                box.select();
+                box.focus(); box.select();
             };
         });
     }
 
     loadGlobalData();
-
 })();
