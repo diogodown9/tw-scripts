@@ -128,7 +128,6 @@
     const itemsPerPage = 10;
     let counterSummaryData = null;
 
-    // Custos oficiais de população por unidade
     const defaultUnitPop = {
         spear: 1, sword: 1, axe: 1, archer: 1, spy: 2,
         light: 4, marcher: 5, heavy: 6, ram: 5, catapult: 8,
@@ -138,7 +137,7 @@
     const unitNamesPt = {
         spear: 'Lanceiros', sword: 'Espadachins', axe: 'Víkings',
         archer: 'Arqueiros', spy: 'Batedores', light: 'Cavalaria Leve',
-        marcher: 'Arqueiros a Cavalo', heavy: 'Cavalaria Pesada',
+        marcher: 'Arq. a Cavalo', heavy: 'Cavalaria Pesada',
         ram: 'Aríetes', catapult: 'Catapultas', knight: 'Paladino',
         snob: 'Nobres', militia: 'Milícia'
     };
@@ -150,11 +149,10 @@
     ];
 
     function getFarmLevel(maxPop) {
-        let baseMax = maxPop;
-        if (baseMax === 26400 || baseMax > 24000) return 30;
+        if (maxPop >= 24000) return 30;
         let closestLvl = 1, minDiff = Infinity;
         for (let i = 0; i < farmCapacities.length; i++) {
-            let diff = Math.abs(farmCapacities[i] - baseMax);
+            let diff = Math.abs(farmCapacities[i] - maxPop);
             if (diff < minDiff) { minDiff = diff; closestLvl = i + 1; }
         }
         return closestLvl;
@@ -187,16 +185,10 @@
     const defUnits = ['spear', 'sword', 'heavy', 'catapult', 'archer', 'militia'];
     const offUnits = ['axe', 'light', 'ram', 'catapult', 'marcher'];
 
-    function parseUnitType(src) {
-        const m = src.match(/unit_([a-z_]+)\.png/i);
-        return m ? m[1].toLowerCase() : '';
-    }
-
     async function loadGlobalData() {
         try {
             const baseUrl = game_data.link_base_pure;
             
-            // Requisita todas as vistas em simultâneo para maior velocidade
             const [resUnits, resProd, resAtaque, resDefesa] = await Promise.all([
                 fetch(baseUrl + 'overview_villages&mode=units&type=complete&group=0&page=-1').then(r => r.text()),
                 fetch(baseUrl + 'overview_villages&mode=prod&group=0&page=-1').then(r => r.text()),
@@ -240,14 +232,19 @@
             const unitsTable = dU.querySelector('#units_table');
             if (!unitsTable) throw new Error("A tabela de tropas não foi encontrada.");
 
-            unitConfigs = [];
-            Array.from(unitsTable.querySelectorAll('thead th')).filter(th => th.querySelector('img[src*="unit_"]')).forEach(th => {
-                const src = th.querySelector('img').src;
-                const uName = parseUnitType(src);
-                unitConfigs.push({ 
-                    name: uName, src: src, 
-                    isHidden: th.classList.contains('hidden') || th.style.display === 'none' || uName === 'militia' 
-                });
+            // APLICAR LÓGICA DO SCRIPT INICIAL:
+            const headers = Array.from(unitsTable.querySelectorAll('thead th')).filter(th => th.querySelector('img[src*="unit_"]'));
+            
+            unitConfigs = headers.map(th => {
+                const img = th.querySelector('img');
+                let uName = '';
+                // Novo regex robusto que ignora qualquer query string (?1) e apanha estritamente o nome
+                const match = img.src.match(/unit_([a-z0-9_]+)/i);
+                if (match) uName = match[1];
+
+                const isMilitia = img.src.includes('militia');
+                const isHidden = th.classList.contains('hidden') || th.style.display === 'none' || isMilitia;
+                return { name: uName, src: img.src, isHidden: isHidden };
             });
 
             allVillages = [];
@@ -256,7 +253,6 @@
             unitConfigs.forEach(u => { if (u.name) summary.units[u.name] = { count: 0, pop: 0, src: u.src }; });
             Object.keys(outputCategories).forEach(cat => summary.categories[cat] = { count: 0, coords: [] });
 
-            // Extração de dados da tabela (Corrige a falha das tropas a 0)
             Array.from(unitsTable.querySelectorAll('tbody')).forEach(tb => {
                 const anchor = tb.querySelector('a[href*="village="]');
                 if (!anchor) return;
@@ -267,43 +263,46 @@
                 const coords = coordsMatch ? coordsMatch[1] : '';
 
                 const rows = Array.from(tb.querySelectorAll('tr'));
-                // Procura a linha que contenha "Total"
-                let totalRow = rows.find(tr => {
-                    const firstTd = tr.querySelector('td');
-                    return firstTd && firstTd.textContent.toLowerCase().includes('total');
-                }) || rows[rows.length - 1]; // Fallback para a última linha
+                let totalRow = rows.find(tr => tr.querySelector('td') && tr.querySelector('td').textContent.trim().toLowerCase() === 'total');
+                if (!totalRow) totalRow = rows[rows.length - 1];
 
-                // Pega nos TDs e corta apenas os que representam tropas, alinhando com o cabeçalho
-                const tds = Array.from(totalRow.querySelectorAll('td'));
-                const unitCells = tds.length > unitConfigs.length ? tds.slice(-unitConfigs.length) : tds;
+                // APLICAR LÓGICA DO SCRIPT INICIAL:
+                const unitCells = Array.from(totalRow.querySelectorAll('td.unit-item'));
+                if (unitCells.length === 0) return;
 
                 const villageTroops = [];
                 const vTotals = { defense: 0, offense: 0, spy: 0, snob: 0, catapult: 0 };
 
-                unitConfigs.forEach((u, i) => {
-                    const uName = u.name;
+                // APLICAR LÓGICA DO SCRIPT INICIAL: Iterar paralelamente headers e unitCells
+                headers.forEach((th, i) => {
+                    const u = unitConfigs[i];
                     const cell = unitCells[i];
-                    // Conversão rigorosa do número, ignorando pontos nos milhares
-                    const count = cell ? (parseInt(cell.textContent.replace(/\./g, '').trim(), 10) || 0) : 0;
-                    
-                    if (!u.isHidden) villageTroops.push(count);
+                    let count = 0;
 
-                    if (uName && summary.units[uName]) {
-                        const popTotal = count * (defaultUnitPop[uName] || 1);
-                        summary.units[uName].count += count;
-                        summary.units[uName].pop += popTotal;
+                    if (cell && !cell.classList.contains('hidden')) {
+                        count = parseInt(cell.textContent.replace(/\./g, '').trim(), 10) || 0;
+                    }
+
+                    if (!u.isHidden) {
+                        villageTroops.push(count);
+                    }
+
+                    if (u.name && summary.units[u.name]) {
+                        const popTotal = count * (defaultUnitPop[u.name] || 1);
+                        summary.units[u.name].count += count;
+                        summary.units[u.name].pop += popTotal;
                         summary.totalCount += count;
                         summary.totalPop += popTotal;
 
-                        if (defUnits.includes(uName)) vTotals.defense += popTotal;
-                        if (offUnits.includes(uName)) vTotals.offense += popTotal;
-                        if (uName === 'spy') vTotals.spy += popTotal;
-                        if (uName === 'snob') vTotals.snob += popTotal;
-                        if (uName === 'catapult') vTotals.catapult += popTotal;
+                        if (defUnits.includes(u.name)) vTotals.defense += popTotal;
+                        if (offUnits.includes(u.name)) vTotals.offense += popTotal;
+                        if (u.name === 'spy') vTotals.spy += popTotal;
+                        if (u.name === 'snob') vTotals.snob += popTotal;
+                        if (u.name === 'catapult') vTotals.catapult += popTotal;
                     }
                 });
 
-                // Analisar os grupos
+                // Classificação nos grupos
                 for (const [catName, catData] of Object.entries(outputCategories)) {
                     let valid = true;
                     for (const crit of catData.criteria) {
