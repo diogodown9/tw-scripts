@@ -78,6 +78,7 @@
         .tw-btn-copy { background: #2a2d30; color: #7fbfff; border: 1px solid #444; padding: 3px 8px; border-radius: 4px; font-size: 11px; cursor: pointer; font-weight: bold; transition: 0.2s; }
         .tw-btn-copy:hover { background: #7fbfff; color: #111; }
 
+        /* Lista Dinâmica de Aldeias */
         .tw-v-list { max-height: 190px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; padding-right: 4px; }
         .tw-v-list::-webkit-scrollbar { width: 4px; }
         .tw-v-list::-webkit-scrollbar-thumb { background: #444; border-radius: 2px; }
@@ -86,6 +87,7 @@
         .tw-v-item a { color: #7fbfff; text-decoration: none; font-weight: bold; }
         .tw-v-item a:hover { text-decoration: underline; color: #fff; }
 
+        /* Tooltip Flutuante de Tropas */
         #tw-tooltip-card {
             position: fixed; z-index: 1000000; background: #121415; border: 1px solid #7fbfff;
             border-radius: 8px; padding: 10px 14px; pointer-events: none; opacity: 0;
@@ -222,7 +224,6 @@
     const offUnits = ['axe', 'light', 'ram', 'catapult', 'marcher'];
 
     function calcDistance(coordA, coordB) {
-        if (!coordA || !coordB) return 999;
         const [x1, y1] = coordA.split('|').map(Number);
         const [x2, y2] = coordB.split('|').map(Number);
         return Math.hypot(x2 - x1, y2 - y1);
@@ -233,13 +234,6 @@
         const m = Math.floor((totalSeconds % 3600) / 60);
         const s = Math.floor(totalSeconds % 60);
         return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-    }
-
-    function getVillageIdFromElement(el) {
-        if (!el) return null;
-        const href = el.getAttribute('href') || '';
-        const match = href.match(/[?&]village=(\d+)/);
-        return match ? match[1] : null;
     }
 
     async function loadGlobalData() {
@@ -259,11 +253,10 @@
 
             const extractIds = (html) => {
                 const ids = new Set();
-                if (!html) return ids;
                 const doc = parser.parseFromString(html, 'text/html');
                 doc.querySelectorAll('a[href*="village="]').forEach(a => {
-                    const vId = getVillageIdFromElement(a);
-                    if (vId) ids.add(vId);
+                    const match = a.href.match(/village=(\d+)/);
+                    if (match) ids.add(match[1]);
                 });
                 return ids;
             };
@@ -274,8 +267,8 @@
             const farmMap = {};
             dP.querySelectorAll('#production_table tbody tr').forEach(tr => {
                 const anchor = tr.querySelector('a[href*="village="]');
-                const vId = getVillageIdFromElement(anchor);
-                if (!vId) return;
+                if (!anchor) return;
+                const vId = anchor.href.match(/village=(\d+)/)[1];
                 
                 tr.querySelectorAll('td').forEach(td => {
                     const txt = td.textContent.trim();
@@ -294,14 +287,13 @@
             
             unitConfigs = headers.map(th => {
                 const img = th.querySelector('img');
-                const src = img ? img.src : '';
                 let uName = '';
-                const match = src.match(/unit_([a-z0-9_]+)/i);
+                const match = img.src.match(/unit_([a-z0-9_]+)/i);
                 if (match) uName = match[1];
 
-                const isMilitia = src.includes('militia');
+                const isMilitia = img.src.includes('militia');
                 const isHidden = th.classList.contains('hidden') || th.style.display === 'none' || isMilitia;
-                return { name: uName, src: src, isHidden: isHidden };
+                return { name: uName, src: img.src, isHidden: isHidden };
             });
 
             allVillages = [];
@@ -312,10 +304,10 @@
             Object.keys(outputCategories).forEach(cat => summary.categories[cat] = { count: 0, coords: [], villageIds: [] });
 
             Array.from(unitsTable.querySelectorAll('tbody')).forEach(tb => {
-                const anchor = tb.querySelector('.quickedit-vn') || tb.querySelector('a[href*="village="]');
-                const vId = getVillageIdFromElement(anchor);
-                if (!vId) return;
-
+                const anchor = tb.querySelector('a[href*="village="]');
+                if (!anchor) return;
+                
+                const vId = anchor.href.match(/village=(\d+)/)[1];
                 const vName = (tb.querySelector('.quickedit-label') || anchor).textContent.trim();
                 const coordsMatch = vName.match(/(\d+\|\d+)/);
                 const coords = coordsMatch ? coordsMatch[1] : '';
@@ -482,14 +474,14 @@
         if (isTargetValid) {
             listWithDist = catObj.villageIds.map(vId => {
                 const v = villagesById[vId];
-                const dist = v && v.coords ? calcDistance(v.coords, target) : 999;
+                const dist = v.coords ? calcDistance(v.coords, target) : 999;
                 const baseMin = unitSpeedMinutes[unit] || 30;
                 const totalSeconds = dist * baseMin * 60;
                 return { v, dist, timeStr: formatDuration(totalSeconds) };
             });
 
             listWithDist.sort((a, b) => a.dist - b.dist);
-            lines = listWithDist.map(item => `${item.v ? item.v.coords : ''} - ${item.dist.toFixed(1)} campos (${item.timeStr})`);
+            lines = listWithDist.map(item => `${item.v.coords} - ${item.dist.toFixed(1)} campos (${item.timeStr})`);
             label.innerHTML = `Alvo: <b style="color:#7fbfff;">${target}</b> | ${outputCategories[selectedCatKey].desc} (${catObj.coords.length})`;
         } else {
             lines = [catObj.coords.join(' ')];
@@ -519,7 +511,6 @@
 
         villageItems.forEach(item => {
             const v = item.v;
-            if (!v) return;
             const distInfo = item.dist !== null ? `<span style="color:#aaa; font-size:11px;">${item.dist.toFixed(1)}c • ${item.timeStr}</span>` : `<span style="color:${v.farm.color}; font-size:11px;">Nv.${v.farm.lvl} (${v.farm.perc}%)</span>`;
             
             html += `
@@ -569,6 +560,7 @@
             el.addEventListener('mousemove', (e) => {
                 const x = e.clientX + 15;
                 const y = e.clientY + 15;
+                
                 const maxX = window.innerWidth - 240;
                 const maxY = window.innerHeight - tooltip.offsetHeight - 20;
 
