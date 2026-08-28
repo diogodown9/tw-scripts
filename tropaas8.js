@@ -222,6 +222,7 @@
     const offUnits = ['axe', 'light', 'ram', 'catapult', 'marcher'];
 
     function calcDistance(coordA, coordB) {
+        if (!coordA || !coordB) return 999;
         const [x1, y1] = coordA.split('|').map(Number);
         const [x2, y2] = coordB.split('|').map(Number);
         return Math.hypot(x2 - x1, y2 - y1);
@@ -232,6 +233,13 @@
         const m = Math.floor((totalSeconds % 3600) / 60);
         const s = Math.floor(totalSeconds % 60);
         return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+    }
+
+    function getVillageIdFromElement(el) {
+        if (!el) return null;
+        const href = el.getAttribute('href') || '';
+        const match = href.match(/[?&]village=(\d+)/);
+        return match ? match[1] : null;
     }
 
     async function loadGlobalData() {
@@ -251,10 +259,11 @@
 
             const extractIds = (html) => {
                 const ids = new Set();
+                if (!html) return ids;
                 const doc = parser.parseFromString(html, 'text/html');
                 doc.querySelectorAll('a[href*="village="]').forEach(a => {
-                    const match = a.href.match(/[?&]village=(\d+)/);
-                    if (match) ids.add(match[1]);
+                    const vId = getVillageIdFromElement(a);
+                    if (vId) ids.add(vId);
                 });
                 return ids;
             };
@@ -265,10 +274,8 @@
             const farmMap = {};
             dP.querySelectorAll('#production_table tbody tr').forEach(tr => {
                 const anchor = tr.querySelector('a[href*="village="]');
-                if (!anchor) return;
-                const match = anchor.href.match(/[?&]village=(\d+)/);
-                if (!match) return;
-                const vId = match[1];
+                const vId = getVillageIdFromElement(anchor);
+                if (!vId) return;
                 
                 tr.querySelectorAll('td').forEach(td => {
                     const txt = td.textContent.trim();
@@ -287,13 +294,14 @@
             
             unitConfigs = headers.map(th => {
                 const img = th.querySelector('img');
+                const src = img ? img.src : '';
                 let uName = '';
-                const match = img.src.match(/unit_([a-z0-9_]+)/i);
+                const match = src.match(/unit_([a-z0-9_]+)/i);
                 if (match) uName = match[1];
 
-                const isMilitia = img.src.includes('militia');
+                const isMilitia = src.includes('militia');
                 const isHidden = th.classList.contains('hidden') || th.style.display === 'none' || isMilitia;
-                return { name: uName, src: img.src, isHidden: isHidden };
+                return { name: uName, src: src, isHidden: isHidden };
             });
 
             allVillages = [];
@@ -305,11 +313,8 @@
 
             Array.from(unitsTable.querySelectorAll('tbody')).forEach(tb => {
                 const anchor = tb.querySelector('.quickedit-vn') || tb.querySelector('a[href*="village="]');
-                if (!anchor) return;
-                
-                const match = anchor.href.match(/[?&]village=(\d+)/);
-                if (!match) return;
-                const vId = match[1];
+                const vId = getVillageIdFromElement(anchor);
+                if (!vId) return;
 
                 const vName = (tb.querySelector('.quickedit-label') || anchor).textContent.trim();
                 const coordsMatch = vName.match(/(\d+\|\d+)/);
@@ -477,14 +482,14 @@
         if (isTargetValid) {
             listWithDist = catObj.villageIds.map(vId => {
                 const v = villagesById[vId];
-                const dist = v.coords ? calcDistance(v.coords, target) : 999;
+                const dist = v && v.coords ? calcDistance(v.coords, target) : 999;
                 const baseMin = unitSpeedMinutes[unit] || 30;
                 const totalSeconds = dist * baseMin * 60;
                 return { v, dist, timeStr: formatDuration(totalSeconds) };
             });
 
             listWithDist.sort((a, b) => a.dist - b.dist);
-            lines = listWithDist.map(item => `${item.v.coords} - ${item.dist.toFixed(1)} campos (${item.timeStr})`);
+            lines = listWithDist.map(item => `${item.v ? item.v.coords : ''} - ${item.dist.toFixed(1)} campos (${item.timeStr})`);
             label.innerHTML = `Alvo: <b style="color:#7fbfff;">${target}</b> | ${outputCategories[selectedCatKey].desc} (${catObj.coords.length})`;
         } else {
             lines = [catObj.coords.join(' ')];
@@ -514,6 +519,7 @@
 
         villageItems.forEach(item => {
             const v = item.v;
+            if (!v) return;
             const distInfo = item.dist !== null ? `<span style="color:#aaa; font-size:11px;">${item.dist.toFixed(1)}c • ${item.timeStr}</span>` : `<span style="color:${v.farm.color}; font-size:11px;">Nv.${v.farm.lvl} (${v.farm.perc}%)</span>`;
             
             html += `
