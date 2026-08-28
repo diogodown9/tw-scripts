@@ -5,6 +5,7 @@
         if (document.getElementById(uiId)) document.getElementById(uiId).remove();
         if (document.getElementById(`${uiId}-backdrop`)) document.getElementById(`${uiId}-backdrop`).remove();
         if (document.getElementById(`${uiId}-style`)) document.getElementById(`${uiId}-style`).remove();
+        if (document.getElementById(`${uiId}-tooltip`)) document.getElementById(`${uiId}-tooltip`).remove();
         document.removeEventListener('keydown', globalKeyHandler, true);
     }
     
@@ -62,7 +63,7 @@
         .tw-btn-page:hover:not(:disabled) { background: #3a3e41; border-color: #7fbfff; color: #fff; }
         .tw-btn-page:disabled { opacity: 0.3; cursor: not-allowed; }
         
-        .tw-counter-grid { display: grid; grid-template-columns: 1.15fr 1fr; gap: 20px; height: 100%; overflow-y: auto; padding-right:5px; }
+        .tw-counter-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; height: 100%; overflow-y: auto; padding-right:5px; }
         .tw-counter-grid::-webkit-scrollbar { width: 6px; }
         .tw-counter-grid::-webkit-scrollbar-thumb { background: #444; border-radius: 3px; }
         
@@ -70,12 +71,32 @@
         .tw-card-title { font-weight: bold; color: #e5c07b; margin-bottom: 8px; font-size: 13px; border-bottom: 1px solid #2e3235; padding-bottom: 4px; display: flex; justify-content: space-between; align-items: center; }
         .tw-category-link { color: #7fbfff; text-decoration: none; cursor: pointer; font-weight: 500; }
         .tw-category-link:hover { text-decoration: underline; color: #fff; }
-        .tw-coords-box { width: 100%; height: 85px; background: #111; border: 1px solid #3a3e41; color: #98c379; font-family: monospace; font-size: 12px; padding: 8px; border-radius: 6px; box-sizing: border-box; resize: none; }
+        .tw-coords-box { width: 100%; height: 70px; background: #111; border: 1px solid #3a3e41; color: #98c379; font-family: monospace; font-size: 12px; padding: 8px; border-radius: 6px; box-sizing: border-box; resize: none; }
         
         .tw-target-input { background: #111; border: 1px solid #444; color: #fff; padding: 4px 8px; border-radius: 4px; width: 90px; font-size: 12px; text-align: center; }
         .tw-target-select { background: #111; border: 1px solid #444; color: #fff; padding: 3px 6px; border-radius: 4px; font-size: 12px; }
         .tw-btn-copy { background: #2a2d30; color: #7fbfff; border: 1px solid #444; padding: 3px 8px; border-radius: 4px; font-size: 11px; cursor: pointer; font-weight: bold; transition: 0.2s; }
         .tw-btn-copy:hover { background: #7fbfff; color: #111; }
+
+        /* Lista Dinâmica de Aldeias */
+        .tw-v-list { max-height: 190px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; padding-right: 4px; }
+        .tw-v-list::-webkit-scrollbar { width: 4px; }
+        .tw-v-list::-webkit-scrollbar-thumb { background: #444; border-radius: 2px; }
+        .tw-v-item { display: flex; justify-content: space-between; align-items: center; background: #222528; padding: 5px 10px; border-radius: 5px; font-size: 12px; border: 1px solid #2f3438; transition: 0.15s; }
+        .tw-v-item:hover { background: #2d3136; border-color: #7fbfff; }
+        .tw-v-item a { color: #7fbfff; text-decoration: none; font-weight: bold; }
+        .tw-v-item a:hover { text-decoration: underline; color: #fff; }
+
+        /* Tooltip Flutuante de Tropas */
+        #tw-tooltip-card {
+            position: fixed; z-index: 1000000; background: #121415; border: 1px solid #7fbfff;
+            border-radius: 8px; padding: 10px 14px; pointer-events: none; opacity: 0;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.8); transition: opacity 0.15s ease-out; font-size: 12px; min-width: 180px;
+        }
+        #tw-tooltip-card.show { opacity: 1; }
+        .tw-tip-title { font-weight: bold; color: #fff; margin-bottom: 6px; border-bottom: 1px solid #333; padding-bottom: 4px; }
+        .tw-tip-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px 10px; }
+        .tw-tip-item { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
 
         .tw-spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid rgba(255,255,255,.3); border-radius: 50%; border-top-color: #fff; animation: spin 0.8s linear infinite; }
         @keyframes spin { to { transform: rotate(360deg); } }
@@ -103,6 +124,10 @@
         </div>
     `;
     document.body.appendChild(ui);
+
+    const tooltip = document.createElement('div');
+    tooltip.id = 'tw-tooltip-card';
+    document.body.appendChild(tooltip);
     
     document.getElementById('tw-ui-close-btn').addEventListener('click', closeUI);
     backdrop.addEventListener('click', closeUI);
@@ -126,6 +151,7 @@
     setTimeout(() => ui.classList.add('show'), 10);
 
     let allVillages = [];
+    let villagesById = {};
     let unitConfigs = [];
     let currentPage = 1;
     let totalPages = 1;
@@ -271,10 +297,11 @@
             });
 
             allVillages = [];
+            villagesById = {};
             const summary = { totalPop: 0, totalCount: 0, units: {}, categories: {} };
             
             unitConfigs.forEach(u => { if (u.name) summary.units[u.name] = { count: 0, pop: 0, src: u.src }; });
-            Object.keys(outputCategories).forEach(cat => summary.categories[cat] = { count: 0, coords: [] });
+            Object.keys(outputCategories).forEach(cat => summary.categories[cat] = { count: 0, coords: [], villageIds: [] });
 
             Array.from(unitsTable.querySelectorAll('tbody')).forEach(tb => {
                 const anchor = tb.querySelector('a[href*="village="]');
@@ -293,6 +320,7 @@
                 if (unitCells.length === 0) return;
 
                 const villageTroops = [];
+                const troopsDict = {};
                 const vTotals = { defense: 0, offense: 0, spy: 0, snob: 0, catapult: 0 };
 
                 headers.forEach((th, i) => {
@@ -305,6 +333,7 @@
                     }
 
                     if (!u.isHidden) villageTroops.push(count);
+                    troopsDict[u.name] = count;
 
                     if (u.name && summary.units[u.name]) {
                         const popTotal = count * (defaultUnitPop[u.name] || 1);
@@ -330,15 +359,18 @@
                     }
                     if (valid) {
                         summary.categories[catName].count++;
+                        summary.categories[catName].villageIds.push(vId);
                         if (coords) summary.categories[catName].coords.push(coords);
                     }
                 }
 
                 const rowClass = ataqueIds.has(vId) ? 'tw-row-ataque' : (defesaIds.has(vId) ? 'tw-row-defesa' : '');
-                allVillages.push({ 
-                    id: vId, name: vName, coords, troops: villageTroops, rowClass,
+                const vObj = { 
+                    id: vId, name: vName, coords, troops: villageTroops, troopsDict, rowClass,
                     farm: farmMap[vId] || { txt: 'N/A', perc: 0, color: '#888', lvl: '?' } 
-                });
+                };
+                allVillages.push(vObj);
+                villagesById[vId] = vObj;
             });
 
             counterSummaryData = summary;
@@ -435,23 +467,111 @@
         const isTargetValid = /^\d{3}\|\d{3}$/.test(target);
 
         let lines = [];
+        let listWithDist = [];
+
         if (isTargetValid) {
-            const listWithDist = catObj.coords.map(coord => {
-                const dist = calcDistance(coord, target);
+            listWithDist = catObj.villageIds.map(vId => {
+                const v = villagesById[vId];
+                const dist = v.coords ? calcDistance(v.coords, target) : 999;
                 const baseMin = unitSpeedMinutes[unit] || 30;
                 const totalSeconds = dist * baseMin * 60;
-                return { coord, dist, timeStr: formatDuration(totalSeconds) };
+                return { v, dist, timeStr: formatDuration(totalSeconds) };
             });
 
             listWithDist.sort((a, b) => a.dist - b.dist);
-            lines = listWithDist.map(item => `${item.coord} - ${item.dist.toFixed(1)} campos (${item.timeStr})`);
+            lines = listWithDist.map(item => `${item.v.coords} - ${item.dist.toFixed(1)} campos (${item.timeStr})`);
             label.innerHTML = `Alvo: <b style="color:#7fbfff;">${target}</b> | ${outputCategories[selectedCatKey].desc} (${catObj.coords.length})`;
         } else {
             lines = [catObj.coords.join(' ')];
+            listWithDist = catObj.villageIds.map(vId => ({ v: villagesById[vId], dist: null, timeStr: '' }));
             label.innerHTML = `Coordenadas: <b style="color:#fff;">${outputCategories[selectedCatKey].desc}</b> (${catObj.coords.length})`;
         }
 
         box.value = lines.join('\n');
+        renderVillageCards(listWithDist);
+    }
+
+    function renderVillageCards(villageItems) {
+        const container = document.getElementById('tw-villages-card-container');
+        if (!container) return;
+
+        if (!villageItems || villageItems.length === 0) {
+            container.style.display = 'none';
+            return;
+        }
+
+        container.style.display = 'block';
+        const countSpan = document.getElementById('tw-vlist-count');
+        if (countSpan) countSpan.innerText = `(${villageItems.length})`;
+
+        const listDiv = document.getElementById('tw-vlist-items');
+        let html = '';
+
+        villageItems.forEach(item => {
+            const v = item.v;
+            const distInfo = item.dist !== null ? `<span style="color:#aaa; font-size:11px;">${item.dist.toFixed(1)}c • ${item.timeStr}</span>` : `<span style="color:${v.farm.color}; font-size:11px;">Nv.${v.farm.lvl} (${v.farm.perc}%)</span>`;
+            
+            html += `
+                <div class="tw-v-item" data-vid="${v.id}">
+                    <a href="${game_data.link_base_pure}village=${v.id}&screen=overview" target="_blank">${v.name}</a>
+                    ${distInfo}
+                </div>
+            `;
+        });
+
+        listDiv.innerHTML = html;
+
+        // Anexar eventos de hover do rato para o tooltip
+        listDiv.querySelectorAll('.tw-v-item').forEach(el => {
+            el.addEventListener('mouseenter', (e) => {
+                const vid = el.getAttribute('data-vid');
+                const v = villagesById[vid];
+                if (!v) return;
+
+                let tipHtml = `
+                    <div class="tw-tip-title">${v.name}</div>
+                    <div style="font-size:11px; margin-bottom:6px; color:${v.farm.color}; font-weight:bold;">
+                        Fazenda: Nv. ${v.farm.lvl} • ${v.farm.txt} (${v.farm.perc}%)
+                    </div>
+                    <div class="tw-tip-grid">
+                `;
+
+                unitConfigs.forEach(u => {
+                    if (u.name && !u.isHidden) {
+                        const qtd = v.troopsDict[u.name] || 0;
+                        const qtdColor = qtd > 0 ? '#fff' : '#555';
+                        tipHtml += `
+                            <div class="tw-tip-item">
+                                <span style="display:flex; align-items:center; gap:4px; color:#aaa;">
+                                    <img src="${u.src}" style="width:14px; height:14px;"> ${unitNamesPt[u.name] || u.name}:
+                                </span>
+                                <b style="color:${qtdColor};">${qtd.toLocaleString('pt-PT')}</b>
+                            </div>
+                        `;
+                    }
+                });
+
+                tipHtml += `</div>`;
+                tooltip.innerHTML = tipHtml;
+                tooltip.classList.add('show');
+            });
+
+            el.addEventListener('mousemove', (e) => {
+                const x = e.clientX + 15;
+                const y = e.clientY + 15;
+                
+                // Prevenir que o tooltip saia fora do ecrã
+                const maxX = window.innerWidth - 240;
+                const maxY = window.innerHeight - tooltip.offsetHeight - 20;
+
+                tooltip.style.left = `${Math.min(x, maxX)}px`;
+                tooltip.style.top = `${Math.min(y, maxY)}px`;
+            });
+
+            el.addEventListener('mouseleave', () => {
+                tooltip.classList.remove('show');
+            });
+        });
     }
 
     function renderCounterTab() {
@@ -467,6 +587,7 @@
         let html = `
             <div class="tw-tab-content active">
                 <div class="tw-counter-grid">
+                    <!-- Coluna da Esquerda: Categorias, Alvo e Coordenadas -->
                     <div style="display:flex; flex-direction:column; gap:10px;">
                         <div class="tw-card" style="margin-bottom:0;">
                             <div style="display:flex; justify-content:space-between; font-size:13px; margin-bottom:8px;">
@@ -526,6 +647,7 @@
                         </div>
                     </div>
 
+                    <!-- Coluna da Direita: Contagem Total e Lista com Hover -->
                     <div style="display:flex; flex-direction:column; gap:10px; overflow-y:auto; padding-right:5px;">
                         <div class="tw-card" style="margin-bottom:0;">
                             <div class="tw-card-title">Contagem Total por Unidade</div>
@@ -556,6 +678,15 @@
         html += `               </tbody>
                             </table>
                         </div>
+
+                        <!-- Novo Card: Lista de Aldeias com Tropas e Hover -->
+                        <div class="tw-card" id="tw-villages-card-container" style="display:none; margin-bottom:0; flex-grow:1;">
+                            <div class="tw-card-title">
+                                <span>🏰 Aldeias do Grupo Selecionado <span id="tw-vlist-count" style="color:#7fbfff; font-weight:normal;"></span></span>
+                                <small style="color:#888; font-weight:normal; font-size:11px;">Pousa o rato para ver tropas</small>
+                            </div>
+                            <div class="tw-v-list" id="tw-vlist-items"></div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -572,7 +703,6 @@
         document.getElementById('tw-target-coord').oninput = updateTargetCalculations;
         document.getElementById('tw-target-unit').onchange = updateTargetCalculations;
 
-        // Copia estritamente as coordenadas limpas separadas por espaço
         document.getElementById('tw-btn-copy-coords').onclick = () => {
             const box = document.getElementById('tw-coords-output');
             if (!box.value) return;
@@ -584,7 +714,6 @@
             const targetInput = document.getElementById('tw-target-coord');
             const targetVal = targetInput ? targetInput.value.trim() : '';
 
-            // Se havia um alvo inserido, o primeiro match capturado é o próprio alvo se estiver na label; filtramos se necessário
             let finalCoords = matchedCoords;
             if (rawText.includes(' - ') && /^\d{3}\|\d{3}$/.test(targetVal)) {
                 finalCoords = matchedCoords.filter(c => c !== targetVal || rawText.startsWith(c));
