@@ -78,7 +78,6 @@
         .tw-btn-copy { background: #2a2d30; color: #7fbfff; border: 1px solid #444; padding: 3px 8px; border-radius: 4px; font-size: 11px; cursor: pointer; font-weight: bold; transition: 0.2s; }
         .tw-btn-copy:hover { background: #7fbfff; color: #111; }
 
-        /* Lista Dinâmica de Aldeias */
         .tw-v-list { max-height: 190px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; padding-right: 4px; }
         .tw-v-list::-webkit-scrollbar { width: 4px; }
         .tw-v-list::-webkit-scrollbar-thumb { background: #444; border-radius: 2px; }
@@ -87,7 +86,6 @@
         .tw-v-item a { color: #7fbfff; text-decoration: none; font-weight: bold; }
         .tw-v-item a:hover { text-decoration: underline; color: #fff; }
 
-        /* Tooltip Flutuante de Tropas */
         #tw-tooltip-card {
             position: fixed; z-index: 1000000; background: #121415; border: 1px solid #7fbfff;
             border-radius: 8px; padding: 10px 14px; pointer-events: none; opacity: 0;
@@ -255,7 +253,7 @@
                 const ids = new Set();
                 const doc = parser.parseFromString(html, 'text/html');
                 doc.querySelectorAll('a[href*="village="]').forEach(a => {
-                    const match = a.href.match(/village=(\d+)/);
+                    const match = a.href.match(/[?&]village=(\d+)/);
                     if (match) ids.add(match[1]);
                 });
                 return ids;
@@ -268,7 +266,9 @@
             dP.querySelectorAll('#production_table tbody tr').forEach(tr => {
                 const anchor = tr.querySelector('a[href*="village="]');
                 if (!anchor) return;
-                const vId = anchor.href.match(/village=(\d+)/)[1];
+                const match = anchor.href.match(/[?&]village=(\d+)/);
+                if (!match) return;
+                const vId = match[1];
                 
                 tr.querySelectorAll('td').forEach(td => {
                     const txt = td.textContent.trim();
@@ -304,10 +304,13 @@
             Object.keys(outputCategories).forEach(cat => summary.categories[cat] = { count: 0, coords: [], villageIds: [] });
 
             Array.from(unitsTable.querySelectorAll('tbody')).forEach(tb => {
-                const anchor = tb.querySelector('a[href*="village="]');
+                const anchor = tb.querySelector('.quickedit-vn') || tb.querySelector('a[href*="village="]');
                 if (!anchor) return;
                 
-                const vId = anchor.href.match(/village=(\d+)/)[1];
+                const match = anchor.href.match(/[?&]village=(\d+)/);
+                if (!match) return;
+                const vId = match[1];
+
                 const vName = (tb.querySelector('.quickedit-label') || anchor).textContent.trim();
                 const coordsMatch = vName.match(/(\d+\|\d+)/);
                 const coords = coordsMatch ? coordsMatch[1] : '';
@@ -425,7 +428,9 @@
 
         currentVillages.forEach(v => {
             html += `<tr class="${v.rowClass}">
-                <td style="text-align:left; font-weight:bold; color:#7fbfff;">${v.name}</td>
+                <td style="text-align:left; font-weight:bold; color:#7fbfff;">
+                    <a href="/game.php?village=${v.id}&screen=overview" target="_blank" style="color:#7fbfff; text-decoration:none;">${v.name}</a>
+                </td>
                 <td>
                     <div style="font-weight:bold; color:${v.farm.color}; font-size:12px;">
                         <span style="color:#aaa; font-weight:normal; margin-right:4px;">Nv. ${v.farm.lvl} •</span>${v.farm.txt} (${v.farm.perc}%)
@@ -513,7 +518,7 @@
             
             html += `
                 <div class="tw-v-item" data-vid="${v.id}">
-                    <a href="${game_data.link_base_pure}village=${v.id}&screen=overview" target="_blank">${v.name}</a>
+                    <a href="/game.php?village=${v.id}&screen=overview" target="_blank">${v.name}</a>
                     ${distInfo}
                 </div>
             `;
@@ -521,7 +526,6 @@
 
         listDiv.innerHTML = html;
 
-        // Anexar eventos de hover do rato para o tooltip
         listDiv.querySelectorAll('.tw-v-item').forEach(el => {
             el.addEventListener('mouseenter', (e) => {
                 const vid = el.getAttribute('data-vid');
@@ -559,8 +563,6 @@
             el.addEventListener('mousemove', (e) => {
                 const x = e.clientX + 15;
                 const y = e.clientY + 15;
-                
-                // Prevenir que o tooltip saia fora do ecrã
                 const maxX = window.innerWidth - 240;
                 const maxY = window.innerHeight - tooltip.offsetHeight - 20;
 
@@ -587,7 +589,6 @@
         let html = `
             <div class="tw-tab-content active">
                 <div class="tw-counter-grid">
-                    <!-- Coluna da Esquerda: Categorias, Alvo e Coordenadas -->
                     <div style="display:flex; flex-direction:column; gap:10px;">
                         <div class="tw-card" style="margin-bottom:0;">
                             <div style="display:flex; justify-content:space-between; font-size:13px; margin-bottom:8px;">
@@ -647,7 +648,6 @@
                         </div>
                     </div>
 
-                    <!-- Coluna da Direita: Contagem Total e Lista com Hover -->
                     <div style="display:flex; flex-direction:column; gap:10px; overflow-y:auto; padding-right:5px;">
                         <div class="tw-card" style="margin-bottom:0;">
                             <div class="tw-card-title">Contagem Total por Unidade</div>
@@ -679,7 +679,6 @@
                             </table>
                         </div>
 
-                        <!-- Novo Card: Lista de Aldeias com Tropas e Hover -->
                         <div class="tw-card" id="tw-villages-card-container" style="display:none; margin-bottom:0; flex-grow:1;">
                             <div class="tw-card-title">
                                 <span>🏰 Aldeias do Grupo Selecionado <span id="tw-vlist-count" style="color:#7fbfff; font-weight:normal;"></span></span>
