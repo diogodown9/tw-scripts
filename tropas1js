@@ -39,21 +39,31 @@
         .tw-tab-content { display: none; flex-direction: column; flex-grow: 1; overflow: hidden; }
         .tw-tab-content.active { display: flex; }
 
-        .tw-ov-container { overflow-y: auto; overflow-x: auto; flex-grow: 1; padding-right: 5px; }
+        .tw-ov-container { overflow-y: auto; overflow-x: auto; flex-grow: 1; padding-right: 5px; border: 1px solid #2e3235; border-radius: 8px; background: #181a1b; }
         .tw-ov-container::-webkit-scrollbar { width: 6px; height: 6px; }
         .tw-ov-container::-webkit-scrollbar-track { background: #1a1a1a; }
         .tw-ov-container::-webkit-scrollbar-thumb { background: #444; border-radius: 3px; }
         
-        .tw-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-        .tw-table th, .tw-table td { padding: 8px 6px; border-bottom: 1px solid #2a2d30; text-align: center; vertical-align: middle; white-space: nowrap; }
-        .tw-table th { background-color: #222426 !important; position: sticky; top: 0; z-index: 2; color: #a8a095 !important; border-bottom: 2px solid #111 !important; }
-        .tw-table tbody tr { transition: background 0.1s; }
+        .tw-table { width: 100%; border-collapse: collapse; font-size: 13px; table-layout: fixed; }
+        .tw-table th, .tw-table td { padding: 8px 6px; border-bottom: 1px solid #2a2d30; text-align: center; vertical-align: middle; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .tw-table th { 
+            background: #222426 !important; 
+            background-color: #222426 !important;
+            background-image: none !important;
+            position: sticky; top: 0; z-index: 2; 
+            color: #d7d0c5 !important; 
+            border: none !important;
+            border-bottom: 2px solid #3a3e41 !important;
+            font-size: 12px;
+            text-shadow: none !important;
+        }
+        .tw-table tbody tr { transition: background 0.1s; background: transparent; }
         .tw-table tbody tr:hover { background: #26292c !important; }
         
-        .tw-row-ataque { background-color: rgba(255, 60, 60, 0.18) !important; }
-        .tw-row-defesa { background-color: rgba(60, 140, 255, 0.18) !important; }
+        .tw-row-ataque { background-color: rgba(255, 60, 60, 0.16) !important; }
+        .tw-row-defesa { background-color: rgba(60, 140, 255, 0.16) !important; }
 
-        .tw-zero { color: #666; opacity: 0.25; font-weight: normal; }
+        .tw-zero { color: #555; opacity: 0.35; font-weight: normal; }
         .tw-val { color: #fff; font-weight: bold; }
         .tw-farm-bar-bg { background: #111; height: 4px; border-radius: 2px; margin-top: 4px; overflow: hidden; width: 100%; }
         .tw-farm-bar { height: 100%; }
@@ -78,7 +88,6 @@
         .tw-btn-copy { background: #2a2d30; color: #7fbfff; border: 1px solid #444; padding: 3px 8px; border-radius: 4px; font-size: 11px; cursor: pointer; font-weight: bold; transition: 0.2s; }
         .tw-btn-copy:hover { background: #7fbfff; color: #111; }
 
-        /* Lista Dinâmica de Aldeias */
         .tw-v-list { max-height: 190px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; padding-right: 4px; }
         .tw-v-list::-webkit-scrollbar { width: 4px; }
         .tw-v-list::-webkit-scrollbar-thumb { background: #444; border-radius: 2px; }
@@ -87,7 +96,6 @@
         .tw-v-item a { color: #7fbfff; text-decoration: none; font-weight: bold; }
         .tw-v-item a:hover { text-decoration: underline; color: #fff; }
 
-        /* Tooltip Flutuante de Tropas */
         #tw-tooltip-card {
             position: fixed; z-index: 1000000; background: #121415; border: 1px solid #7fbfff;
             border-radius: 8px; padding: 10px 14px; pointer-events: none; opacity: 0;
@@ -414,10 +422,10 @@
                     <table class="tw-table">
                         <thead>
                             <tr>
-                                <th style="text-align:left; min-width: 220px;">Aldeia</th>
-                                <th style="min-width: 150px;">Fazenda</th>`;
+                                <th style="text-align:left; width: 220px; padding-left: 12px;">Aldeia</th>
+                                <th style="width: 175px;">Fazenda</th>`;
         unitConfigs.forEach(u => {
-            if (!u.isHidden) html += `<th><img src="${u.src}" style="filter: drop-shadow(0 2px 2px rgba(0,0,0,0.5));"></th>`;
+            if (!u.isHidden) html += `<th style="width: 48px;"><img src="${u.src}" style="vertical-align: middle; filter: drop-shadow(0 2px 2px rgba(0,0,0,0.5));"></th>`;
         });
         html += `           </tr>
                         </thead>
@@ -425,7 +433,7 @@
 
         currentVillages.forEach(v => {
             html += `<tr class="${v.rowClass}">
-                <td style="text-align:left; font-weight:bold; color:#7fbfff;">
+                <td style="text-align:left; font-weight:bold; color:#7fbfff; padding-left: 12px;">
                     <a href="/game.php?village=${v.id}&screen=overview" target="_blank" style="color:#7fbfff; text-decoration:none;">${v.name}</a>
                 </td>
                 <td>
@@ -474,14 +482,14 @@
         if (isTargetValid) {
             listWithDist = catObj.villageIds.map(vId => {
                 const v = villagesById[vId];
-                const dist = v.coords ? calcDistance(v.coords, target) : 999;
+                const dist = v && v.coords ? calcDistance(v.coords, target) : 999;
                 const baseMin = unitSpeedMinutes[unit] || 30;
                 const totalSeconds = dist * baseMin * 60;
                 return { v, dist, timeStr: formatDuration(totalSeconds) };
             });
 
             listWithDist.sort((a, b) => a.dist - b.dist);
-            lines = listWithDist.map(item => `${item.v.coords} - ${item.dist.toFixed(1)} campos (${item.timeStr})`);
+            lines = listWithDist.map(item => `${item.v ? item.v.coords : ''} - ${item.dist.toFixed(1)} campos (${item.timeStr})`);
             label.innerHTML = `Alvo: <b style="color:#7fbfff;">${target}</b> | ${outputCategories[selectedCatKey].desc} (${catObj.coords.length})`;
         } else {
             lines = [catObj.coords.join(' ')];
@@ -511,6 +519,7 @@
 
         villageItems.forEach(item => {
             const v = item.v;
+            if (!v) return;
             const distInfo = item.dist !== null ? `<span style="color:#aaa; font-size:11px;">${item.dist.toFixed(1)}c • ${item.timeStr}</span>` : `<span style="color:${v.farm.color}; font-size:11px;">Nv.${v.farm.lvl} (${v.farm.perc}%)</span>`;
             
             html += `
@@ -560,7 +569,6 @@
             el.addEventListener('mousemove', (e) => {
                 const x = e.clientX + 15;
                 const y = e.clientY + 15;
-                
                 const maxX = window.innerWidth - 240;
                 const maxY = window.innerHeight - tooltip.offsetHeight - 20;
 
