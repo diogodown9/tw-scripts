@@ -190,6 +190,9 @@
     let sortColumn = null, sortAsc = false;
     let grabbedTargets = new Set();
     let mapInterval = null;
+    let activeCounterCategory = null;
+    let savedCounterTarget = '';
+    let savedCounterUnit = 'ram';
 
     const PT114_TIME_MODIFIER = 58.8227 / 60;
     const unitSpeedMinutes = { 
@@ -641,76 +644,173 @@
 
     function renderCounter() {
         const s = counterSummaryData;
-        let catHtml = '';
-        for (const [catName, catData] of Object.entries(outputCategories)) {
-            const count = s.categories[catName].count;
-            catHtml += `<tr>
-                <td style="padding:5px 0; text-align:left;"><a href="javascript:void(0);" class="tw-cat-link" data-cat="${catName}" style="color:#38bdf8; text-decoration:none; font-weight:600;">» ${catData.desc}</a></td>
-                <td style="text-align:right; font-weight:bold; color:${count > 0 ? '#34d399' : '#475569'};">${count}</td>
-            </tr>`;
-        }
+        let selectedCategory = activeCounterCategory || Object.keys(outputCategories)[0];
 
-        document.getElementById('tw-main-body').innerHTML = `
-            <div class="tw-pane active" style="padding: 6px;">
-                <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; height:100%;">
-                    <div style="display:flex; flex-direction:column; gap:8px;">
-                        <div class="tw-card">
-                            <div class="tw-card-title" style="color:#38bdf8;">👤 ${game_data.player.name}</div>
-                            <div style="font-size:12px; color:#94a3b8; margin-top:3px;">População Total do Império: <b style="color:#34d399; font-size:14px;">${s.totalPop.toLocaleString('pt-PT')}</b></div>
-                        </div>
-                        <div class="tw-panel" style="padding:10px;"><table style="width:100%; font-size:12px;">${catHtml}</table></div>
+        function renderCounterContent() {
+            let catButtonsHtml = '';
+            for (const [catName, catData] of Object.entries(outputCategories)) {
+                const count = s.categories[catName].count;
+                const isSelected = catName === selectedCategory;
+                const activeStyle = isSelected ? 'border-color:#38bdf8; background:rgba(56, 189, 248, 0.15); box-shadow:0 0 12px rgba(56,189,248,0.2);' : 'background:#0f172a; border-color:#1e293b;';
+                
+                catButtonsHtml += `
+                    <div class="tw-cat-btn" data-cat="${catName}" style="display:flex; justify-content:space-between; align-items:center; padding:9px 12px; border-radius:8px; border:1px solid; ${activeStyle} cursor:pointer; transition:0.15s; margin-bottom:5px;">
+                        <span style="font-size:12px; font-weight:600; color:${isSelected?'#38bdf8':'#e2e8f0'};">» ${catData.desc}</span>
+                        <span style="font-size:12px; font-weight:bold; padding:2px 8px; border-radius:12px; background:${count>0?(isSelected?'#0284c7':'#1e293b'):'#090d16'}; color:${count>0?'#fff':'#64748b'};">${count}</span>
                     </div>
-                    <div style="display:flex; flex-direction:column; gap:8px;">
-                        <div class="tw-card" style="display:flex; flex-direction:row; gap:8px; align-items:center;">
-                            <span style="font-weight:600; color:#38bdf8;">🎯 Alvo:</span>
-                            <input type="text" id="tw-c-target" class="tw-input" style="width:90px; text-align:center; font-weight:bold; color:#fbbf24;" placeholder="xxx|yyy" maxlength="7">
-                            <span style="font-weight:600; color:#94a3b8;">Unidade:</span>
-                            <select id="tw-c-unit" class="tw-select">
-                                <option value="ram">Aríete (30m)</option><option value="snob">Nobre (35m)</option><option value="axe">Viking (18m)</option><option value="spy">Batedor (9m)</option>
-                            </select>
-                            <button class="tw-btn tw-btn-blue" id="tw-c-btn-copy" style="margin-left:auto; padding:4px 10px; font-size:11px;">📋 Copiar Tudo</button>
+                `;
+            }
+
+            const targetVal = document.getElementById('tw-c-target') ? document.getElementById('tw-c-target').value.trim() : (savedCounterTarget || '');
+            const unitVal = document.getElementById('tw-c-unit') ? document.getElementById('tw-c-unit').value : (savedCounterUnit || 'ram');
+
+            const currentVillages = (s.categories[selectedCategory] ? s.categories[selectedCategory].villageIds : []).map(vId => {
+                const v = villagesById[vId];
+                if (!v) return null;
+                const hasTarget = /^\d{3}\|\d{3}$/.test(targetVal);
+                const dist = hasTarget ? calcDistance(v.coords, targetVal) : null;
+                const travelSec = dist !== null ? dist * (unitSpeedMinutes[unitVal] || (30 * PT114_TIME_MODIFIER)) * 60 : null;
+                return {
+                    village: v,
+                    dist: dist !== null ? dist.toFixed(1) : null,
+                    travelStr: travelSec !== null ? formatDuration(travelSec) : null
+                };
+            }).filter(Boolean);
+
+            if (currentVillages.length > 0 && currentVillages[0].dist !== null) {
+                currentVillages.sort((a, b) => parseFloat(a.dist) - parseFloat(b.dist));
+            }
+
+            let rowsHtml = '';
+            if (currentVillages.length === 0) {
+                rowsHtml = `<tr><td colspan="5" style="padding:40px; text-align:center; color:#64748b;">Nenhuma aldeia encontrada nesta categoria.</td></tr>`;
+            } else {
+                currentVillages.forEach((item, idx) => {
+                    const v = item.village;
+                    const distCol = item.dist !== null ? `<b style="color:#fbbf24;">${item.dist}c</b>` : `<span style="color:#64748b;">-</span>`;
+                    const timeCol = item.travelStr !== null ? `<b style="color:#38bdf8;">${item.travelStr}</b>` : `<span style="color:#64748b;">-</span>`;
+                    
+                    rowsHtml += `
+                        <tr data-vid="${v.id}">
+                            <td style="color:#64748b; width:30px;">${idx+1}</td>
+                            <td style="text-align:left; font-weight:bold; color:#38bdf8;">
+                                <a href="javascript:void(0);" class="tw-v-coord" data-coord="${v.coords}" style="color:#38bdf8; text-decoration:none;">${v.name}</a>
+                            </td>
+                            <td style="font-weight:bold; color:#fbbf24;">${v.coords}</td>
+                            <td>${distCol}</td>
+                            <td>${timeCol}</td>
+                        </tr>
+                    `;
+                });
+            }
+
+            document.getElementById('tw-main-body').innerHTML = `
+                <div class="tw-pane active" style="padding: 4px; gap:8px;">
+                    <div style="display:grid; grid-template-columns: 360px 1fr; gap:10px; height:100%;">
+                        
+                        <!-- PAINEL ESQUERDO: CATEGORIAS & STATS -->
+                        <div style="display:flex; flex-direction:column; gap:8px;">
+                            <div class="tw-card" style="padding:10px 12px; background:linear-gradient(135deg, rgba(15,23,42,0.8) 0%, rgba(2,6,23,0.9) 100%);">
+                                <div class="tw-card-title" style="color:#38bdf8; font-size:12px;">👤 ${game_data.player.name}</div>
+                                <div style="display:flex; justify-content:space-between; align-items:center; margin-top:4px;">
+                                    <span style="font-size:11px; color:#94a3b8;">População Total:</span>
+                                    <b style="color:#34d399; font-size:14px;">${s.totalPop.toLocaleString('pt-PT')}</b>
+                                </div>
+                            </div>
+                            
+                            <div class="tw-panel" style="padding:8px; display:flex; flex-direction:column; flex-grow:1; background:#0b1120;">
+                                <span style="font-size:10px; font-weight:bold; text-transform:uppercase; color:#64748b; margin-bottom:6px; letter-spacing:0.05em; padding-left:4px;">Categorias Estratégicas</span>
+                                <div style="overflow-y:auto; flex-grow:1; padding-right:2px;">
+                                    ${catButtonsHtml}
+                                </div>
+                            </div>
                         </div>
-                        <textarea id="tw-c-output" class="tw-textarea" style="flex-grow:1;" readonly placeholder="Clica numa categoria à esquerda para listar as coordenadas prontas..."></textarea>
+
+                        <!-- PAINEL DIREITO: TABELA INTERATIVA & COORDENADAS -->
+                        <div style="display:flex; flex-direction:column; gap:8px;">
+                            <div class="tw-card" style="display:flex; flex-direction:row; gap:10px; align-items:center; justify-content:space-between; padding:8px 12px;">
+                                <div style="display:flex; align-items:center; gap:8px;">
+                                    <span style="font-weight:700; color:#38bdf8; font-size:12px;">🎯 Alvo:</span>
+                                    <input type="text" id="tw-c-target" class="tw-input" style="width:95px; text-align:center; font-weight:bold; color:#fbbf24; font-size:13px; padding:4px 6px;" placeholder="xxx|yyy" maxlength="7" value="${targetVal}">
+                                    
+                                    <span style="font-weight:700; color:#94a3b8; font-size:12px; margin-left:6px;">Velocidade:</span>
+                                    <select id="tw-c-unit" class="tw-select" style="font-weight:600; padding:4px 8px; font-size:12px;">
+                                        <option value="ram" ${unitVal==='ram'?'selected':''}>🪵 Aríete (30m)</option>
+                                        <option value="snob" ${unitVal==='snob'?'selected':''}>👑 Nobre (35m)</option>
+                                        <option value="sword" ${unitVal==='sword'?'selected':''}>🛡️ Espada (22m)</option>
+                                        <option value="axe" ${unitVal==='axe'?'selected':''}>🪓 Viking (18m)</option>
+                                        <option value="heavy" ${unitVal==='heavy'?'selected':''}>🐴 CP (11m)</option>
+                                        <option value="light" ${unitVal==='light'?'selected':''}>🐎 CL (10m)</option>
+                                        <option value="spy" ${unitVal==='spy'?'selected':''}>🔭 Batedor (9m)</option>
+                                    </select>
+                                </div>
+                                <div style="display:flex; gap:6px;">
+                                    <button class="tw-btn tw-btn-blue" id="tw-c-btn-copy" style="padding:6px 14px; font-size:12px; font-weight:bold;">📋 Copiar Coordenadas (${currentVillages.length})</button>
+                                </div>
+                            </div>
+
+                            <div class="tw-panel" style="flex-grow:1;">
+                                <table class="tw-table">
+                                    <thead>
+                                        <tr>
+                                            <th style="width:35px;">#</th>
+                                            <th style="text-align:left; padding-left:10px;">Aldeia</th>
+                                            <th style="width:100px;">Coordenada</th>
+                                            <th style="width:90px;">Distância</th>
+                                            <th style="width:110px;">Tempo Viagem</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        ${rowsHtml}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
                     </div>
                 </div>
-            </div>
-        `;
+            `;
 
-        const cTarget = document.getElementById('tw-c-target');
-        cTarget.addEventListener('input', (e) => {
-            let val = e.target.value;
-            if (/^\d{3}$/.test(val) && !val.includes('|')) {
-                e.target.value = val + '|';
-            }
-        });
-
-        document.getElementById('tw-c-btn-copy').onclick = async () => {
-            const txt = document.getElementById('tw-c-output').value.trim();
-            if (!txt) {
-                alert('A lista está vazia. Clica primeiro numa categoria à esquerda.');
-                return;
-            }
-            await navigator.clipboard.writeText(txt);
-            showToast('📋 Lista copiada para a Área de Transferência!');
-        };
-
-        document.querySelectorAll('.tw-cat-link').forEach(el => el.addEventListener('click', async function() {
-            const cat = this.getAttribute('data-cat');
-            const target = document.getElementById('tw-c-target').value.trim();
-            const unit = document.getElementById('tw-c-unit').value;
-            const list = s.categories[cat].villageIds.map(vId => {
-                const v = villagesById[vId];
-                const dist = (v && /^\d{3}\|\d{3}$/.test(target)) ? calcDistance(v.coords, target) : null;
-                const time = dist ? formatDuration(dist * (unitSpeedMinutes[unit] || (30 * PT114_TIME_MODIFIER)) * 60) : '';
-                return dist !== null ? `${v.coords} - ${dist.toFixed(1)}c (${time})` : (v ? v.coords : '');
+            // Listeners
+            const cTargetInput = document.getElementById('tw-c-target');
+            cTargetInput.addEventListener('input', (e) => {
+                let val = e.target.value;
+                if (/^\d{3}$/.test(val) && !val.includes('|')) {
+                    e.target.value = val + '|';
+                }
+                savedCounterTarget = e.target.value.trim();
+                renderCounterContent();
             });
-            const outTxt = list.join('\n');
-            document.getElementById('tw-c-output').value = outTxt;
-            if (outTxt) {
-                await navigator.clipboard.writeText(outTxt);
-                showToast(`📋 ${list.length} coordenadas de ${cat} copiadas!`);
-            }
-        }));
+
+            document.getElementById('tw-c-unit').onchange = (e) => {
+                savedCounterUnit = e.target.value;
+                renderCounterContent();
+            };
+
+            document.querySelectorAll('.tw-cat-btn').forEach(btn => btn.onclick = function() {
+                selectedCategory = this.getAttribute('data-cat');
+                activeCounterCategory = selectedCategory;
+                renderCounterContent();
+            });
+
+            document.getElementById('tw-c-btn-copy').onclick = async () => {
+                if (currentVillages.length === 0) {
+                    alert('Nenhuma aldeia nesta categoria para copiar.');
+                    return;
+                }
+                const coordsList = currentVillages.map(item => item.village.coords).join(' ');
+                await navigator.clipboard.writeText(coordsList);
+                showToast(`📋 ${currentVillages.length} coordenadas copiadas!`);
+            };
+
+            document.querySelectorAll('.tw-v-coord').forEach(el => el.onclick = function() {
+                const c = this.getAttribute('data-coord');
+                navigator.clipboard.writeText(c);
+                showToast(`📋 Coordenadas ${c} copiadas!`);
+            });
+        }
+
+        renderCounterContent();
     }
 
     // --- ABA 3: FAKES & MASCARAMENTO TÁTICO AVANÇADO ---
