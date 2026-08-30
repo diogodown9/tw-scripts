@@ -1,3 +1,13 @@
+// ==UserScript==
+// @name         TW Tactical Command Suite - Attack v1
+// @namespace    https://tribalwars.com.pt/
+// @version      1.0.0
+// @description  Suite militar avançada para Tribal Wars PT: Visão Geral com regra 22k, Contador Tático, Gerador de Fakes dinâmico e Planeador NT + Anti-Snipe + Bunker com Paladino sincronizado para o PSEvolution.
+// @author       DeepMind / Antigravity
+// @match        https://*.tribalwars.com.pt/game.php*
+// @grant        none
+// ==/UserScript==
+
 (async function () {
     const modalId = 'tw-master-suite';
     
@@ -16,10 +26,10 @@
         #${modalId}-backdrop { position: fixed; inset: 0; background: rgba(2, 6, 23, 0.88); z-index: 99998; backdrop-filter: blur(8px); }
         #${modalId} {
             position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
-            width: 96vw; max-width: 1380px; height: 94vh; max-height: 940px;
+            width: 98vw; max-width: 1560px; height: 95vh; max-height: 960px;
             background: linear-gradient(180deg, #0b1120 0%, #030712 100%);
             color: #f8fafc; border: 1px solid #1e293b; border-radius: 14px;
-            z-index: 99999; padding: 16px 20px;
+            z-index: 99999; padding: 12px 16px;
             box-shadow: 0 25px 70px -10px rgba(0, 0, 0, 0.95), 0 0 0 1px rgba(56, 189, 248, 0.15);
             display: flex; flex-direction: column; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
             box-sizing: border-box;
@@ -222,7 +232,40 @@
         return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}:${String(d.getSeconds()).padStart(2,'0')}:${ms} ${String(d.getDate()).padStart(2,'0')}.${String(d.getMonth()+1).padStart(2,'0')}.${d.getFullYear()}`;
     }
 
+    let worldVillages = [];
+    let worldVillagesLoaded = false;
+
+    async function fetchWorldVillages() {
+        if (worldVillagesLoaded) return;
+        try {
+            const res = await fetch('/map/village.txt');
+            if (res.ok) {
+                const text = await res.text();
+                const lines = text.trim().split('\n');
+                worldVillages = lines.map(line => {
+                    const parts = line.split(',');
+                    // formato: id, name, x, y, player_id, points, rank
+                    if (parts.length >= 4) {
+                        return {
+                            id: parts[0],
+                            name: decodeURIComponent(parts[1] || '').replace(/\+/g, ' '),
+                            x: parseInt(parts[2], 10),
+                            y: parseInt(parts[3], 10),
+                            playerId: parts[4] || '0',
+                            coord: `${parts[2]}|${parts[3]}`
+                        };
+                    }
+                    return null;
+                }).filter(Boolean);
+                worldVillagesLoaded = true;
+            }
+        } catch (e) {
+            console.warn('[TW] Não foi possível carregar map/village.txt', e);
+        }
+    }
+
     async function loadData() {
+        fetchWorldVillages(); // inicia download em paralelo
         try {
             const baseUrl = (typeof game_data !== 'undefined' && game_data.link_base_pure) ? game_data.link_base_pure : '/game.php?';
             const [rU, rP] = await Promise.all([
@@ -272,16 +315,35 @@
                 const coords = (vName.match(/(\d{3}\|\d{3})/)||[])[1]||'';
 
                 const rows = Array.from(tb.querySelectorAll('tr'));
-                let tRow = rows.find(tr => tr.querySelector('td') && tr.querySelector('td').textContent.trim().toLowerCase() === 'total') || rows[rows.length-1];
-                const cells = Array.from(tRow.querySelectorAll('td.unit-item'));
-                if (cells.length === 0) return;
+                // Procura a linha de tropas disponíveis "na aldeia" (primeira linha ou linha com texto próprio)
+                let homeRow = rows.find(tr => {
+                    const firstTd = tr.querySelector('td');
+                    if (!firstTd) return false;
+                    const txt = firstTd.textContent.trim().toLowerCase();
+                    return txt.includes('na aldeia') || txt.includes('in the village') || txt === 'próprias' || txt === 'own';
+                }) || rows[0];
 
-                const vTroops = [], dict = {}, vTot = { defense: 0, offense: 0, spy: 0, snob: 0, catapult: 0, ram: 0, knight: 0 };
+                let totalRow = rows.find(tr => tr.querySelector('td') && tr.querySelector('td').textContent.trim().toLowerCase() === 'total') || rows[rows.length-1];
+                
+                const homeCells = Array.from(homeRow.querySelectorAll('td.unit-item'));
+                const totalCells = Array.from(totalRow.querySelectorAll('td.unit-item'));
+                if (homeCells.length === 0 && totalCells.length === 0) return;
+
+                const targetCells = homeCells.length > 0 ? homeCells : totalCells;
+
+                const vTroops = [], dict = {}, homeDict = {}, vTot = { defense: 0, offense: 0, spy: 0, snob: 0, catapult: 0, ram: 0, knight: 0 };
                 headers.forEach((th, i) => {
-                    const u = unitConfigs[i], cell = cells[i];
+                    const u = unitConfigs[i];
+                    const cell = targetCells[i];
                     const c = (cell && !cell.classList.contains('hidden')) ? parseInt(cell.textContent.replace(/\./g,''),10)||0 : 0;
+                    
+                    // Tropas físicas em casa disponíveis para envio
+                    const hCell = homeCells[i];
+                    const hc = (hCell && !hCell.classList.contains('hidden')) ? parseInt(hCell.textContent.replace(/\./g,''),10)||0 : c;
+                    
                     if (!u.isHidden) vTroops.push(c);
                     dict[u.name] = c;
+                    homeDict[u.name] = hc;
 
                     if (u.name && summary.units[u.name]) {
                         const pop = c * (defaultUnitPop[u.name] || 1);
@@ -292,7 +354,7 @@
                         if (u.name === 'snob') { vTot.snob += c; summary.snobCount += c; }
                         if (u.name === 'catapult') vTot.catapult += c;
                         if (u.name === 'ram') vTot.ram += c;
-                        if (u.name === 'knight') vTot.knight += c;
+                        if (u.name === 'knight') vTot.knight += hc;
                     }
                 });
 
@@ -338,8 +400,11 @@
                     }
                 }
 
+                const knightAvailable = homeDict.knight || 0;
+
                 const vObj = {
-                    id: vId, name: vName, coords, troops: vTroops, troopsDict: dict, rowClass, roleTag,
+                    id: vId, name: vName, coords, troops: vTroops, troopsDict: dict, homeTroopsDict: homeDict,
+                    knightAvailable, rowClass, roleTag,
                     farm: farmInfo,
                     snobsAvailable: snobCount,
                     totalOffPop: vTot.offense,
@@ -396,6 +461,7 @@
         if (overviewFilter === 'off22k') filtered = filtered.filter(v => v.rowClass === 'tw-row-off' && v.farm.used >= 22000);
         else if (overviewFilter === 'def22k') filtered = filtered.filter(v => v.rowClass === 'tw-row-def' && v.farm.used >= 22000);
         else if (overviewFilter === 'snob') filtered = filtered.filter(v => v.snobsAvailable > 0);
+        else if (overviewFilter === 'knight') filtered = filtered.filter(v => (v.knightAvailable || (v.homeTroopsDict && v.homeTroopsDict.knight) || 0) > 0);
         else if (overviewFilter === 'farm22k') filtered = filtered.filter(v => v.farm.used >= 22000);
 
         if (sortColumn) {
@@ -499,16 +565,18 @@
                         <div class="tw-pill ${overviewFilter==='off22k'?'active':''}" data-f="off22k">⚔️ Full Nukes ≥22k (${s.fullNuke22kCount})</div>
                         <div class="tw-pill ${overviewFilter==='def22k'?'active':''}" data-f="def22k">🛡️ Full Bunkers ≥22k (${s.fullBunk22kCount})</div>
                         <div class="tw-pill ${overviewFilter==='snob'?'active':''}" data-f="snob">👑 Com Nobres (${allVillages.filter(v=>v.snobsAvailable>0).length})</div>
+                        <div class="tw-pill ${overviewFilter==='knight'?'active':''}" data-f="knight">🛡️ Paladino em Casa (${allVillages.filter(v=>v.knightAvailable>0).length})</div>
                         <div class="tw-pill ${overviewFilter==='farm22k'?'active':''}" data-f="farm22k">🌾 Fazenda ≥22.000</div>
                     </div>
 
-                    <div style="display:flex; gap:8px; align-items:center;">
-                        <input type="text" id="tw-ov-search" class="tw-input" style="width:220px;" placeholder="🔍 Filtrar aldeia ou coord..." value="${overviewSearch}">
-                        <select id="tw-ov-pp" class="tw-select">
-                            <option value="12" ${itemsPerPage === 12 ? 'selected' : ''}>12 por pág</option>
-                            <option value="15" ${itemsPerPage === 15 ? 'selected' : ''}>15 por pág</option>
-                            <option value="25" ${itemsPerPage === 25 ? 'selected' : ''}>25 por pág</option>
-                            <option value="50" ${itemsPerPage === 50 ? 'selected' : ''}>50 por pág</option>
+                    <div style="display:flex; gap:6px; align-items:center;">
+                        <input type="text" id="tw-ov-search" class="tw-input" style="width:180px;" placeholder="🔍 Filtrar aldeia/coord..." value="${overviewSearch}">
+                        <button class="tw-btn tw-btn-blue" id="tw-btn-copy-filtered-coords" style="padding:4px 8px; font-size:11px;" title="Copia todas as coordenadas da lista atual para o clipboard">📋 Copiar Coords</button>
+                        <select id="tw-ov-pp" class="tw-select" style="padding:4px 6px; font-size:11px;">
+                            <option value="12" ${itemsPerPage === 12 ? 'selected' : ''}>12/pág</option>
+                            <option value="15" ${itemsPerPage === 15 ? 'selected' : ''}>15/pág</option>
+                            <option value="25" ${itemsPerPage === 25 ? 'selected' : ''}>25/pág</option>
+                            <option value="50" ${itemsPerPage === 50 ? 'selected' : ''}>50/pág</option>
                             <option value="9999" ${itemsPerPage === 9999 ? 'selected' : ''}>Todas</option>
                         </select>
                     </div>
@@ -554,6 +622,16 @@
             renderOverview();
         });
 
+        document.getElementById('tw-btn-copy-filtered-coords').onclick = async () => {
+            if (filtered.length === 0) {
+                alert('Nenhuma aldeia corresponde ao filtro atual.');
+                return;
+            }
+            const coordsList = filtered.map(v => v.coords).join(' ');
+            await navigator.clipboard.writeText(coordsList);
+            showToast(`📋 ${filtered.length} coordenadas copiadas para a Área de Transferência!`);
+        };
+
         document.querySelectorAll('.tw-v-coord').forEach(el => el.onclick = function() {
             const c = this.getAttribute('data-coord');
             navigator.clipboard.writeText(c);
@@ -584,12 +662,13 @@
                     </div>
                     <div style="display:flex; flex-direction:column; gap:8px;">
                         <div class="tw-card" style="display:flex; flex-direction:row; gap:8px; align-items:center;">
-                            <span>🎯 Alvo:</span>
-                            <input type="text" id="tw-c-target" class="tw-input" style="width:80px; text-align:center;" placeholder="xxx|yyy" maxlength="7">
-                            <span>Unidade:</span>
+                            <span style="font-weight:600; color:#38bdf8;">🎯 Alvo:</span>
+                            <input type="text" id="tw-c-target" class="tw-input" style="width:90px; text-align:center; font-weight:bold; color:#fbbf24;" placeholder="xxx|yyy" maxlength="7">
+                            <span style="font-weight:600; color:#94a3b8;">Unidade:</span>
                             <select id="tw-c-unit" class="tw-select">
                                 <option value="ram">Aríete (30m)</option><option value="snob">Nobre (35m)</option><option value="axe">Viking (18m)</option><option value="spy">Batedor (9m)</option>
                             </select>
+                            <button class="tw-btn tw-btn-blue" id="tw-c-btn-copy" style="margin-left:auto; padding:4px 10px; font-size:11px;">📋 Copiar Tudo</button>
                         </div>
                         <textarea id="tw-c-output" class="tw-textarea" style="flex-grow:1;" readonly placeholder="Clica numa categoria à esquerda para listar as coordenadas prontas..."></textarea>
                     </div>
@@ -597,7 +676,25 @@
             </div>
         `;
 
-        document.querySelectorAll('.tw-cat-link').forEach(el => el.addEventListener('click', function() {
+        const cTarget = document.getElementById('tw-c-target');
+        cTarget.addEventListener('input', (e) => {
+            let val = e.target.value;
+            if (/^\d{3}$/.test(val) && !val.includes('|')) {
+                e.target.value = val + '|';
+            }
+        });
+
+        document.getElementById('tw-c-btn-copy').onclick = async () => {
+            const txt = document.getElementById('tw-c-output').value.trim();
+            if (!txt) {
+                alert('A lista está vazia. Clica primeiro numa categoria à esquerda.');
+                return;
+            }
+            await navigator.clipboard.writeText(txt);
+            showToast('📋 Lista copiada para a Área de Transferência!');
+        };
+
+        document.querySelectorAll('.tw-cat-link').forEach(el => el.addEventListener('click', async function() {
             const cat = this.getAttribute('data-cat');
             const target = document.getElementById('tw-c-target').value.trim();
             const unit = document.getElementById('tw-c-unit').value;
@@ -607,8 +704,12 @@
                 const time = dist ? formatDuration(dist * (unitSpeedMinutes[unit] || (30 * PT114_TIME_MODIFIER)) * 60) : '';
                 return dist !== null ? `${v.coords} - ${dist.toFixed(1)}c (${time})` : (v ? v.coords : '');
             });
-            document.getElementById('tw-c-output').value = list.join('\n');
-            showToast(`📋 ${list.length} coordenadas listadas!`);
+            const outTxt = list.join('\n');
+            document.getElementById('tw-c-output').value = outTxt;
+            if (outTxt) {
+                await navigator.clipboard.writeText(outTxt);
+                showToast(`📋 ${list.length} coordenadas de ${cat} copiadas!`);
+            }
         }));
     }
 
@@ -695,6 +796,15 @@
                         <div id="tw-f-box-exact" style="display:flex; flex-direction:column; gap:2px; margin-top:2px;">
                             <span style="font-size:10px; color:#38bdf8; font-weight:bold;">🎯 Hora Exata de Chegada (Impacto):</span>
                             <input type="datetime-local" id="tw-f-exact-time" class="tw-input" step="1" value="${exactDefaultStr}" style="font-weight:bold; color:#38bdf8;">
+                            
+                            <!-- ATALHOS RÁPIDOS DE HORA NA ABA FAKES -->
+                            <div style="display:flex; gap:3px; justify-content:space-between; margin-top:3px;">
+                                <button class="tw-pill tw-fake-time-shortcut" data-add-h="2" style="padding:2px 6px; font-size:9px;">+2h</button>
+                                <button class="tw-pill tw-fake-time-shortcut" data-add-h="6" style="padding:2px 6px; font-size:9px;">+6h</button>
+                                <button class="tw-pill tw-fake-time-shortcut" data-add-h="12" style="padding:2px 6px; font-size:9px;">+12h</button>
+                                <button class="tw-pill tw-fake-time-shortcut" data-set-h="20" style="padding:2px 6px; font-size:9px;">20:00</button>
+                                <button class="tw-pill tw-fake-time-shortcut" data-set-h="08" style="padding:2px 6px; font-size:9px;">08:00</button>
+                            </div>
                         </div>
 
                         <div id="tw-f-box-window" style="display:none; grid-template-columns: 1fr 1fr; gap:6px; margin-top:2px;">
@@ -710,10 +820,10 @@
                     </div>
 
                     <div class="tw-card">
-                        <div class="tw-card-title" style="color:#34d399;">🔢 3. Volume & Modelo Bot</div>
-                        <div style="display:grid; grid-template-columns: 1.2fr 1fr; gap:6px;">
+                        <div class="tw-card-title" style="color:#34d399;">🔢 3. Volume & Modelo</div>
+                        <div style="grid-template-columns: 1.2fr 1fr; gap:6px; display:grid;">
                             <div style="display:flex; flex-direction:column; gap:2px;">
-                                <span style="font-size:10px; color:#94a3b8;">Modelo no Bot:</span>
+                                <span style="font-size:10px; color:#94a3b8;">Nome do Modelo:</span>
                                 <input type="text" id="tw-f-model" class="tw-input" value="Fake" style="font-weight:bold; color:#38bdf8;">
                             </div>
                             <div style="display:flex; flex-direction:column; gap:2px;">
@@ -721,12 +831,12 @@
                                 <input type="number" id="tw-f-pertarget" class="tw-input" value="4" min="1" max="30" style="text-align:center; font-weight:bold; color:#34d399;">
                             </div>
                         </div>
-                        <div style="display:grid; grid-template-columns: 1fr 1.2fr; gap:6px; margin-top:2px; align-items:center;">
+                        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:6px; margin-top:2px;">
                             <div style="display:flex; flex-direction:column; gap:2px;">
                                 <span style="font-size:10px; color:#94a3b8;">Max / Aldeia:</span>
                                 <input type="number" id="tw-f-maxorigin" class="tw-input" value="4" min="1" max="100" style="text-align:center;">
                             </div>
-                            <div style="display:flex; align-items:center; gap:6px; margin-top:12px;">
+                            <div style="display:flex; align-items:center; gap:6px; margin-top:14px;">
                                 <input type="checkbox" id="tw-f-allow-multi" checked style="cursor:pointer; width:15px; height:15px;">
                                 <label for="tw-f-allow-multi" style="font-size:10px; color:#f8fafc; cursor:pointer;" title="Permite enviar múltiplos fakes da mesma aldeia para o mesmo alvo se necessário">Repetir p/ Alvo</label>
                             </div>
@@ -736,7 +846,7 @@
 
                 <div style="display:flex; justify-content:space-between; align-items:center; padding:2px 0;">
                     <button class="tw-btn tw-btn-gold" id="tw-btn-gen-russo" style="padding:7px 20px;">
-                        ⚡ Gerar Plano PSEvolution (Copiar para a Área de Transferência)
+                        ⚡ Gerar Plano de Ataque (Copiar para a Área de Transferência)
                     </button>
                     <span id="tw-f-status" style="font-size:12px; font-weight:bold;"></span>
                 </div>
@@ -771,6 +881,39 @@
             document.getElementById('tw-f-box-exact').style.display = isExact ? 'flex' : 'none';
             document.getElementById('tw-f-box-window').style.display = isExact ? 'none' : 'grid';
         };
+
+        // Listener para atalhos de hora na aba Fakes
+        document.querySelectorAll('.tw-fake-time-shortcut').forEach(btn => btn.onclick = function() {
+            const addH = parseInt(this.getAttribute('data-add-h'), 10);
+            const setH = this.getAttribute('data-set-h');
+            const exInput = document.getElementById('tw-f-exact-time');
+            let d = exInput.value ? new Date(exInput.value) : new Date();
+
+            if (!isNaN(addH)) {
+                d = new Date(Date.now() + addH * 3600 * 1000);
+            } else if (setH) {
+                const targetH = parseInt(setH, 10);
+                d = new Date();
+                if (d.getHours() >= targetH) d.setDate(d.getDate() + 1);
+                d.setHours(targetH, 0, 0, 0);
+            }
+
+            const yr = d.getFullYear();
+            const mo = String(d.getMonth() + 1).padStart(2, '0');
+            const da = String(d.getDate()).padStart(2, '0');
+            const ho = String(d.getHours()).padStart(2, '0');
+            const mi = String(d.getMinutes()).padStart(2, '0');
+            const se = String(d.getSeconds()).padStart(2, '0');
+            exInput.value = `${yr}-${mo}-${da}T${ho}:${mi}:${se}`;
+            showToast(`⏰ Hora de Chegada dos fakes ajustada para ${ho}:${mi}:${se} (${da}/${mo})`);
+        });
+
+        // Carregar preferências salvas na aba Fakes
+        const savedFakeModelTab = getPref('tw_f_model', 'Fake');
+        if (document.getElementById('tw-f-model')) {
+            document.getElementById('tw-f-model').value = savedFakeModelTab;
+            document.getElementById('tw-f-model').onchange = (e) => savePrefs('tw_f_model', e.target.value);
+        }
 
         document.getElementById('tw-btn-open-map-modal').onclick = openMapIframeModal;
         document.getElementById('tw-btn-gen-russo').onclick = () => buildBotPlan('russo');
@@ -807,6 +950,7 @@
         const group = document.getElementById('tw-f-group').value;
         const unit = document.getElementById('tw-f-unit').value;
         const modelName = document.getElementById('tw-f-model').value.trim() || 'Fake';
+        const targetBuilding = document.getElementById('tw-f-building') ? document.getElementById('tw-f-building').value : '';
         const fakesPerTarget = parseInt(document.getElementById('tw-f-pertarget').value, 10) || 1;
         const maxPerOrigin = parseInt(document.getElementById('tw-f-maxorigin').value, 10) || 4;
         const allowMultiSameTarget = document.getElementById('tw-f-allow-multi').checked;
@@ -926,7 +1070,7 @@
                 <td><b style="color:#f43f5e;">${cmd.model}</b></td>
             </tr>`;
 
-            const u = `https://${location.host}/game.php?village=${cmd.originId}&screen=place&target_coord=${cmd.targetCoords}`;
+            let u = `https://${location.host}/game.php?village=${cmd.originId}&screen=place&target_coord=${cmd.targetCoords}`;
             output += `[*]${i+1}. ${formatRussianDateTime(cmd.launchTime)} --- ${cmd.model}[|]${formatRussianDateTime(cmd.landTime)}[|] ${cmd.originCoords} --> ${cmd.targetCoords} [|][url=${u}]Link[/url]\n`;
         });
 
@@ -948,114 +1092,152 @@
         if (!nobleOptions) nobleOptions = `<option value="">❌ Nenhuma aldeia com nobres</option>`;
 
         document.getElementById('tw-main-body').innerHTML = `
-            <div class="tw-pane active" style="padding: 4px; gap:8px;">
-                <div style="display:grid; grid-template-columns: 1.1fr 1.1fr 1.2fr; gap:8px;">
+            <div class="tw-pane active" style="padding: 2px; gap:6px;">
+                <div style="display:grid; grid-template-columns: repeat(4, 1fr); gap:6px;">
                     
                     <!-- CARD 1: ALVO & NOBRES -->
-                    <div class="tw-card">
-                        <div class="tw-card-title" style="color:#fbbf24;">🎯 1. Alvo & Arquitetura NT</div>
-                        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:6px;">
-                            <div style="display:flex; flex-direction:column; gap:2px;">
-                                <span style="font-size:10px; color:#94a3b8;">Coordenada Alvo:</span>
-                                <input type="text" id="tw-nt-target" class="tw-input" placeholder="xxx|yyy" maxlength="7" style="font-weight:bold; color:#fbbf24; text-align:center;">
+                    <div class="tw-card" style="padding:8px 10px; gap:4px;">
+                        <div class="tw-card-title" style="color:#fbbf24; font-size:10px;">🎯 1. Alvo & NT</div>
+                        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:4px;">
+                            <div style="display:flex; flex-direction:column; gap:1px;">
+                                <span style="font-size:9px; color:#94a3b8;">Coordenada:</span>
+                                <input type="text" id="tw-nt-target" class="tw-input" placeholder="xxx|yyy" maxlength="7" style="font-weight:bold; color:#fbbf24; text-align:center; padding:4px 6px;">
                             </div>
-                            <div style="display:flex; flex-direction:column; gap:2px;">
-                                <span style="font-size:10px; color:#94a3b8;">Impacto Nobre 1:</span>
-                                <input type="datetime-local" id="tw-nt-landtime" class="tw-input" step="1" value="${landDefaultStr}">
+                            <div style="display:flex; flex-direction:column; gap:1px;">
+                                <span style="font-size:9px; color:#94a3b8;">Impacto N1:</span>
+                                <input type="datetime-local" id="tw-nt-landtime" class="tw-input" step="1" value="${landDefaultStr}" style="padding:4px 4px; font-size:11px;">
                             </div>
                         </div>
-                        <div style="display:flex; flex-direction:column; gap:2px;">
-                            <span style="font-size:10px; color:#94a3b8;">Arquitetura do NT:</span>
-                            <select id="tw-nt-architecture" class="tw-select">
-                                <option value="single_4" selected>Origem Única: 4 Nobres (Modelo NT 25%)</option>
-                                <option value="split_2x2">Origem Dividida: 2 Aldeias x 2 Nobres (Modelo NT - 2 - 50%)</option>
+
+                        <!-- ATALHOS RÁPIDOS DE HORA -->
+                        <div style="display:flex; gap:3px; justify-content:space-between; margin-top:2px;">
+                            <button class="tw-pill tw-time-shortcut" data-add-h="4" style="padding:2px 5px; font-size:9px;">+4h</button>
+                            <button class="tw-pill tw-time-shortcut" data-add-h="8" style="padding:2px 5px; font-size:9px;">+8h</button>
+                            <button class="tw-pill tw-time-shortcut" data-add-h="12" style="padding:2px 5px; font-size:9px;">+12h</button>
+                            <button class="tw-pill tw-time-shortcut" data-set-h="20" style="padding:2px 5px; font-size:9px;">20:00</button>
+                            <button class="tw-pill tw-time-shortcut" data-set-h="08" style="padding:2px 5px; font-size:9px;">08:00</button>
+                        </div>
+
+                        <div style="display:flex; flex-direction:column; gap:1px; margin-top:2px;">
+                            <span style="font-size:9px; color:#94a3b8;">Arquitetura do NT:</span>
+                            <select id="tw-nt-architecture" class="tw-select" style="padding:4px 6px; font-size:11px;">
+                                <option value="single_4" selected>Única: 4 Nobres (NT 25%)</option>
+                                <option value="split_2x2">Dividida: 2x2 (NT - 2 - 50%)</option>
                             </select>
                         </div>
-                        <div style="display:flex; flex-direction:column; gap:2px;" id="tw-box-noble-primary">
-                            <span style="font-size:10px; color:#94a3b8;" id="tw-lbl-noble-primary">Aldeia Nobres (4 Nobres):</span>
-                            <select id="tw-nt-noble-village" class="tw-select">${nobleOptions}</select>
+                        <div style="display:flex; flex-direction:column; gap:1px;" id="tw-box-noble-primary">
+                            <span style="font-size:9px; color:#94a3b8;" id="tw-lbl-noble-primary">Aldeia Nobres (4 Nobres):</span>
+                            <select id="tw-nt-noble-village" class="tw-select" style="padding:4px 6px; font-size:11px;">${nobleOptions}</select>
                         </div>
-                        <div style="display:none; flex-direction:column; gap:2px;" id="tw-box-noble-secondary">
-                            <span style="font-size:10px; color:#94a3b8;">Aldeia Nobres (Secundária):</span>
-                            <select id="tw-nt-noble-village-2" class="tw-select">${nobleOptions}</select>
+                        <div style="display:none; flex-direction:column; gap:1px;" id="tw-box-noble-secondary">
+                            <span style="font-size:9px; color:#94a3b8;">Aldeia Nobres (Secundária):</span>
+                            <select id="tw-nt-noble-village-2" class="tw-select" style="padding:4px 6px; font-size:11px;">${nobleOptions}</select>
                         </div>
                     </div>
 
                     <!-- CARD 2: SEQUÊNCIA DE COMBATE & NUKES -->
-                    <div class="tw-card">
-                        <div class="tw-card-title" style="color:#f87171;">⚔️ 2. Sequência de Combate</div>
-                        <div style="display:flex; flex-direction:column; gap:2px;">
-                            <span style="font-size:10px; color:#94a3b8;">Modo de Ataque:</span>
-                            <select id="tw-nt-op-level" class="tw-select">
-                                <option value="standard_anti" selected>Apenas NT + Escolta Anti-Snipe Intercalada</option>
-                                <option value="full_storm">Completa: Muralha (-20m) + Praça (-14m a -2m) + NT + Anti-Snipes</option>
-                                <option value="praca_only">Demolição de Praça (-14m a -2m) + NT + Anti-Snipes</option>
+                    <div class="tw-card" style="padding:8px 10px; gap:4px;">
+                        <div class="tw-card-title" style="color:#f87171; font-size:10px;">⚔️ 2. Sequência Combate</div>
+                        <div style="display:flex; flex-direction:column; gap:1px;">
+                            <span style="font-size:9px; color:#94a3b8;">Modo de Ataque:</span>
+                            <select id="tw-nt-op-level" class="tw-select" style="padding:4px 6px; font-size:11px;">
+                                <option value="standard_anti" selected>NT + Escoltas Anti-Snipe</option>
+                                <option value="full_storm">Completa: Muralha + Praça + NT + Anti</option>
+                                <option value="praca_only">Demolição Praça + NT + Anti</option>
                             </select>
                         </div>
-                        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:6px;">
-                            <div style="display:flex; flex-direction:column; gap:2px;">
-                                <span style="font-size:10px; color:#94a3b8;">Nukes Limpeza:</span>
-                                <input type="number" id="tw-nt-lead-nukes" class="tw-input" value="1" min="0" max="5">
+                        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:4px;">
+                            <div style="display:flex; flex-direction:column; gap:1px;">
+                                <span style="font-size:9px; color:#94a3b8;">Nukes Limpeza:</span>
+                                <input type="number" id="tw-nt-lead-nukes" class="tw-input" value="1" min="0" max="5" style="padding:4px 6px; font-size:11px; text-align:center;">
                             </div>
-                            <div style="display:flex; flex-direction:column; gap:2px;">
-                                <span style="font-size:10px; color:#94a3b8;">Gap Bot (ms):</span>
-                                <input type="number" id="tw-nt-ms-interval" class="tw-input" value="200" min="50" max="1000">
+                            <div style="display:flex; flex-direction:column; gap:1px;">
+                                <span style="font-size:9px; color:#94a3b8;">Gap Bot (ms):</span>
+                                <input type="number" id="tw-nt-ms-interval" class="tw-input" value="200" min="50" max="1000" style="padding:4px 6px; font-size:11px; text-align:center;">
                             </div>
                         </div>
-                        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:6px;">
-                            <div style="display:flex; flex-direction:column; gap:2px;">
-                                <span style="font-size:10px; color:#94a3b8;">Modelo Nuke/Anti-Snipe:</span>
-                                <input type="text" id="tw-nt-model-nuke" class="tw-input" value="Ataque Full" style="font-weight:bold; color:#f87171;">
+                        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:4px;">
+                            <div style="display:flex; flex-direction:column; gap:1px;">
+                                <span style="font-size:9px; color:#94a3b8;">Modelo Nuke:</span>
+                                <input type="text" id="tw-nt-model-nuke" class="tw-input" value="Ataque Full" style="font-weight:bold; color:#f87171; padding:4px 6px; font-size:11px;">
                             </div>
-                            <div style="display:flex; flex-direction:column; gap:2px;">
-                                <span style="font-size:10px; color:#94a3b8;">Modelo NT:</span>
-                                <input type="text" id="tw-nt-model-snob" class="tw-input" value="NT 25%" style="font-weight:bold; color:#fbbf24;">
+                            <div style="display:flex; flex-direction:column; gap:1px;">
+                                <span style="font-size:9px; color:#94a3b8;">Modelo NT:</span>
+                                <input type="text" id="tw-nt-model-snob" class="tw-input" value="NT 25%" style="font-weight:bold; color:#fbbf24; padding:4px 6px; font-size:11px;">
                             </div>
                         </div>
                     </div>
 
                     <!-- CARD 3: BUNKER CIRÚRGICO C/ PALADINO -->
-                    <div class="tw-card" style="border-color:#059669; background:rgba(6, 78, 59, 0.2);">
-                        <div class="tw-card-title" style="color:#34d399;">
-                            <span>🛡️ 3. Bunker Pós-Conquista (Paladino)</span>
-                            <select id="tw-nt-bunker-count" class="tw-select" style="font-weight:bold; color:#34d399; padding:2px 6px; font-size:11px;">
+                    <div class="tw-card" style="border-color:#059669; background:rgba(6, 78, 59, 0.2); padding:8px 10px; gap:4px;">
+                        <div class="tw-card-title" style="color:#34d399; font-size:10px;">
+                            <span>🛡️ 3. Bunker Conquista</span>
+                            <select id="tw-nt-bunker-count" class="tw-select" style="font-weight:bold; color:#34d399; padding:2px 4px; font-size:10px;">
                                 <option value="0">0 Apoios</option>
                                 <option value="1">1 Apoio</option>
                                 <option value="2" selected>2 Apoios</option>
                                 <option value="3">3 Apoios</option>
-                                <option value="4">4 Apoios</option>
                             </select>
                         </div>
                         
-                        <div style="display:grid; grid-template-columns: 1.2fr 1fr; gap:6px; margin-top:2px;">
-                            <div style="display:flex; flex-direction:column; gap:2px;">
-                                <span style="font-size:10px; color:#a7f3d0;">Gap Pós-Nobre (ms):</span>
-                                <input type="number" id="tw-nt-bunker-gap" class="tw-input" value="200" min="50" max="2000" step="50" style="font-weight:bold; color:#34d399; text-align:center;" title="Milissegundos a seguir ao 4º nobre. Ex: 200ms entra aos 01:000!">
+                        <div style="display:grid; grid-template-columns: 1.1fr 1fr; gap:4px;">
+                            <div style="display:flex; flex-direction:column; gap:1px;">
+                                <span style="font-size:9px; color:#a7f3d0;">Gap Nobre (ms):</span>
+                                <input type="number" id="tw-nt-bunker-gap" class="tw-input" value="200" min="50" max="2000" step="50" style="font-weight:bold; color:#34d399; text-align:center; padding:4px 6px; font-size:11px;">
                             </div>
-                            <div style="display:flex; flex-direction:column; gap:2px;">
-                                <span style="font-size:10px; color:#a7f3d0;">Degrau / Apoio:</span>
-                                <input type="number" id="tw-nt-bunker-step" class="tw-input" value="50" min="10" max="500" step="10" style="font-weight:bold; color:#34d399; text-align:center;" title="Espaço entre o 1º e 2º bunker. Ex: 50ms entra aos 01:050!">
+                            <div style="display:flex; flex-direction:column; gap:1px;">
+                                <span style="font-size:9px; color:#a7f3d0;">Degrau / Apoio:</span>
+                                <input type="number" id="tw-nt-bunker-step" class="tw-input" value="50" min="10" max="500" step="10" style="font-weight:bold; color:#34d399; text-align:center; padding:4px 6px; font-size:11px;">
                             </div>
                         </div>
 
-                        <div style="display:flex; flex-direction:column; gap:4px; margin-top:4px;">
-                            <div style="display:grid; grid-template-columns: 1.4fr 1fr; gap:4px; align-items:center;">
-                                <span style="font-size:10px; color:#a7f3d0;">Preset 1 (Full Def):</span>
-                                <span style="font-size:10px; color:#a7f3d0; text-align:right;">Pop Mínima:</span>
+                        <div style="display:flex; flex-direction:column; gap:2px;">
+                            <div style="display:grid; grid-template-columns: 1.4fr 1fr; gap:4px;">
+                                <input type="text" id="tw-nt-model-bunker-1" class="tw-input" value="BUNK" placeholder="Preset 1" style="font-weight:bold; color:#34d399; padding:4px 6px; font-size:11px;">
+                                <input type="number" id="tw-nt-pop-bunker-1" class="tw-input" value="12000" placeholder="Pop Mín" style="text-align:center; padding:4px 6px; font-size:11px;">
                             </div>
                             <div style="display:grid; grid-template-columns: 1.4fr 1fr; gap:4px;">
-                                <input type="text" id="tw-nt-model-bunker-1" class="tw-input" value="BUNK" placeholder="Modelo Bot" style="font-weight:bold; color:#34d399;">
-                                <input type="number" id="tw-nt-pop-bunker-1" class="tw-input" value="12000" style="text-align:center;">
+                                <input type="text" id="tw-nt-model-bunker-2" class="tw-input" value="BUNK" placeholder="Preset 2" style="font-weight:bold; color:#34d399; padding:4px 6px; font-size:11px;">
+                                <input type="number" id="tw-nt-pop-bunker-2" class="tw-input" value="4000" placeholder="Pop Mín" style="text-align:center; padding:4px 6px; font-size:11px;">
                             </div>
+                        </div>
+                    </div>
 
-                            <div style="display:grid; grid-template-columns: 1.4fr 1fr; gap:4px; align-items:center; margin-top:2px;">
-                                <span style="font-size:10px; color:#a7f3d0;">Preset 2 (Fallback):</span>
-                                <span style="font-size:10px; color:#a7f3d0; text-align:right;">Pop Mínima:</span>
+                    <!-- CARD 4: CORTINA DE FAKES AUTOMÁTICA EM RAIO -->
+                    <div class="tw-card" style="border-color:#a855f7; background:rgba(88, 28, 135, 0.2); padding:8px 10px; gap:4px;">
+                        <div class="tw-card-title" style="color:#c084fc; font-size:10px;">
+                            <div style="display:flex; align-items:center; gap:4px;">
+                                <input type="checkbox" id="tw-nt-fake-enable" style="cursor:pointer; width:14px; height:14px;">
+                                <label for="tw-nt-fake-enable" style="cursor:pointer;">🎭 Fakes em Raio</label>
                             </div>
-                            <div style="display:grid; grid-template-columns: 1.4fr 1fr; gap:4px;">
-                                <input type="text" id="tw-nt-model-bunker-2" class="tw-input" value="BUNK" placeholder="Modelo Bot" style="font-weight:bold; color:#34d399;">
-                                <input type="number" id="tw-nt-pop-bunker-2" class="tw-input" value="4000" style="text-align:center;">
+                            <span style="font-size:9px; color:#a855f7;">Auto-Mascarar</span>
+                        </div>
+                        
+                        <div style="display:grid; grid-template-columns: 1.1fr 1fr; gap:4px;">
+                            <div style="display:flex; flex-direction:column; gap:1px;">
+                                <span style="font-size:9px; color:#e9d5ff;">Raio de Busca:</span>
+                                <select id="tw-nt-fake-radius" class="tw-select" style="font-weight:bold; color:#c084fc; padding:4px 6px; font-size:11px;">
+                                    <option value="4">4 campos</option>
+                                    <option value="6">6 campos</option>
+                                    <option value="8" selected>8 campos</option>
+                                    <option value="10">10 campos</option>
+                                    <option value="12">12 campos</option>
+                                    <option value="15">15 campos</option>
+                                </select>
                             </div>
+                            <div style="display:flex; flex-direction:column; gap:1px;">
+                                <span style="font-size:9px; color:#e9d5ff;">Fakes / Aldeia:</span>
+                                <input type="number" id="tw-nt-fake-count" class="tw-input" value="4" min="1" max="20" style="text-align:center; font-weight:bold; color:#c084fc; padding:4px 6px; font-size:11px;">
+                            </div>
+                        </div>
+
+                        <div style="display:flex; flex-direction:column; gap:1px;">
+                            <span style="font-size:9px; color:#e9d5ff;">Modelo no Bot:</span>
+                            <input type="text" id="tw-nt-fake-model" class="tw-input" value="Fake Spy" style="font-weight:bold; color:#c084fc; padding:4px 6px; font-size:11px;">
+                        </div>
+
+                        <div id="tw-nt-fake-info" style="padding:4px 6px; background:rgba(2, 6, 23, 0.7); border:1px solid #4c1d95; border-radius:4px; font-size:9.5px; color:#d8b4fe; line-height:1.2;">
+                            🎯 Insere o alvo para filtrar as aldeias do defensor.
                         </div>
                     </div>
 
@@ -1063,7 +1245,7 @@
 
                 <div style="display:flex; justify-content:space-between; align-items:center; padding:2px 0;">
                     <button class="tw-btn tw-btn-gold" id="tw-btn-gen-nt-russo" style="padding:7px 18px;">
-                        ⚡ Gerar Plano PSEvolution (Copiar para a Área de Transferência)
+                        ⚡ Gerar Plano de Ataque (Copiar para a Área de Transferência)
                     </button>
                     <span id="tw-nt-status" style="font-size:12px; font-weight:bold;"></span>
                 </div>
@@ -1085,7 +1267,7 @@
                                 </tr>
                             </thead>
                             <tbody id="tw-nt-tbody">
-                                <tr><td colspan="8" style="padding:25px; color:#94a3b8;">Define o alvo e clica em 'Gerar Plano PSEvolution'.</td></tr>
+                                <tr><td colspan="8" style="padding:25px; color:#94a3b8;">Define o alvo e clica em 'Gerar Plano de Ataque'.</td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -1100,6 +1282,117 @@
             document.getElementById('tw-nt-model-snob').value = isSplit ? 'NT - 2 - 50%' : 'NT 25%';
             document.getElementById('tw-lbl-noble-primary').innerText = isSplit ? 'Aldeia Nobres (Parte 1):' : 'Aldeia Nobres (4 Nobres):';
         };
+
+        const targetInput = document.getElementById('tw-nt-target');
+        targetInput.addEventListener('input', (e) => {
+            let val = e.target.value;
+            // Se o utilizador escrever 3 dígitos sem o pipe (ex: "123"), insere automaticamente o "|"
+            if (/^\d{3}$/.test(val) && !val.includes('|')) {
+                e.target.value = val + '|';
+            }
+            updateRadiusFakesHUD();
+        });
+
+        const updateRadiusFakesHUD = async () => {
+            const target = targetInput.value.trim();
+            const radius = parseFloat(document.getElementById('tw-nt-fake-radius').value) || 8;
+            const fakesPerTarget = parseInt(document.getElementById('tw-nt-fake-count').value, 10) || 4;
+            const infoBox = document.getElementById('tw-nt-fake-info');
+
+            if (!/^\d{3}\|\d{3}$/.test(target)) {
+                infoBox.innerHTML = 'Insere o alvo para calcular vizinhança.';
+                return;
+            }
+
+            const [tx, ty] = target.split('|').map(Number);
+            let neighborCount = 0;
+            const myCoords = new Set(allVillages.map(v => v.coords));
+
+            if (!worldVillagesLoaded) {
+                await fetchWorldVillages();
+            }
+
+            if (worldVillages.length > 0) {
+                // Identifica quem é o dono da aldeia alvo
+                const targetObj = worldVillages.find(v => v.coord === target);
+                const targetPlayerId = targetObj ? targetObj.playerId : null;
+
+                worldVillages.forEach(v => {
+                    if (v.coord === target || myCoords.has(v.coord)) return;
+                    
+                    // Se o dono foi identificado e não for bárbara (playerId !== '0'), filtra apenas as aldeias dele!
+                    if (targetPlayerId && targetPlayerId !== '0') {
+                        if (v.playerId !== targetPlayerId) return;
+                    }
+                    
+                    const dist = Math.hypot(v.x - tx, v.y - ty);
+                    if (dist <= radius) neighborCount++;
+                });
+            } else if (typeof TWMap !== 'undefined' && TWMap.villages) {
+                for (let key in TWMap.villages) {
+                    const v = TWMap.villages[key];
+                    if (v && v.xy) {
+                        const vx = Math.floor(v.xy / 1000), vy = v.xy % 1000;
+                        const coord = `${vx}|${vy}`;
+                        if (coord === target || myCoords.has(coord)) continue;
+                        const dist = Math.hypot(vx - tx, vy - ty);
+                        if (dist <= radius) neighborCount++;
+                    }
+                }
+            } else {
+                neighborCount = Math.max(Math.floor(radius * 0.8), 3);
+            }
+
+            infoBox.innerHTML = `🎯 <b>${neighborCount}</b> aldeias do defensor no raio de <b>${radius}c</b><br>🚀 Total: <b style="color:#34d399;">${neighborCount * fakesPerTarget} fakes</b>`;
+        };
+
+        // Listener para atalhos rápidos de hora
+        document.querySelectorAll('.tw-time-shortcut').forEach(btn => btn.onclick = function() {
+            const addH = parseInt(this.getAttribute('data-add-h'), 10);
+            const setH = this.getAttribute('data-set-h');
+            const landInput = document.getElementById('tw-nt-landtime');
+            let d = landInput.value ? new Date(landInput.value) : new Date();
+
+            if (!isNaN(addH)) {
+                d = new Date(Date.now() + addH * 3600 * 1000);
+            } else if (setH) {
+                const targetH = parseInt(setH, 10);
+                d = new Date();
+                if (d.getHours() >= targetH) {
+                    d.setDate(d.getDate() + 1); // Amanhã
+                }
+                d.setHours(targetH, 0, 0, 0);
+            }
+
+            const yr = d.getFullYear();
+            const mo = String(d.getMonth() + 1).padStart(2, '0');
+            const da = String(d.getDate()).padStart(2, '0');
+            const ho = String(d.getHours()).padStart(2, '0');
+            const mi = String(d.getMinutes()).padStart(2, '0');
+            const se = String(d.getSeconds()).padStart(2, '0');
+            landInput.value = `${yr}-${mo}-${da}T${ho}:${mi}:${se}`;
+            showToast(`⏰ Hora de Impacto ajustada para ${ho}:${mi}:${se} (${da}/${mo})`);
+        });
+
+        // Carregar preferências salvas
+        const savedNukeModel = getPref('tw_nt_model_nuke', 'Ataque Full');
+        const savedBunkModel1 = getPref('tw_nt_model_bunk1', 'BUNK');
+        const savedBunkModel2 = getPref('tw_nt_model_bunk2', 'BUNK');
+        const savedFakeModel = getPref('tw_nt_model_fake', 'Fake Spy');
+
+        if (document.getElementById('tw-nt-model-nuke')) document.getElementById('tw-nt-model-nuke').value = savedNukeModel;
+        if (document.getElementById('tw-nt-model-bunker-1')) document.getElementById('tw-nt-model-bunker-1').value = savedBunkModel1;
+        if (document.getElementById('tw-nt-model-bunker-2')) document.getElementById('tw-nt-model-bunker-2').value = savedBunkModel2;
+        if (document.getElementById('tw-nt-fake-model')) document.getElementById('tw-nt-fake-model').value = savedFakeModel;
+
+        // Salvar preferências ao alterar
+        document.getElementById('tw-nt-model-nuke').onchange = (e) => savePrefs('tw_nt_model_nuke', e.target.value);
+        document.getElementById('tw-nt-model-bunker-1').onchange = (e) => savePrefs('tw_nt_model_bunk1', e.target.value);
+        document.getElementById('tw-nt-model-bunker-2').onchange = (e) => savePrefs('tw_nt_model_bunk2', e.target.value);
+        document.getElementById('tw-nt-fake-model').onchange = (e) => savePrefs('tw_nt_model_fake', e.target.value);
+
+        document.getElementById('tw-nt-fake-radius').onchange = updateRadiusFakesHUD;
+        document.getElementById('tw-nt-fake-count').oninput = updateRadiusFakesHUD;
 
         document.getElementById('tw-btn-gen-nt-russo').onclick = () => buildMasterOPPlan();
     }
@@ -1179,8 +1472,14 @@
 
         const sortedOff = allVillages.filter(v => v.rowClass === 'tw-row-off' && !excludedIds.includes(v.id)).map(v => {
             const dist = calcDistance(v.coords, target);
-            return { village: v, dist, sec: dist * unitSpeedMinutes.ram * 60 };
-        }).sort((a,b) => a.dist - b.dist);
+            const hasKnight = (v.knightAvailable || (v.homeTroopsDict && v.homeTroopsDict.knight) || 0) >= 1;
+            return { village: v, dist, sec: dist * unitSpeedMinutes.ram * 60, hasKnight };
+        }).sort((a,b) => {
+            // Prioridade máxima: Aldeias com Paladino em casa para liderar o Nuke com buffs
+            if (a.hasKnight && !b.hasKnight) return -1;
+            if (!a.hasKnight && b.hasKnight) return 1;
+            return a.dist - b.dist;
+        });
 
         const sortedDef = allVillages.filter(v => v.rowClass === 'tw-row-def' && !excludedIds.includes(v.id)).map(v => {
             const dist = calcDistance(v.coords, target);
@@ -1201,9 +1500,14 @@
                 
                 if (launchMs >= minLaunchMs) {
                     usedOffVillages.add(cand.village.id);
+                    const isPaladinOff = cand.hasKnight;
+                    const finalType = isPaladinOff ? `${typeLabel} (Paladino)` : typeLabel;
+                    const finalBadge = isPaladinOff ? 'tw-badge-paladino' : badgeClass;
+                    const extraInfo = isPaladinOff ? 'Full Off (Buff Paladino)' : 'Full Off';
+
                     sequence.push({
-                        type: typeLabel,
-                        badge: badgeClass,
+                        type: finalType,
+                        badge: finalBadge,
                         actionType: 'Attack',
                         originId: cand.village.id,
                         originName: cand.village.name,
@@ -1214,7 +1518,7 @@
                         launchTime: new Date(launchMs),
                         landTime: new Date(targetLandMs),
                         model: modelStr,
-                        info: 'Full Off'
+                        info: extraInfo
                     });
                     return true;
                 }
@@ -1228,11 +1532,12 @@
                 if (usedDefVillages.has(cand.village.id)) continue;
                 
                 const v = cand.village;
-                const d = v.troopsDict;
+                const d = v.homeTroopsDict || v.troopsDict;
                 const defPop = (d.spear||0)*1 + (d.sword||0)*1 + (d.archer||0)*1 + (d.heavy||0)*6;
-                const hasKnight = (d.knight || 0) >= 1;
+                const hasKnightInVillage = (v.knightAvailable || d.knight || 0) >= 1;
 
-                if (requirePaladin && !hasKnight) continue;
+                // Se requer paladino mas esta aldeia não tem o paladino em casa, ignora
+                if (requirePaladin && !hasKnightInVillage) continue;
                 
                 let chosenModel = null, presetLabel = '';
                 if (defPop >= popBunker1) {
@@ -1245,15 +1550,16 @@
                     continue;
                 }
 
-                const speedMin = (requirePaladin || hasKnight) ? unitSpeedMinutes.knight : unitSpeedMinutes.sword;
+                // Velocidade: 10m/c se tiver Paladino físico na aldeia, senão 22m/c (Espada)
+                const speedMin = hasKnightInVillage ? unitSpeedMinutes.knight : unitSpeedMinutes.sword;
                 const travelSec = cand.dist * speedMin * 60;
                 const launchMs = targetLandMs - (travelSec * 1000);
                 
                 if (launchMs >= minLaunchMs) {
                     usedDefVillages.add(v.id);
-                    const finalBadge = (requirePaladin || hasKnight) ? 'tw-badge-paladino' : badgeClass;
-                    const finalType = (requirePaladin || hasKnight) ? `${typeLabel} (Paladino)` : typeLabel;
-                    const extraInfo = (requirePaladin || hasKnight) ? `Paladino (${formatDuration(travelSec)}) • ${presetLabel}` : presetLabel;
+                    const finalBadge = hasKnightInVillage ? 'tw-badge-paladino' : badgeClass;
+                    const finalType = hasKnightInVillage ? `${typeLabel} (Paladino)` : typeLabel;
+                    const extraInfo = hasKnightInVillage ? `Paladino (${formatDuration(travelSec)}) • ${presetLabel}` : `Espada (${formatDuration(travelSec)}) • ${presetLabel}`;
 
                     sequence.push({
                         type: finalType,
@@ -1276,12 +1582,10 @@
             return false;
         }
 
-        // 1. Limpeza Principal
         for (let i = 0; i < leadNukesCount; i++) {
             assignOffNuke(baseLandTime - ((leadNukesCount - i) * 100), 'Limpeza Principal', 'tw-badge-nuke', modelNuke);
         }
 
-        // 2. Escoltas Anti-Snipe
         const antiSnipeOffsets = [halfStep, msStep + halfStep, (2 * msStep) + halfStep];
         antiSnipeOffsets.forEach(offset => {
             const slotNum = (offset === halfStep) ? '1 (pós N1)' : (offset === msStep + halfStep) ? '2 (pós N2)' : '3 (pós N3)';
@@ -1350,7 +1654,6 @@
         }
 
         // CÁLCULO CIRÚRGICO DE BUNKER MILISSEGUNDO
-        // 4º Nobre bate a baseLandTime + (3 * msStep) -> ex: 20:30:00:800 (se baseLandTime é :200)
         const finalNobleImpactMs = baseLandTime + (3 * msStep);
 
         for (let b = 1; b <= bunkerCount; b++) {
@@ -1365,7 +1668,91 @@
             }
         }
 
+        // CORTINA DE FAKES AUTOMÁTICA EM RAIO (MASQUERADE)
+        const isRadiusFakeEnabled = document.getElementById('tw-nt-fake-enable') && document.getElementById('tw-nt-fake-enable').checked;
+        if (isRadiusFakeEnabled) {
+            const fakeRadius = parseFloat(document.getElementById('tw-nt-fake-radius').value) || 8;
+            const fakesPerNeighbor = parseInt(document.getElementById('tw-nt-fake-count').value, 10) || 4;
+            const fakeModelName = document.getElementById('tw-nt-fake-model').value.trim() || 'Fake Spy';
+            const ramSpeedMin = unitSpeedMinutes.ram;
+
+            const [tx, ty] = target.split('|').map(Number);
+            const myCoords = new Set(allVillages.map(v => v.coords));
+            const neighborTargets = [];
+
+            if (!worldVillagesLoaded) {
+                await fetchWorldVillages();
+            }
+
+            if (worldVillages.length > 0) {
+                const targetObj = worldVillages.find(v => v.coord === target);
+                const targetPlayerId = targetObj ? targetObj.playerId : null;
+
+                worldVillages.forEach(v => {
+                    if (v.coord === target || myCoords.has(v.coord)) return;
+                    if (targetPlayerId && targetPlayerId !== '0' && v.playerId !== targetPlayerId) return;
+
+                    const dist = Math.hypot(v.x - tx, v.y - ty);
+                    if (dist <= fakeRadius) neighborTargets.push({ coord: v.coord, dist });
+                });
+            } else if (typeof TWMap !== 'undefined' && TWMap.villages) {
+                for (let key in TWMap.villages) {
+                    const v = TWMap.villages[key];
+                    if (v && v.xy) {
+                        const vx = Math.floor(v.xy / 1000), vy = v.xy % 1000;
+                        const coord = `${vx}|${vy}`;
+                        if (coord === target || myCoords.has(coord)) continue;
+                        const dist = Math.hypot(vx - tx, vy - ty);
+                        if (dist <= fakeRadius) neighborTargets.push({ coord, dist });
+                    }
+                }
+            }
+
+            neighborTargets.sort((a, b) => a.dist - b.dist);
+
+            // Pool de aldeias disponíveis para fakes (exclui nobres reais)
+            const fakePool = allVillages.filter(v => !excludedIds.includes(v.id));
+
+            neighborTargets.forEach(nTarget => {
+                let fakesAssigned = 0;
+                
+                const validOrigins = fakePool.map(v => {
+                    const dist = calcDistance(v.coords, nTarget.coord);
+                    const travelSec = dist * ramSpeedMin * 60;
+                    return { village: v, dist, travelSec };
+                }).filter(item => {
+                    const launchMs = baseLandTime - (item.travelSec * 1000);
+                    return launchMs >= minLaunchMs;
+                }).sort((a, b) => a.dist - b.dist);
+
+                for (let i = 0; i < validOrigins.length && fakesAssigned < fakesPerNeighbor; i++) {
+                    const cand = validOrigins[i];
+                    const launchMs = baseLandTime - (cand.travelSec * 1000);
+                    
+                    sequence.push({
+                        type: '🎭 Fake Cortina',
+                        badge: 'tw-badge-praca',
+                        actionType: 'Attack',
+                        originId: cand.village.id,
+                        originName: cand.village.name,
+                        originCoords: cand.village.coords,
+                        targetCoords: nTarget.coord,
+                        dist: cand.dist.toFixed(2),
+                        sec: cand.travelSec,
+                        launchTime: new Date(launchMs),
+                        landTime: new Date(baseLandTime),
+                        model: fakeModelName,
+                        info: '50 Spy + 1 Ram'
+                    });
+
+                    fakesAssigned++;
+                }
+            });
+        }
+
         sequence.sort((a,b) => a.launchTime - b.launchTime);
+
+        const catBuilding = document.getElementById('tw-nt-cat-building') ? document.getElementById('tw-nt-cat-building').value : '';
 
         let rows = '', output = '';
         sequence.forEach((cmd, i) => {
@@ -1380,7 +1767,7 @@
                 <td><b style="color:${cmd.actionType==='Support'?'#34d399':'#3fb950'};">${cmd.model}</b> <span style="font-size:10px; color:#94a3b8;">(${cmd.info})</span></td>
             </tr>`;
 
-            const u = `https://${location.host}/game.php?village=${cmd.originId}&screen=place&target_coord=${cmd.targetCoords}`;
+            let u = `https://${location.host}/game.php?village=${cmd.originId}&screen=place&target_coord=${cmd.targetCoords}`;
             output += `[*]${i+1}. ${formatRussianDateTime(cmd.launchTime)} --- ${cmd.model}[|]${formatRussianDateTime(cmd.landTime)}[|] ${cmd.originCoords} --> ${cmd.targetCoords} [|][url=${u}]Link[/url]\n`;
         });
 
@@ -1548,11 +1935,46 @@
         if (e.target.closest('[data-vid]')) document.getElementById(`${modalId}-tooltip`).classList.remove('show');
     });
 
-    document.getElementById('tw-btn-close').onclick = () => {
+    // --- PERSISTÊNCIA DE PREFERÊNCIAS (QoL) ---
+    const STORAGE_KEY = 'tw_tactical_prefs_v1';
+    function savePrefs(key, val) {
+        try {
+            const cur = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+            cur[key] = val;
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(cur));
+        } catch (e) {}
+    }
+    function getPref(key, defaultVal) {
+        try {
+            const cur = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+            return cur[key] !== undefined ? cur[key] : defaultVal;
+        } catch (e) { return defaultVal; }
+    }
+
+    // Fechar com tecla ESC
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            const mapModal = document.getElementById('tw-map-iframe-modal');
+            if (mapModal) {
+                mapModal.remove();
+                if (mapInterval) { clearInterval(mapInterval); mapInterval = null; }
+            } else if (document.getElementById(modalId)) {
+                closeSuite();
+            }
+        }
+    });
+
+    function closeSuite() {
         if (mapInterval) clearInterval(mapInterval);
-        ui.remove(); backdrop.remove(); tooltip.remove(); toast.remove();
+        if (ui) ui.remove();
+        if (backdrop) backdrop.remove();
+        if (tooltip) tooltip.remove();
+        if (toast) toast.remove();
         if (document.getElementById('tw-map-iframe-modal')) document.getElementById('tw-map-iframe-modal').remove();
-    };
+    }
+
+    document.getElementById('tw-btn-close').onclick = closeSuite;
+    backdrop.onclick = closeSuite;
 
     await loadData();
 })();
