@@ -159,7 +159,7 @@
             <div class="tw-tab-group">
                 <button class="tw-tab active" id="tab-btn-overview">📊 Visão Geral</button>
                 <button class="tw-tab" id="tab-btn-counter">⚔️ Contador Tático</button>
-                <button class="tw-tab" id="tab-btn-fakes">🤖 Fakes & Mascaramento</button>
+                <button class="tw-tab" id="tab-btn-fakes">🎭 Fakes & Mascaramento</button>
                 <button class="tw-tab tw-tab-special" id="tab-btn-nt">👑 Planeador NT, Anti-Snipe & Bunker</button>
             </div>
         </div>
@@ -441,7 +441,7 @@
         }
     }
 
-    function switchTab(tab) {
+    async function switchTab(tab) {
         activeTab = tab;
         document.getElementById('tab-btn-overview').classList.toggle('active', tab === 'overview');
         document.getElementById('tab-btn-counter').classList.toggle('active', tab === 'counter');
@@ -1242,6 +1242,7 @@
                             <span style="font-size:9px; color:#94a3b8;">Modo de Ataque:</span>
                             <select id="tw-nt-op-level" class="tw-select" style="padding:4px 6px; font-size:11px;">
                                 <option value="standard_anti" selected>NT + Escoltas Anti-Snipe</option>
+                                <option value="anti_50">NT + 50% Anti-Snipe (Ataque 50%)</option>
                                 <option value="full_storm">Completa: Muralha + Praça + NT + Anti</option>
                                 <option value="praca_only">Demolição Praça + NT + Anti</option>
                             </select>
@@ -1256,14 +1257,33 @@
                                 <input type="number" id="tw-nt-ms-interval" class="tw-input" value="200" min="50" max="1000" style="padding:4px 6px; font-size:11px; text-align:center;">
                             </div>
                         </div>
+
+                        <!-- TICKBOX DE PALADINO NO NUKE -->
+                        <div style="display:flex; align-items:center; gap:5px; margin:2px 0; padding:3px 5px; background:rgba(239, 68, 68, 0.1); border:1px solid rgba(239, 68, 68, 0.3); border-radius:4px;">
+                            <input type="checkbox" id="tw-nt-req-paladin-nuke" checked style="cursor:pointer; width:13px; height:13px;">
+                            <label for="tw-nt-req-paladin-nuke" style="cursor:pointer; font-size:9.5px; color:#fca5a5; font-weight:bold;">
+                                🛡️ Nuke c/ Paladino (ou Avisar Realocação)
+                            </label>
+                        </div>
+
                         <div style="display:grid; grid-template-columns: 1fr 1fr; gap:4px;">
                             <div style="display:flex; flex-direction:column; gap:1px;">
                                 <span style="font-size:9px; color:#94a3b8;">Modelo Nuke:</span>
                                 <input type="text" id="tw-nt-model-nuke" class="tw-input" value="Ataque Full" style="font-weight:bold; color:#f87171; padding:4px 6px; font-size:11px;">
                             </div>
                             <div style="display:flex; flex-direction:column; gap:1px;">
+                                <span style="font-size:9px; color:#94a3b8;">Modelo Anti-Snipe:</span>
+                                <input type="text" id="tw-nt-model-anti" class="tw-input" value="Ataque Full" style="font-weight:bold; color:#38bdf8; padding:4px 6px; font-size:11px;">
+                            </div>
+                        </div>
+                        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:4px;">
+                            <div style="display:flex; flex-direction:column; gap:1px;">
                                 <span style="font-size:9px; color:#94a3b8;">Modelo NT:</span>
                                 <input type="text" id="tw-nt-model-snob" class="tw-input" value="NT 25%" style="font-weight:bold; color:#fbbf24; padding:4px 6px; font-size:11px;">
+                            </div>
+                            <div style="display:flex; flex-direction:column; gap:1px;">
+                                <span style="font-size:9px; color:#94a3b8;">Modelo Catapulta/Praça:</span>
+                                <input type="text" id="tw-nt-model-cats" class="tw-input" value="Cats" style="font-weight:bold; color:#f43f5e; padding:4px 6px; font-size:11px;">
                             </div>
                         </div>
                     </div>
@@ -1333,7 +1353,7 @@
 
                         <div style="display:flex; flex-direction:column; gap:1px;">
                             <span style="font-size:9px; color:#e9d5ff;">Modelo no Bot:</span>
-                            <input type="text" id="tw-nt-fake-model" class="tw-input" value="Fake Spy" style="font-weight:bold; color:#c084fc; padding:4px 6px; font-size:11px;">
+                            <input type="text" id="tw-nt-fake-model" class="tw-input" value="Fake" style="font-weight:bold; color:#c084fc; padding:4px 6px; font-size:11px;">
                         </div>
 
                         <div id="tw-nt-fake-info" style="padding:4px 6px; background:rgba(2, 6, 23, 0.7); border:1px solid #4c1d95; border-radius:4px; font-size:9.5px; color:#d8b4fe; line-height:1.2;">
@@ -1476,17 +1496,35 @@
 
         // Carregar preferências salvas
         const savedNukeModel = getPref('tw_nt_model_nuke', 'Ataque Full');
+        const savedAntiModel = getPref('tw_nt_model_anti', 'Ataque Full');
+        const savedCatsModel = getPref('tw_nt_model_cats', 'Cats');
         const savedBunkModel1 = getPref('tw_nt_model_bunk1', 'BUNK');
         const savedBunkModel2 = getPref('tw_nt_model_bunk2', 'BUNK');
-        const savedFakeModel = getPref('tw_nt_model_fake', 'Fake Spy');
+        const savedFakeModel = getPref('tw_nt_model_fake', 'Fake');
 
         if (document.getElementById('tw-nt-model-nuke')) document.getElementById('tw-nt-model-nuke').value = savedNukeModel;
+        if (document.getElementById('tw-nt-model-anti')) document.getElementById('tw-nt-model-anti').value = savedAntiModel;
+        if (document.getElementById('tw-nt-model-cats')) document.getElementById('tw-nt-model-cats').value = savedCatsModel;
         if (document.getElementById('tw-nt-model-bunker-1')) document.getElementById('tw-nt-model-bunker-1').value = savedBunkModel1;
         if (document.getElementById('tw-nt-model-bunker-2')) document.getElementById('tw-nt-model-bunker-2').value = savedBunkModel2;
         if (document.getElementById('tw-nt-fake-model')) document.getElementById('tw-nt-fake-model').value = savedFakeModel;
 
+        // Auto-ajuste de modelo quando escolhe o modo "NT + 50% Anti-Snipe"
+        document.getElementById('tw-nt-op-level').onchange = (e) => {
+            const val = e.target.value;
+            const antiInput = document.getElementById('tw-nt-model-anti');
+            if (val === 'anti_50') {
+                antiInput.value = 'Ataque 50%';
+                showToast('⚡ Modelo Anti-Snipe definido para: Ataque 50%');
+            } else if (val === 'standard_anti' && antiInput.value === 'Ataque 50%') {
+                antiInput.value = 'Ataque Full';
+            }
+        };
+
         // Salvar preferências ao alterar
         document.getElementById('tw-nt-model-nuke').onchange = (e) => savePrefs('tw_nt_model_nuke', e.target.value);
+        document.getElementById('tw-nt-model-anti').onchange = (e) => savePrefs('tw_nt_model_anti', e.target.value);
+        if (document.getElementById('tw-nt-model-cats')) document.getElementById('tw-nt-model-cats').onchange = (e) => savePrefs('tw_nt_model_cats', e.target.value);
         document.getElementById('tw-nt-model-bunker-1').onchange = (e) => savePrefs('tw_nt_model_bunk1', e.target.value);
         document.getElementById('tw-nt-model-bunker-2').onchange = (e) => savePrefs('tw_nt_model_bunk2', e.target.value);
         document.getElementById('tw-nt-fake-model').onchange = (e) => savePrefs('tw_nt_model_fake', e.target.value);
@@ -1537,7 +1575,9 @@
         const msStep = parseInt(document.getElementById('tw-nt-ms-interval').value, 10) || 200;
         const halfStep = Math.floor(msStep / 2);
         
+        const reqPaladinNuke = document.getElementById('tw-nt-req-paladin-nuke') ? document.getElementById('tw-nt-req-paladin-nuke').checked : true;
         const modelNuke = document.getElementById('tw-nt-model-nuke').value.trim() || 'Ataque Full';
+        const modelAnti = document.getElementById('tw-nt-model-anti') ? document.getElementById('tw-nt-model-anti').value.trim() || (opLevel === 'anti_50' ? 'Ataque 50%' : 'Ataque Full') : (opLevel === 'anti_50' ? 'Ataque 50%' : 'Ataque Full');
         const modelSnob = document.getElementById('tw-nt-model-snob').value.trim() || (architecture === 'split_2x2' ? 'NT - 2 - 50%' : 'NT 25%');
 
         const now = Date.now();
@@ -1575,9 +1615,11 @@
             const hasKnight = (v.knightAvailable || (v.homeTroopsDict && v.homeTroopsDict.knight) || 0) >= 1;
             return { village: v, dist, sec: dist * unitSpeedMinutes.ram * 60, hasKnight };
         }).sort((a,b) => {
-            // Prioridade máxima: Aldeias com Paladino em casa para liderar o Nuke com buffs
-            if (a.hasKnight && !b.hasKnight) return -1;
-            if (!a.hasKnight && b.hasKnight) return 1;
+            if (reqPaladinNuke) {
+                // Se tickbox ativa: Prioridade absoluta para aldeia com Paladino físico em casa
+                if (a.hasKnight && !b.hasKnight) return -1;
+                if (!a.hasKnight && b.hasKnight) return 1;
+            }
             return a.dist - b.dist;
         });
 
@@ -1590,7 +1632,9 @@
         const usedOffVillages = new Set();
         const usedDefVillages = new Set();
 
-        function assignOffNuke(targetLandMs, typeLabel, badgeClass, modelStr) {
+        const STANDARD_RELOCATE_MS = (3 * 3600 + 31 * 60 + 45) * 1000; // 3h 31m 45s standard
+
+        function assignOffNuke(targetLandMs, typeLabel, badgeClass, modelStr, isLeadNuke = false) {
             for (let i = 0; i < sortedOff.length; i++) {
                 const cand = sortedOff[i];
                 if (usedOffVillages.has(cand.village.id)) continue;
@@ -1601,9 +1645,25 @@
                 if (launchMs >= minLaunchMs) {
                     usedOffVillages.add(cand.village.id);
                     const isPaladinOff = cand.hasKnight;
-                    const finalType = isPaladinOff ? `${typeLabel} (Paladino)` : typeLabel;
-                    const finalBadge = isPaladinOff ? 'tw-badge-paladino' : badgeClass;
-                    const extraInfo = isPaladinOff ? 'Full Off (Buff Paladino)' : 'Full Off';
+                    let finalType = typeLabel;
+                    let finalBadge = badgeClass;
+                    let extraInfo = 'Full Off';
+
+                    if (isPaladinOff) {
+                        finalType = `${typeLabel} (Paladino)`;
+                        finalBadge = 'tw-badge-paladino';
+                        extraInfo = 'Full Off (Buff Paladino ⚔️)';
+                    } else if (isLeadNuke && reqPaladinNuke) {
+                        // Verifica se há tempo suficiente antes da hora de lançamento para realocar um Paladino (3h31m45s)
+                        const timeUntilLaunch = launchMs - now;
+                        if (timeUntilLaunch >= STANDARD_RELOCATE_MS) {
+                            const marginMin = Math.floor((timeUntilLaunch - STANDARD_RELOCATE_MS) / 60000);
+                            extraInfo = `⚠️ Realocar Paladino! (Tempo hábil: +${marginMin}m de folga)`;
+                            finalBadge = 'tw-badge-warn';
+                        } else {
+                            extraInfo = `Sem Paladino (Tempo insuficiente p/ 3h31m)`;
+                        }
+                    }
 
                     sequence.push({
                         type: finalType,
@@ -1683,18 +1743,14 @@
         }
 
         for (let i = 0; i < leadNukesCount; i++) {
-            assignOffNuke(baseLandTime - ((leadNukesCount - i) * 100), 'Limpeza Principal', 'tw-badge-nuke', modelNuke);
+            assignOffNuke(baseLandTime - ((leadNukesCount - i) * 100), 'Limpeza Principal', 'tw-badge-nuke', modelNuke, true);
         }
 
         const antiSnipeOffsets = [halfStep, msStep + halfStep, (2 * msStep) + halfStep];
         antiSnipeOffsets.forEach(offset => {
             const slotNum = (offset === halfStep) ? '1 (pós N1)' : (offset === msStep + halfStep) ? '2 (pós N2)' : '3 (pós N3)';
-            assignOffNuke(baseLandTime + offset, `Anti-Snipe ${slotNum}`, 'tw-badge-anti', modelNuke);
+            assignOffNuke(baseLandTime + offset, `Anti-Snipe ${slotNum}`, 'tw-badge-anti', modelAnti, false);
         });
-
-        if (opLevel === 'full_storm') {
-            assignOffNuke(baseLandTime - (20 * 60 * 1000), 'Muralha (-20m)', 'tw-badge-muralha', modelNuke);
-        }
 
         if (architecture === 'single_4') {
             sequence.push({
@@ -1746,10 +1802,16 @@
             });
         }
 
+        const modelCats = document.getElementById('tw-nt-model-cats') ? document.getElementById('tw-nt-model-cats').value.trim() || 'Cats' : 'Cats';
+
+        if (opLevel === 'full_storm') {
+            assignOffNuke(baseLandTime - (20 * 60 * 1000), 'Muralha (-20m)', 'tw-badge-muralha', modelCats, false);
+        }
+
         if (opLevel === 'full_storm' || opLevel === 'praca_only') {
             const pracaOffsetsMin = [14, 12, 10, 8, 6, 4, 2];
             pracaOffsetsMin.forEach(minBefore => {
-                assignDefBunker(baseLandTime - (minBefore * 60 * 1000), `Praça (-${minBefore}m)`, 'tw-badge-praca', false);
+                assignOffNuke(baseLandTime - (minBefore * 60 * 1000), `Praça (-${minBefore}m)`, 'tw-badge-praca', modelCats, false);
             });
         }
 
@@ -1842,7 +1904,8 @@
                         launchTime: new Date(launchMs),
                         landTime: new Date(baseLandTime),
                         model: fakeModelName,
-                        info: '50 Spy + 1 Ram'
+                        info: '50 Spy + 1 Ram',
+                        isFake: true
                     });
 
                     fakesAssigned++;
@@ -1850,7 +1913,13 @@
             });
         }
 
-        sequence.sort((a,b) => a.launchTime - b.launchTime);
+        // Ordenação Tática: Comandos Reais (Nukes, NT, Anti-Snipe, Bunkers) sempre no TOPO ordenados por hora de envio; Fakes empurrados para BAIXO
+        sequence.sort((a, b) => {
+            const aIsFake = a.isFake ? 1 : 0;
+            const bIsFake = b.isFake ? 1 : 0;
+            if (aIsFake !== bIsFake) return aIsFake - bIsFake;
+            return a.launchTime - b.launchTime;
+        });
 
         const catBuilding = document.getElementById('tw-nt-cat-building') ? document.getElementById('tw-nt-cat-building').value : '';
 
@@ -2072,9 +2141,6 @@
         if (toast) toast.remove();
         if (document.getElementById('tw-map-iframe-modal')) document.getElementById('tw-map-iframe-modal').remove();
     }
-
-    document.getElementById('tw-btn-close').onclick = closeSuite;
-    backdrop.onclick = closeSuite;
 
     await loadData();
 })();
