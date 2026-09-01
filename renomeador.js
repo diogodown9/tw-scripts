@@ -49,7 +49,7 @@
                     <option value="pt">Português</option>
                     <option value="en">English</option>
                 </select>
-                <button id="btn-close-renamer" style="margin-left: 10px; background: #a02c2c; color: #fff; border: 1px solid #601010; border-radius: 4px; padding: 4px 10px; cursor: pointer; font-weight: bold;">X</button>
+                <button id="btn-close-renamer" style="margin-left: 10px; background: #a02c2c; color: #fff; border: 1px solid #601010; border-radius: 4px; padding: 4px 10px; cursor: font-weight: bold;">X</button>
             </div>
         </div>
 
@@ -109,9 +109,19 @@
             </tbody>
         </table>
 
-        <div style="background: #fff; padding: 12px; border: 1px solid #c1a264; border-radius: 4px; margin-bottom: 20px;">
+        <div style="background: #fff; padding: 12px; border: 1px solid #c1a264; border-radius: 4px; margin-bottom: 15px;">
             <strong style="color: #603000; font-size: 12px; display: block; margin-bottom: 5px; text-transform: uppercase;">Pré-visualização:</strong>
             <input type="text" id="result" placeholder="Exemplo de resultado" style="width: 100%; border: none; background: transparent; font-size: 15px; font-weight: bold; color: #000; outline: none;" readonly="">
+        </div>
+
+        <div id="progress-container" style="display: none; margin-bottom: 15px;">
+            <div style="display: flex; justify-content: space-between; font-size: 12px; font-weight: bold; color: #603000; margin-bottom: 4px;">
+                <span id="progress-text">A renomear... [0/0]</span>
+                <span id="progress-percent">0%</span>
+            </div>
+            <div style="width: 100%; background: #e0d0b0; border: 1px solid #8c5f0d; border-radius: 4px; height: 16px; overflow: hidden;">
+                <div id="progress-bar" style="width: 0%; height: 100%; background: linear-gradient(90deg, #5cb85c, #4cae4c); transition: width 0.15s ease;"></div>
+            </div>
         </div>
         
         <div style="display: flex; justify-content: flex-end; gap: 10px;">
@@ -205,10 +215,11 @@
         saveSettings();
     }
 
+    const prefixes = ["Al", "Bar", "Car", "Del", "Eld", "Fal", "Gar", "Hal", "Il", "Jar", "Kal", "Lor"];
+    const middles = ["dorn", "fell", "gorn", "hil", "mir", "nar", "pel", "quil", "rak", "sor", "tur"];
+    const suffixes = ["dor", "mar", "rin", "ton", "vin", "wyn", "zar", "thur", "lak", "dil", "ros"];
+
     function generateRandomName() {
-        const prefixes = ["Al", "Bar", "Car", "Del", "Eld", "Fal", "Gar", "Hal", "Il", "Jar", "Kal", "Lor"];
-        const middles = ["dorn", "fell", "gorn", "hil", "mir", "nar", "pel", "quil", "rak", "sor", "tur"];
-        const suffixes = ["dor", "mar", "rin", "ton", "vin", "wyn", "zar", "thur", "lak", "dil", "ros"];
         return `${prefixes[Math.floor(Math.random() * prefixes.length)]}${middles[Math.floor(Math.random() * middles.length)]}${suffixes[Math.floor(Math.random() * suffixes.length)]}`;
     }
 
@@ -233,49 +244,101 @@
         }).join(' ').trim();
     }
 
-    // Processamento otimizado de cliques (rápido e 100% fiável)
-    function processRenaming(villagesNodeList, startingNumber) {
-        let numberCounter = startingNumber;
-        const total = villagesNodeList.length;
-
-        showCustomNotification(`A renomear ${total} aldeias...`);
-
-        villagesNodeList.forEach((element, index) => {
+    // Renomeia uma única aldeia com verificação ativa do DOM (100% fiável)
+    function renameSingleVillage(element, finalName) {
+        return new Promise((resolve) => {
             const labelNode = element.querySelector('.quickedit-vn');
-            if (!labelNode) return;
-            
-            const textContent = element.querySelector('.quickedit-label').textContent;
-            const coordsMatches = textContent.match(/(\d{3}\|\d{3})/g);
-            const coords = (coordsMatches && coordsMatches.length > 0 ? coordsMatches[coordsMatches.length - 1] : "000|000").split('|').map(Number);
+            if (!labelNode) return resolve(false);
 
-            const finalName = generateVillageName(currentOptions, numberCounter++, coords).slice(0, 32).replace(/[´^]/g, ''); 
+            const renameIcon = labelNode.querySelector('.rename-icon');
+            if (renameIcon) renameIcon.click();
 
-            // Reduzido para 140ms por aldeia (quase 3x mais rápido que os 400ms originais)
-            setTimeout(() => {
-                const renameIcon = labelNode.querySelector('.rename-icon');
-                if (renameIcon) {
-                    renameIcon.click(); 
-                    
-                    // Espera mínima (40ms em vez de 150ms) para injetar e confirmar
-                    setTimeout(() => {
-                        const quickEditSpan = labelNode.querySelector('.quickedit-edit');
-                        if (quickEditSpan) {
-                            const textInput = quickEditSpan.querySelector('input[type="text"]');
-                            const submitBtn = quickEditSpan.querySelector('.btn'); 
+            let checkAttempts = 0;
+            const interval = setInterval(() => {
+                checkAttempts++;
+                const quickEditSpan = labelNode.querySelector('.quickedit-edit');
+                if (quickEditSpan) {
+                    const textInput = quickEditSpan.querySelector('input[type="text"]');
+                    const submitBtn = quickEditSpan.querySelector('.btn') || quickEditSpan.querySelector('input[type="button"], input[type="submit"]');
 
-                            if (textInput && submitBtn) {
-                                textInput.value = finalName;
-                                submitBtn.click(); 
-                            }
-                        }
-                    }, 40); 
+                    if (textInput && submitBtn) {
+                        clearInterval(interval);
+                        textInput.value = finalName;
+                        submitBtn.click();
+                        return resolve(true);
+                    }
                 }
-            }, index * 140); 
+
+                if (checkAttempts > 12) { // Timeout de segurança (300ms)
+                    clearInterval(interval);
+                    resolve(false);
+                }
+            }, 25);
         });
+    }
+
+    // Processamento calibrado em blocos de 3 (O "Sweet Spot" perfeito para o Tribal Wars)
+    async function processRenaming(villagesNodeList, startingNumber) {
+        const list = Array.from(villagesNodeList);
+        const total = list.length;
+        if (total === 0) return;
+
+        let numberCounter = startingNumber;
+        const BATCH_SIZE = 3;    // 3 aldeias por lote (estável e rápido)
+        const BATCH_DELAY = 160;  // 160ms de pausa segura entre cada lote de 3
+
+        const btnCombine = document.getElementById('combine-options');
+        const btnFix = document.getElementById('fix-outliers');
+        const progressContainer = document.getElementById('progress-container');
+        const progressBar = document.getElementById('progress-bar');
+        const progressText = document.getElementById('progress-text');
+        const progressPercent = document.getElementById('progress-percent');
+
+        btnCombine.disabled = true;
+        btnFix.disabled = true;
+        progressContainer.style.display = 'block';
+        progressBar.style.width = '0%';
+        progressText.textContent = `A renomear... [0/${total}]`;
+        progressPercent.textContent = `0%`;
+
+        let processed = 0;
+
+        for (let i = 0; i < total; i += BATCH_SIZE) {
+            const chunk = list.slice(i, i + BATCH_SIZE);
+
+            // Dispara as 3 aldeias do bloco com micro-desfasamento de 25ms para estabilidade do DOM
+            await Promise.all(chunk.map((element, chunkIdx) => {
+                const textContent = element.querySelector('.quickedit-label')?.textContent || '';
+                const coordsMatches = textContent.match(/(\d{3}\|\d{3})/g);
+                const coords = (coordsMatches && coordsMatches.length > 0 ? coordsMatches[coordsMatches.length - 1] : "000|000").split('|').map(Number);
+                const finalName = generateVillageName(currentOptions, numberCounter++, coords).slice(0, 32).replace(/[´^]/g, '');
+
+                return new Promise((res) => {
+                    setTimeout(() => {
+                        renameSingleVillage(element, finalName).then(res);
+                    }, chunkIdx * 25);
+                });
+            }));
+
+            processed += chunk.length;
+            const currentDone = Math.min(processed, total);
+            const pct = Math.round((currentDone / total) * 100);
+            progressBar.style.width = `${pct}%`;
+            progressText.textContent = `A renomear... [${currentDone}/${total}]`;
+            progressPercent.textContent = `${pct}%`;
+
+            if (i + BATCH_SIZE < total) {
+                await new Promise(resolve => setTimeout(resolve, BATCH_DELAY));
+            }
+        }
+
+        btnCombine.disabled = false;
+        btnFix.disabled = false;
+        showCustomNotification(`Concluído! ${total} aldeias renomeadas com sucesso!`, "success");
 
         setTimeout(() => {
-            showCustomNotification(`Concluído! ${total} aldeias processadas.`);
-        }, total * 140 + 200);
+            progressContainer.style.display = 'none';
+        }, 3000);
     }
 
     document.getElementById('fix-outliers').addEventListener('click', function() {
@@ -346,27 +409,29 @@
             container.style.position = 'fixed';
             container.style.bottom = '30px';
             container.style.left = '15px';
-            container.style.zIndex = '1000';
+            container.style.zIndex = '10000';
             container.style.display = 'flex';
             container.style.flexDirection = 'column';
             container.style.gap = '5px';
             document.body.appendChild(container);
         }
+
+        container.innerHTML = '';
         
         const notification = document.createElement('div');
         notification.innerHTML = message;
         notification.style.padding = '8px 15px';
         notification.style.backgroundColor = type === "success" ? '#4CAF50' : '#f44336';
         notification.style.color = '#fff';
-        notification.style.borderRadius = '3px';
+        notification.style.borderRadius = '4px';
         notification.style.boxShadow = '0 3px 6px rgba(0,0,0,0.3)';
         notification.style.fontSize = '12px';
         notification.style.fontWeight = 'bold';
         
         container.appendChild(notification);
         setTimeout(() => {
-            notification.remove();
-        }, 2200);
+            if (notification.parentNode) notification.remove();
+        }, 2500);
     }
 
     loadSettings();
