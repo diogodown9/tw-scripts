@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TW - Gestor Total de Renomeação (Ordem Conquistas + Custom UI)
 // @namespace    https://github.com/
-// @version      4.2.0
-// @description  Menu completo de opções customizáveis com fecho automático do painel e suporte a aldeias sob ataque
+// @version      4.3.0
+// @description  Menu completo de opções customizáveis com fecho automático do painel e suporte robusto a aldeias sob ataque
 // @author       d0wn
 // @match        https://*.tribalwars.com.pt/game.php*
 // @match        https://*.tribos.com.pt/game.php*
@@ -13,7 +13,7 @@
     'use strict';
 
     const CONFIG = {
-        delayMs: 65,      // Intervalo ideal entre requisições
+        delayMs: 65,
         autoReload: true
     };
 
@@ -43,7 +43,6 @@
             options: { 
                 textOption: "Text", 
                 numberOption: "Number", 
-                incomingAttackOption: "Incoming Attack Tag",
                 conquerOrderOption: "Chronological Order (Conquests)", 
                 kOption: "By K", 
                 randomCoordOption: "Random Coordinates", 
@@ -54,7 +53,6 @@
                 textInput: "Enter text", 
                 digitInput: "Total digits", 
                 startNumberInput: "Starting number", 
-                incomingAttackInput: "e.g. INCOMING ATTACK - NOBLE",
                 targetCoordInput: "Target (XXX|YYY)", 
                 result: "Example result" 
             },
@@ -68,7 +66,6 @@
             options: { 
                 textOption: "Texto", 
                 numberOption: "Número", 
-                incomingAttackOption: "Tag de Ataque",
                 conquerOrderOption: "Ordem Conquistas (Histórico)", 
                 kOption: "Por K", 
                 randomCoordOption: "Coordenada Aleatória", 
@@ -79,7 +76,6 @@
                 textInput: "Digite o texto", 
                 digitInput: "Total dígitos", 
                 startNumberInput: "Nº inicial", 
-                incomingAttackInput: "Ex: ATAQUE A CHEGAR - NOBRE",
                 targetCoordInput: "Alvo (XXX|YYY)", 
                 result: "Exemplo de resultado" 
             },
@@ -119,13 +115,6 @@
                 </tr>
                 <tr class="rename-option-container" style="border-bottom: 1px solid #dcb588;">
                     <td style="padding: 10px;">
-                        <input type="checkbox" id="incomingAttackOption" class="rename-option" style="cursor: pointer; transform: scale(1.2);">
-                        <label for="incomingAttackOption" style="margin-left: 8px; cursor: pointer; font-weight: bold; color: #a92020; font-size: 13px;">Tag de Ataque</label>
-                    </td>
-                    <td style="padding: 10px;"><input type="text" id="incomingAttackInput" value="ATAQUE A CHEGAR - NOBRE" placeholder="Ex: ATAQUE A CHEGAR - NOBRE" style="width: 100%; padding: 6px; border: 1px solid #a37c44; border-radius: 3px;"></td>
-                </tr>
-                <tr class="rename-option-container" style="border-bottom: 1px solid #dcb588; background: rgba(255,255,255,0.3);">
-                    <td style="padding: 10px;">
                         <input type="checkbox" id="numberOption" class="rename-option" style="cursor: pointer; transform: scale(1.2);" checked>
                         <label for="numberOption" style="margin-left: 8px; cursor: pointer; font-weight: bold; color: #333; font-size: 13px;">Número</label>
                     </td>
@@ -134,28 +123,28 @@
                         <input type="number" id="startNumberInput" placeholder="Nº inicial" value="1" style="flex: 1; padding: 6px; border: 1px solid #a37c44; border-radius: 3px;">
                     </td>
                 </tr>
-                <tr class="rename-option-container" style="border-bottom: 1px solid #dcb588;">
+                <tr class="rename-option-container" style="border-bottom: 1px solid #dcb588; background: rgba(255,255,255,0.3);">
                     <td style="padding: 10px;">
                         <input type="checkbox" id="conquerOrderOption" class="rename-option" style="cursor: pointer; transform: scale(1.2);" checked>
                         <label for="conquerOrderOption" style="margin-left: 8px; cursor: pointer; font-weight: bold; color: #333; font-size: 13px;">Ordem Conquistas (Histórico)</label>
                     </td>
                     <td style="padding: 10px;"><span style="font-size: 11px; color: #555; font-style: italic;">Ordena da 1ª aldeia conquistada até à mais recente</span></td>
                 </tr>
-                <tr class="rename-option-container" style="border-bottom: 1px solid #dcb588; background: rgba(255,255,255,0.3);">
+                <tr class="rename-option-container" style="border-bottom: 1px solid #dcb588;">
                     <td style="padding: 10px;">
                         <input type="checkbox" id="kOption" class="rename-option" style="cursor: pointer; transform: scale(1.2);">
                         <label for="kOption" style="margin-left: 8px; cursor: pointer; font-weight: bold; color: #333; font-size: 13px;">Por K</label>
                     </td>
                     <td style="padding: 10px;"><span style="font-size: 11px; color: #555; font-style: italic;">Adiciona automaticamente o continente</span></td>
                 </tr>
-                <tr class="rename-option-container" style="border-bottom: 1px solid #dcb588;">
+                <tr class="rename-option-container" style="border-bottom: 1px solid #dcb588; background: rgba(255,255,255,0.3);">
                     <td style="padding: 10px;">
                         <input type="checkbox" id="distanceOption" class="rename-option" style="cursor: pointer; transform: scale(1.2);">
                         <label for="distanceOption" style="margin-left: 8px; cursor: pointer; font-weight: bold; color: #333; font-size: 13px;">Distância (campos)</label>
                     </td>
                     <td style="padding: 10px;"><input type="text" id="targetCoordInput" placeholder="Alvo (XXX|YYY)" style="width: 100%; padding: 6px; border: 1px solid #a37c44; border-radius: 3px;"></td>
                 </tr>
-                <tr class="rename-option-container" style="border-bottom: 1px solid #dcb588; background: rgba(255,255,255,0.3);">
+                <tr class="rename-option-container" style="border-bottom: 1px solid #dcb588;">
                     <td style="padding: 10px;">
                         <input type="checkbox" id="randomCoordOption" class="rename-option" style="cursor: pointer; transform: scale(1.2);">
                         <label for="randomCoordOption" style="margin-left: 8px; cursor: pointer; font-weight: bold; color: #333; font-size: 13px;">Coordenada Aleatória</label>
@@ -199,11 +188,11 @@
         const t = translations[lang];
         document.getElementById('rename-title').innerHTML = `🛠️ ${t.heading}`;
         ['option', 'configuration'].forEach((key, i) => document.querySelector(`#rename-options-table th:nth-child(${i + 1})`).textContent = t.tableHeaders[key]);
-        ['textOption', 'numberOption', 'incomingAttackOption', 'conquerOrderOption', 'kOption', 'randomCoordOption', 'distanceOption', 'randomNameOption'].forEach(opt => {
+        ['textOption', 'numberOption', 'conquerOrderOption', 'kOption', 'randomCoordOption', 'distanceOption', 'randomNameOption'].forEach(opt => {
             const el = document.querySelector(`#${opt} + label`);
             if (el) el.textContent = t.options[opt];
         });
-        ['textInput', 'incomingAttackInput', 'digitInput', 'startNumberInput', 'targetCoordInput', 'result'].forEach(input => {
+        ['textInput', 'digitInput', 'startNumberInput', 'targetCoordInput', 'result'].forEach(input => {
             const el = document.querySelector(`#${input}`);
             if (el) el.placeholder = t.placeholders[input];
         });
@@ -276,7 +265,7 @@
         return optionsArray.map(opt => {
             switch (opt.type) {
                 case 'text': return opt.textInput || '';
-                case 'incomingattack': return opt.incomingAttackInput || 'ATAQUE A CHEGAR - NOBRE';
+                case 'attacktag': return 'ATAQUE A CHEGAR - NOBRE';
                 case 'number': return String(numberCounter).padStart(parseInt(opt.digitInput) || 1, '0');
                 case 'k': 
                     if (coords && coords.length === 2) return `K${Math.floor(coords[1] / 100)}${Math.floor(coords[0] / 100)}`; 
@@ -294,19 +283,36 @@
         }).filter(Boolean).join(' ').trim();
     }
 
-    async function loadAccountData() {
-        const playerId = parseInt(game_data.player.id);
-        const [overviewRes, cRes] = await Promise.all([
-            fetch(`/game.php?screen=overview_villages&mode=combined&page=-1`),
-            fetch('/map/conquer.txt')
-        ]);
+    function checkRowForAttacks(row) {
+        if (!row) return false;
+        
+        // Verifica ícones visíveis diretos
+        const hasAttackImg = !!(
+            row.querySelector('img[src*="attack"]') ||
+            row.querySelector('img[src*="graphic/command/attack"]') ||
+            row.querySelector('a[href*="command_tx"] img') ||
+            row.querySelector('.command-icon[src*="attack"]')
+        );
+        if (hasAttackImg) return true;
 
-        const [overviewHtml, cText] = await Promise.all([overviewRes.text(), cRes.text()]);
-        const parser = new DOMParser();
-        const doc = parser.parseFromString(overviewHtml, 'text/html');
-        const rows = doc.querySelectorAll('#combined_table tr[class*="nowrap"]');
+        // Verifica sprites e contadores de comandos do TW
+        const commandIcons = row.querySelectorAll('.command-icon, [class*="command_"]');
+        for (const icon of commandIcons) {
+            const style = window.getComputedStyle(icon);
+            if (icon.className.includes('attack') || style.backgroundImage.includes('attack')) {
+                return true;
+            }
+        }
 
-        const villages = [];
+        // Verifica indicador textual de comandos a chegar no próprio label
+        const fullHtml = row.innerHTML;
+        return fullHtml.includes('command/attack') || fullHtml.includes('type=attack') || fullHtml.includes('mode=incomings');
+    }
+
+    function extractVillagesFromDocument(targetDoc) {
+        const rows = targetDoc.querySelectorAll('#combined_table tr[class*="nowrap"]');
+        const list = [];
+
         rows.forEach(row => {
             const link = row.querySelector('.quickedit-vn');
             if (link) {
@@ -316,17 +322,44 @@
                 const coordsMatch = fullText.match(/\((\d{3}\|\d{3})\)/) || fullText.match(/(\d{3}\|\d{3})/);
                 const coords = coordsMatch ? coordsMatch[1].split('|').map(Number) : [0, 0];
                 const cleanName = fullText.replace(/\(\d{3}\|\d{3}\)\s*K\d{2}/gi, '').trim();
+                const isAttacked = checkRowForAttacks(row);
 
-                const isAttacked = !!(
-                    row.querySelector('.command-icon[src*="attack"]') ||
-                    row.querySelector('img[src*="graphic/command/attack.png"]') ||
-                    row.querySelector('img[src*="attack.png"]') ||
-                    row.querySelector('a[href*="command_tx"] img[src*="attack"]')
-                );
-
-                villages.push({ id, name: cleanName, fullText, coords, isAttacked });
+                list.push({ id, name: cleanName, fullText, coords, isAttacked });
             }
         });
+
+        return list;
+    }
+
+    async function loadAccountData() {
+        const playerId = parseInt(game_data.player.id);
+        const currentUrl = new URL(window.location.href);
+        currentUrl.searchParams.set('page', '-1');
+
+        const [overviewRes, cRes] = await Promise.all([
+            fetch(currentUrl.toString()),
+            fetch('/map/conquer.txt')
+        ]);
+
+        const [overviewHtml, cText] = await Promise.all([overviewRes.text(), cRes.text()]);
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(overviewHtml, 'text/html');
+
+        let villages = extractVillagesFromDocument(doc);
+
+        // Fallback para o DOM ativo se o fetch overview não trouxer linhas (ex: restrição de sessão ou paginação)
+        if (villages.length === 0) {
+            villages = extractVillagesFromDocument(document);
+        } else {
+            // Sincroniza flag isAttacked do DOM da página atual caso o endpoint page=-1 omita render de comandos dinâmicos
+            const domVillages = extractVillagesFromDocument(document);
+            domVillages.forEach(dv => {
+                if (dv.isAttacked) {
+                    const match = villages.find(v => v.id === dv.id);
+                    if (match) match.isAttacked = true;
+                }
+            });
+        }
 
         const latestConquests = new Map();
         cText.trim().split('\n').forEach(line => {
@@ -406,17 +439,13 @@
         const attackedVillages = villages.filter(v => v.isAttacked);
 
         if (attackedVillages.length === 0) {
-            UI.ErrorMessage("Nenhuma aldeia a sofrer ataques neste grupo!");
+            UI.ErrorMessage("Nenhuma aldeia a sofrer ataques detetada neste grupo!");
             return;
         }
 
-        let optionsToApply = [...currentOptions];
-        const attackInputVal = document.getElementById('incomingAttackInput').value.trim() || 'ATAQUE A CHEGAR - NOBRE';
-
-        if (!optionsToApply.some(opt => opt.type === 'incomingattack')) {
-            optionsToApply = optionsToApply.filter(opt => opt.type !== 'text');
-            optionsToApply.unshift({ type: 'incomingattack', incomingAttackInput: attackInputVal });
-        }
+        // Monta padrão com tag de ataque em substituição de texto fixo
+        let optionsToApply = currentOptions.filter(opt => opt.type !== 'text');
+        optionsToApply.unshift({ type: 'attacktag' });
 
         const startNumber = parseInt(optionsToApply.find(opt => opt.type === 'number')?.startNumberInput) || 1;
         const queue = [];
@@ -429,7 +458,7 @@
         });
 
         if (queue.length === 0) {
-            UI.SuccessMessage("Todas as aldeias sob ataque já contêm esse nome configurado.");
+            UI.SuccessMessage("Todas as aldeias sob ataque já contêm a tag aplicada.");
             return;
         }
 
@@ -485,11 +514,11 @@
 
     // Botão Auto-Corrigir Novas
     document.getElementById('fix-outliers').addEventListener('click', async function() {
-        const textOpt = currentOptions.find(opt => opt.type === 'text' || opt.type === 'incomingattack');
-        const baseText = (textOpt?.textInput || textOpt?.incomingAttackInput || '').trim();
+        const textOpt = currentOptions.find(opt => opt.type === 'text');
+        const baseText = (textOpt?.textInput || '').trim();
 
         if (!baseText) {
-            UI.ErrorMessage("Ativa e preenche a opção 'Texto' ou 'Tag de Ataque' primeiro.");
+            UI.ErrorMessage("Ativa e preenche a opção 'Texto' primeiro.");
             return;
         }
 
@@ -530,7 +559,7 @@
     });
 
     document.getElementById('language-select').addEventListener('change', function() { setLanguage(this.value); });
-    document.querySelectorAll('.rename-option, #textInput, #incomingAttackInput, #digitInput, #startNumberInput, #targetCoordInput').forEach(input => input.addEventListener('input', combineOptions));
+    document.querySelectorAll('.rename-option, #textInput, #digitInput, #startNumberInput, #targetCoordInput').forEach(input => input.addEventListener('input', combineOptions));
 
     loadSettings();
     combineOptions();
