@@ -25,17 +25,49 @@
         en: {
             heading: "Renaming Options",
             tableHeaders: { option: "Option", configuration: "Configuration" },
-            options: { textOption: "Text", numberOption: "Number", kOption: "By K", randomCoordOption: "Random Coordinates", distanceOption: "Distance (in fields)", randomNameOption: "Random Name" },
-            placeholders: { textInput: "Enter text", digitInput: "Total digits", startNumberInput: "Starting number", targetCoordInput: "Target (XXX|YYY)", result: "Example result" },
+            options: { 
+                textOption: "Text", 
+                numberOption: "Number", 
+                incomingAttackOption: "Incoming Attack Tag",
+                kOption: "By K", 
+                randomCoordOption: "Random Coordinates", 
+                distanceOption: "Distance (in fields)", 
+                randomNameOption: "Random Name" 
+            },
+            placeholders: { 
+                textInput: "Enter text", 
+                digitInput: "Total digits", 
+                startNumberInput: "Starting number", 
+                incomingAttackInput: "e.g. INCOMING ATTACK - NOBLE",
+                targetCoordInput: "Target (XXX|YYY)", 
+                result: "Example result" 
+            },
             renameButton: "Rename All",
+            renameAttackedButton: "Rename Attacked Only",
             fixButton: "Auto-Fix New"
         },
         pt: {
             heading: "Opções de Renomeação",
             tableHeaders: { option: "Opção", configuration: "Configuração" },
-            options: { textOption: "Texto", numberOption: "Número", kOption: "Por K", randomCoordOption: "Coordenada Aleatória", distanceOption: "Distância (em campos)", randomNameOption: "Nome Aleatório" },
-            placeholders: { textInput: "Digite o texto", digitInput: "Total dígitos", startNumberInput: "Nº inicial", targetCoordInput: "Alvo (XXX|YYY)", result: "Exemplo de resultado" },
+            options: { 
+                textOption: "Texto", 
+                numberOption: "Número", 
+                incomingAttackOption: "Tag de Ataque",
+                kOption: "Por K", 
+                randomCoordOption: "Coordenada Aleatória", 
+                distanceOption: "Distância (em campos)", 
+                randomNameOption: "Nome Aleatório" 
+            },
+            placeholders: { 
+                textInput: "Digite o texto", 
+                digitInput: "Total dígitos", 
+                startNumberInput: "Nº inicial", 
+                incomingAttackInput: "Ex: ATAQUE A CHEGAR - NOBRE",
+                targetCoordInput: "Alvo (XXX|YYY)", 
+                result: "Exemplo de resultado" 
+            },
             renameButton: "Renomear Todas",
+            renameAttackedButton: "Renomear Sob Ataque",
             fixButton: "Auto-Corrigir Novas"
         }
     };
@@ -49,7 +81,7 @@
                     <option value="pt">Português</option>
                     <option value="en">English</option>
                 </select>
-                <button id="btn-close-renamer" style="margin-left: 10px; background: #a02c2c; color: #fff; border: 1px solid #601010; border-radius: 4px; padding: 4px 10px; cursor: font-weight: bold;">X</button>
+                <button id="btn-close-renamer" style="margin-left: 10px; background: #a02c2c; color: #fff; border: 1px solid #601010; border-radius: 4px; padding: 4px 10px; cursor: pointer; font-weight: bold;">X</button>
             </div>
         </div>
 
@@ -70,6 +102,13 @@
                 </tr>
                 <tr class="rename-option-container" style="border-bottom: 1px solid #dcb588;">
                     <td style="padding: 10px;">
+                        <input type="checkbox" id="incomingAttackOption" class="rename-option" style="cursor: pointer; transform: scale(1.2);">
+                        <label for="incomingAttackOption" style="margin-left: 8px; cursor: pointer; font-weight: bold; color: #b71c1c; font-size: 13px;">Tag de Ataque</label>
+                    </td>
+                    <td style="padding: 10px;"><input type="text" id="incomingAttackInput" value="ATAQUE A CHEGAR - NOBRE" placeholder="Ex: ATAQUE A CHEGAR - NOBRE" style="width: 100%; padding: 6px; border: 1px solid #a37c44; border-radius: 3px;"></td>
+                </tr>
+                <tr class="rename-option-container" style="border-bottom: 1px solid #dcb588; background: rgba(255,255,255,0.3);">
+                    <td style="padding: 10px;">
                         <input type="checkbox" id="numberOption" class="rename-option" style="cursor: pointer; transform: scale(1.2);">
                         <label for="numberOption" style="margin-left: 8px; cursor: pointer; font-weight: bold; color: #333; font-size: 13px;">Número</label>
                     </td>
@@ -78,21 +117,21 @@
                         <input type="number" id="startNumberInput" placeholder="Nº inicial" style="flex: 1; padding: 6px; border: 1px solid #a37c44; border-radius: 3px;">
                     </td>
                 </tr>
-                <tr class="rename-option-container" style="border-bottom: 1px solid #dcb588; background: rgba(255,255,255,0.3);">
+                <tr class="rename-option-container" style="border-bottom: 1px solid #dcb588;">
                     <td style="padding: 10px;">
                         <input type="checkbox" id="kOption" class="rename-option" style="cursor: pointer; transform: scale(1.2);">
                         <label for="kOption" style="margin-left: 8px; cursor: pointer; font-weight: bold; color: #333; font-size: 13px;">Por K</label>
                     </td>
                     <td style="padding: 10px;"><span style="font-size: 11px; color: #555; font-style: italic;">Adiciona automaticamente o continente</span></td>
                 </tr>
-                <tr class="rename-option-container" style="border-bottom: 1px solid #dcb588;">
+                <tr class="rename-option-container" style="border-bottom: 1px solid #dcb588; background: rgba(255,255,255,0.3);">
                     <td style="padding: 10px;">
                         <input type="checkbox" id="randomCoordOption" class="rename-option" style="cursor: pointer; transform: scale(1.2);">
                         <label for="randomCoordOption" style="margin-left: 8px; cursor: pointer; font-weight: bold; color: #333; font-size: 13px;">Coordenada Aleatória</label>
                     </td>
                     <td style="padding: 10px;"></td>
                 </tr>
-                <tr class="rename-option-container" style="border-bottom: 1px solid #dcb588; background: rgba(255,255,255,0.3);">
+                <tr class="rename-option-container" style="border-bottom: 1px solid #dcb588;">
                     <td style="padding: 10px;">
                         <input type="checkbox" id="distanceOption" class="rename-option" style="cursor: pointer; transform: scale(1.2);">
                         <label for="distanceOption" style="margin-left: 8px; cursor: pointer; font-weight: bold; color: #333; font-size: 13px;">Distância (campos)</label>
@@ -124,7 +163,8 @@
             </div>
         </div>
         
-        <div style="display: flex; justify-content: flex-end; gap: 10px;">
+        <div style="display: flex; justify-content: flex-end; gap: 10px; flex-wrap: wrap;">
+            <button id="rename-attacked" class="btn" style="padding: 10px 15px; font-size: 13px; cursor: pointer; border-radius: 4px; background: #c9302c; color: white; border: 1px solid #ac2925; font-weight: bold;">Renomear Sob Ataque</button>
             <button id="fix-outliers" class="btn" style="padding: 10px 15px; font-size: 13px; cursor: pointer; border-radius: 4px; background: #f0ad4e; color: white; border: 1px solid #d58512; font-weight: bold;">Auto-Corrigir Novas</button>
             <button id="combine-options" class="btn" style="padding: 10px 20px; font-size: 13px; cursor: pointer; border-radius: 4px; background: #5cb85c; color: white; border: 1px solid #398439; font-weight: bold;">Renomear Todas</button>
         </div>
@@ -144,9 +184,16 @@
         const t = translations[lang];
         document.getElementById('rename-title').innerHTML = `🛠️ ${t.heading}`;
         ['option', 'configuration'].forEach((key, i) => document.querySelector(`#rename-options-table th:nth-child(${i + 1})`).textContent = t.tableHeaders[key]);
-        ['textOption', 'numberOption', 'kOption', 'randomCoordOption', 'distanceOption', 'randomNameOption'].forEach(opt => document.querySelector(`#${opt} + label`).textContent = t.options[opt]);
-        ['textInput', 'digitInput', 'startNumberInput', 'targetCoordInput', 'result'].forEach(input => document.querySelector(`#${input}`).placeholder = t.placeholders[input]);
+        ['textOption', 'numberOption', 'incomingAttackOption', 'kOption', 'randomCoordOption', 'distanceOption', 'randomNameOption'].forEach(opt => {
+            const label = document.querySelector(`#${opt} + label`);
+            if (label) label.textContent = t.options[opt];
+        });
+        ['textInput', 'incomingAttackInput', 'digitInput', 'startNumberInput', 'targetCoordInput', 'result'].forEach(input => {
+            const el = document.querySelector(`#${input}`);
+            if (el) el.placeholder = t.placeholders[input];
+        });
         document.querySelector('#combine-options').textContent = t.renameButton;
+        document.querySelector('#rename-attacked').textContent = t.renameAttackedButton;
         document.querySelector('#fix-outliers').textContent = t.fixButton;
         saveSettings();
     }
@@ -227,6 +274,7 @@
         return optionsArray.map(opt => {
             switch (opt.type) {
                 case 'text': return opt.textInput || '';
+                case 'incomingattack': return opt.incomingAttackInput || 'ATAQUE A CHEGAR - NOBRE';
                 case 'number': return String(numberCounter).padStart(parseInt(opt.digitInput) || 1, '0');
                 case 'k': 
                     if (coords && coords.length === 2) return `K${Math.floor(coords[1] / 100)}${Math.floor(coords[0] / 100)}`; 
@@ -244,7 +292,6 @@
         }).join(' ').trim();
     }
 
-    // Renomeia uma única aldeia com verificação ativa do DOM (100% fiável)
     function renameSingleVillage(element, finalName) {
         return new Promise((resolve) => {
             const labelNode = element.querySelector('.quickedit-vn');
@@ -269,7 +316,7 @@
                     }
                 }
 
-                if (checkAttempts > 12) { // Timeout de segurança (300ms)
+                if (checkAttempts > 12) {
                     clearInterval(interval);
                     resolve(false);
                 }
@@ -277,18 +324,27 @@
         });
     }
 
-    // Processamento calibrado em blocos de 3 (O "Sweet Spot" perfeito para o Tribal Wars)
-    async function processRenaming(villagesNodeList, startingNumber) {
+    function isVillageUnderAttack(element) {
+        return !!(
+            element.querySelector('.command-icon[src*="attack"]') ||
+            element.querySelector('img[src*="graphic/command/attack.png"]') ||
+            element.querySelector('img[src*="attack.png"]') ||
+            element.querySelector('a[href*="command_tx"] img[src*="attack"]')
+        );
+    }
+
+    async function processRenaming(villagesNodeList, startingNumber, activeOptions = currentOptions) {
         const list = Array.from(villagesNodeList);
         const total = list.length;
         if (total === 0) return;
 
         let numberCounter = startingNumber;
-        const BATCH_SIZE = 3;    // 3 aldeias por lote (estável e rápido)
-        const BATCH_DELAY = 160;  // 160ms de pausa segura entre cada lote de 3
+        const BATCH_SIZE = 3;
+        const BATCH_DELAY = 160;
 
         const btnCombine = document.getElementById('combine-options');
         const btnFix = document.getElementById('fix-outliers');
+        const btnAttacked = document.getElementById('rename-attacked');
         const progressContainer = document.getElementById('progress-container');
         const progressBar = document.getElementById('progress-bar');
         const progressText = document.getElementById('progress-text');
@@ -296,6 +352,7 @@
 
         btnCombine.disabled = true;
         btnFix.disabled = true;
+        btnAttacked.disabled = true;
         progressContainer.style.display = 'block';
         progressBar.style.width = '0%';
         progressText.textContent = `A renomear... [0/${total}]`;
@@ -306,12 +363,11 @@
         for (let i = 0; i < total; i += BATCH_SIZE) {
             const chunk = list.slice(i, i + BATCH_SIZE);
 
-            // Dispara as 3 aldeias do bloco com micro-desfasamento de 25ms para estabilidade do DOM
             await Promise.all(chunk.map((element, chunkIdx) => {
                 const textContent = element.querySelector('.quickedit-label')?.textContent || '';
                 const coordsMatches = textContent.match(/(\d{3}\|\d{3})/g);
                 const coords = (coordsMatches && coordsMatches.length > 0 ? coordsMatches[coordsMatches.length - 1] : "000|000").split('|').map(Number);
-                const finalName = generateVillageName(currentOptions, numberCounter++, coords).slice(0, 32).replace(/[´^]/g, '');
+                const finalName = generateVillageName(activeOptions, numberCounter++, coords).slice(0, 32).replace(/[´^]/g, '');
 
                 return new Promise((res) => {
                     setTimeout(() => {
@@ -334,6 +390,7 @@
 
         btnCombine.disabled = false;
         btnFix.disabled = false;
+        btnAttacked.disabled = false;
         showCustomNotification(`Concluído! ${total} aldeias renomeadas com sucesso!`, "success");
 
         setTimeout(() => {
@@ -341,21 +398,44 @@
         }, 3000);
     }
 
+    // Botão Renomear Apenas Aldeias Sob Ataque
+    document.getElementById('rename-attacked').addEventListener('click', function() {
+        const lineVillages = Array.from(document.querySelectorAll('.nowrap.row_a, .nowrap.row_b'));
+        const attackedVillages = lineVillages.filter(isVillageUnderAttack);
+
+        if (attackedVillages.length === 0) {
+            showCustomNotification("Nenhuma aldeia está a sofrer ataques neste grupo!", "error");
+            return;
+        }
+
+        // Garante que a opção de tag de ataque é aplicada mesmo que não esteja selecionada globalmente
+        let optionsToApply = [...currentOptions];
+        const attackInputVal = document.getElementById('incomingAttackInput').value.trim() || 'ATAQUE A CHEGAR - NOBRE';
+
+        if (!optionsToApply.some(opt => opt.type === 'incomingattack')) {
+            optionsToApply = optionsToApply.filter(opt => opt.type !== 'text');
+            optionsToApply.unshift({ type: 'incomingattack', incomingAttackInput: attackInputVal });
+        }
+
+        let startingNumber = parseInt(optionsToApply.find(opt => opt.type === 'number')?.startNumberInput) || 1;
+        processRenaming(attackedVillages, startingNumber, optionsToApply);
+    });
+
     document.getElementById('fix-outliers').addEventListener('click', function() {
         if (currentOptions.length === 0) {
             showCustomNotification("Atenção: Seleciona pelo menos uma opção de renomeação.", "error");
             return;
         }
 
-        const textOpt = currentOptions.find(opt => opt.type === 'text');
-        if (!textOpt || !textOpt.textInput) {
-            showCustomNotification("Para esta função, ativa e preenche a opção 'Texto' com o teu padrão.", "error");
+        const textOpt = currentOptions.find(opt => opt.type === 'text' || opt.type === 'incomingattack');
+        const baseText = (textOpt?.textInput || textOpt?.incomingAttackInput || '').trim();
+
+        if (!baseText) {
+            showCustomNotification("Para esta função, ativa e preenche a opção 'Texto' ou 'Tag de Ataque'.", "error");
             return;
         }
 
-        const baseText = textOpt.textInput.trim();
         const lineVillages = document.querySelectorAll('.nowrap.row_a, .nowrap.row_b');
-        
         let maxFoundNumber = 0;
         let villagesToRename = [];
 
@@ -371,9 +451,7 @@
                 const numMatch = remainingPart.match(/\d+/);
                 if (numMatch) {
                     const num = parseInt(numMatch[0]);
-                    if (num > maxFoundNumber) {
-                        maxFoundNumber = num;
-                    }
+                    if (num > maxFoundNumber) maxFoundNumber = num;
                 }
             } else {
                 villagesToRename.push(element);
@@ -399,7 +477,7 @@
     });
 
     document.getElementById('language-select').addEventListener('change', function () { setLanguage(this.value); });
-    document.querySelectorAll('.rename-option, #textInput, #digitInput, #startNumberInput, #targetCoordInput').forEach(input => input.addEventListener('input', combineOptions));
+    document.querySelectorAll('.rename-option, #textInput, #incomingAttackInput, #digitInput, #startNumberInput, #targetCoordInput').forEach(input => input.addEventListener('input', combineOptions));
     
     function showCustomNotification(message, type = "success") {
         let container = document.getElementById('customNotificationContainer');
