@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TW Tactical Command Suite
 // @namespace    https://tribalwars.com.pt/
-// @version      2.5.6
-// @description  Suite militar avançada para Tribal Wars PT: Visão Geral com regra 22k, Contador Tático, Gerador de Fakes dinâmico, Planeador NT + Anti-Snipe + Bunker com Paladino, Re-Nobre em Bate e Volta (4 viagens consecutivas), Campanha Multialvo com IA de Atribuição e exportação BBCode.
+// @version      2.5.7
+// @description  Suite militar avançada para Tribal Wars PT: Visão Geral com regra 22k, Contador Tático, Gerador de Fakes dinâmico, Planeador NT + Anti-Snipe + Bunker com Paladino, Priorização de Paladino nos Nukes Principais c/ Atalho de Estátua, Re-Nobre em Bate e Volta (4 viagens consecutivas), Campanha Multialvo com IA de Atribuição e exportação BBCode.
 // @author       Diogo & Antigravity
 // @match        https://*.tribalwars.com.pt/game.php*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=tribalwars.com.pt
@@ -10,7 +10,7 @@
 // ==/UserScript==
 
 (async function () {
-    const SCRIPT_VERSION = '2.5.6';
+    const SCRIPT_VERSION = '2.5.7';
     const modalId = 'tw-master-suite';
     
     // Limpeza de instâncias anteriores
@@ -2464,11 +2464,26 @@
         for (const assignment of targetAssignments) {
             const tCoord = assignment.target;
 
-            // Catapultas preliminares (Anti-Desvio na Praça de Reunião)
+            // 1. Nukes de Limpeza (Prioridade Máxima para Paladino)
+            for (let i = 0; i < leadNukesCount; i++) {
+                const landOffset = hasNobles ? ((leadNukesCount - i) * 100) : ((leadNukesCount - 1 - i) * 100);
+                const landMs = baseLandTime - landOffset;
+                const nukeOff = findClosestAvailable(offPool, usedOffVillages, tCoord, landMs, minLaunchMs, false);
+                if (nukeOff) {
+                    usedOffVillages.add(nukeOff.village.id);
+                    const isPaladin = nukeOff.hasKnight;
+                    const typeLabel = isPaladin ? `Limpeza #${i+1} (Paladino)` : `Limpeza #${i+1}`;
+                    const badge = isPaladin ? 'tw-badge-paladino' : 'tw-badge-nuke';
+                    const infoLabel = isPaladin ? 'Full Off (Buff Paladino ⚔️)' : 'Full Off';
+                    allCampaignCommands.push(makeCmd(typeLabel, badge, 'Attack', nukeOff.village, tCoord, nukeOff.dist, nukeOff.sec, nukeOff.launchTime, new Date(landMs), modelNuke, catTargetBuilding !== 'none' ? catTargetBuilding : '', infoLabel));
+                }
+            }
+
+            // 2. Catapultas preliminares (Anti-Desvio na Praça de Reunião / Demolição) - forbidPaladin = true
             if (attackMode === 'full_storm') {
                 const pracaOffsetsMin = [10, 3];
                 pracaOffsetsMin.forEach(minBefore => {
-                    const pracaOff = findClosestAvailable(offPool, usedOffVillages, tCoord, baseLandTime - (minBefore * 60 * 1000), minLaunchMs);
+                    const pracaOff = findClosestAvailable(offPool, usedOffVillages, tCoord, baseLandTime - (minBefore * 60 * 1000), minLaunchMs, true);
                     if (pracaOff) {
                         usedOffVillages.add(pracaOff.village.id);
                         allCampaignCommands.push(makeCmd(`Praça (-${minBefore}m)`, 'tw-badge-praca', 'Attack', pracaOff.village, tCoord, pracaOff.dist, pracaOff.sec, pracaOff.launchTime, new Date(baseLandTime - (minBefore * 60 * 1000)), modelCats, 'place', 'Anti-Desvio'));
@@ -2476,21 +2491,10 @@
                 });
             } else if (attackMode === 'cat_demolish') {
                 const bld = catTargetBuilding !== 'none' ? catTargetBuilding : 'place';
-                const catOff = findClosestAvailable(offPool, usedOffVillages, tCoord, baseLandTime - (10 * 60 * 1000), minLaunchMs);
+                const catOff = findClosestAvailable(offPool, usedOffVillages, tCoord, baseLandTime - (10 * 60 * 1000), minLaunchMs, true);
                 if (catOff) {
                     usedOffVillages.add(catOff.village.id);
                     allCampaignCommands.push(makeCmd('Demolição (-10m)', 'tw-badge-praca', 'Attack', catOff.village, tCoord, catOff.dist, catOff.sec, catOff.launchTime, new Date(baseLandTime - (10 * 60 * 1000)), modelCats, bld, 'Catapultas'));
-                }
-            }
-
-            // Nukes de Limpeza
-            for (let i = 0; i < leadNukesCount; i++) {
-                const landOffset = hasNobles ? ((leadNukesCount - i) * 100) : ((leadNukesCount - 1 - i) * 100);
-                const landMs = baseLandTime - landOffset;
-                const nukeOff = findClosestAvailable(offPool, usedOffVillages, tCoord, landMs, minLaunchMs);
-                if (nukeOff) {
-                    usedOffVillages.add(nukeOff.village.id);
-                    allCampaignCommands.push(makeCmd(`Limpeza #${i+1}`, 'tw-badge-nuke', 'Attack', nukeOff.village, tCoord, nukeOff.dist, nukeOff.sec, nukeOff.launchTime, new Date(landMs), modelNuke, catTargetBuilding !== 'none' ? catTargetBuilding : '', 'Full Off'));
                 }
             }
 
@@ -2531,16 +2535,16 @@
                 });
             }
 
-            // Escoltas Anti-Snipe
+            // Escoltas Anti-Snipe (NUNCA gastam aldeia com Paladino: forbidPaladin = true)
             if (hasNobles && antiWavesCount > 0) {
                 const antiOffsets = [halfStep, msStep + halfStep, (2 * msStep) + halfStep].slice(0, antiWavesCount);
                 if (antiOrigins === 'max2') {
-                    const v1 = findClosestAvailable(offPool, usedOffVillages, tCoord, baseLandTime + antiOffsets[0], minLaunchMs);
+                    const v1 = findClosestAvailable(offPool, usedOffVillages, tCoord, baseLandTime + antiOffsets[0], minLaunchMs, true);
                     let v2 = null;
                     if (v1) {
                         usedOffVillages.add(v1.village.id);
                         if (antiWavesCount > 1) {
-                            v2 = findClosestAvailable(offPool, usedOffVillages, tCoord, baseLandTime + antiOffsets[antiOffsets.length - 1], minLaunchMs);
+                            v2 = findClosestAvailable(offPool, usedOffVillages, tCoord, baseLandTime + antiOffsets[antiOffsets.length - 1], minLaunchMs, true);
                             if (v2) usedOffVillages.add(v2.village.id);
                         }
                     }
@@ -2562,7 +2566,7 @@
                 } else {
                     antiOffsets.forEach((offset, idx) => {
                         const landMs = baseLandTime + offset;
-                        const antiOff = findClosestAvailable(offPool, usedOffVillages, tCoord, landMs, minLaunchMs);
+                        const antiOff = findClosestAvailable(offPool, usedOffVillages, tCoord, landMs, minLaunchMs, true);
                         if (antiOff) {
                             usedOffVillages.add(antiOff.village.id);
                             allCampaignCommands.push(makeCmd(`Anti-Snipe #${idx+1}`, 'tw-badge-anti', 'Attack', antiOff.village, tCoord, antiOff.dist, antiOff.sec, antiOff.launchTime, new Date(landMs), modelAnti, '', 'Escolta Anti-Snipe'));
@@ -2591,6 +2595,11 @@
 
         let rows = '', output = '';
         allCampaignCommands.forEach((cmd, i) => {
+            let actionShortcut = '';
+            if (cmd.needsPaladinRelocate || (cmd.info && cmd.info.includes('Realocar Paladino'))) {
+                actionShortcut = `<a href="game.php?village=${cmd.originId}&screen=statue" target="_blank" class="tw-btn" style="padding:2px 7px; font-size:9.5px; font-weight:bold; background:#7c3aed; border:1px solid #c084fc; color:#fff; border-radius:4px; text-decoration:none; margin-left:6px; display:inline-flex; align-items:center; gap:3px; vertical-align:middle; cursor:pointer;" title="Abre a Estátua da aldeia ${cmd.originName} (${cmd.originCoords}) noutro separador para puxares o Paladino">🏰 Puxar Paladino</a>`;
+            }
+
             rows += `<tr data-vid="${cmd.originId}">
                 <td style="color:#94a3b8; padding:3px 6px;">${i+1}</td>
                 <td style="padding:3px 6px;"><span class="${cmd.badge}">${cmd.type}</span></td>
@@ -2599,7 +2608,7 @@
                 <td style="padding:3px 6px;">${cmd.dist}c</td>
                 <td style="padding:3px 6px;"><b style="color:#f8fafc;">${cmd.launchTime.toLocaleTimeString('pt-PT')}:${String(cmd.launchTime.getMilliseconds()).padStart(3,'0')}</b> <span style="font-size:9.5px; color:#64748b; font-weight:normal;">(${String(cmd.launchTime.getDate()).padStart(2,'0')}/${String(cmd.launchTime.getMonth()+1).padStart(2,'0')})</span></td>
                 <td style="padding:3px 6px;"><b style="color:#38bdf8;">${cmd.landTime.toLocaleTimeString('pt-PT')}:${String(cmd.landTime.getMilliseconds()).padStart(3,'0')}</b> <span style="font-size:9.5px; color:#64748b; font-weight:normal;">(${String(cmd.landTime.getDate()).padStart(2,'0')}/${String(cmd.landTime.getMonth()+1).padStart(2,'0')})</span></td>
-                <td style="padding:3px 6px;"><b style="color:${cmd.actionType==='Support'?'#34d399':'#3fb950'};">${cmd.model}</b> <span style="font-size:10px; color:#94a3b8;">(${cmd.info})</span></td>
+                <td style="padding:3px 6px;"><b style="color:${cmd.actionType==='Support'?'#34d399':'#3fb950'};">${cmd.model}</b> <span style="font-size:10px; color:#94a3b8;">(${cmd.info})</span>${actionShortcut}</td>
             </tr>`;
 
             let u = `https://${location.host}/game.php?village=${cmd.originId}&screen=place&target_coord=${cmd.targetCoords}`;
@@ -2643,20 +2652,33 @@
     }
 }
 
-    function findClosestAvailable(pool, usedSet, targetCoord, targetLandMs, minLaunchMs) {
+    function findClosestAvailable(pool, usedSet, targetCoord, targetLandMs, minLaunchMs, forbidPaladin = false) {
         let best = null;
         let bestDist = Infinity;
+        let bestFallback = null;
+        let bestFallbackDist = Infinity;
+
         pool.forEach(v => {
             if (usedSet.has(v.id)) return;
             const dist = calcDistance(v.coords, targetCoord);
             const sec = dist * unitSpeedMinutes.ram * 60;
             const launchMs = targetLandMs - (sec * 1000);
-            if (launchMs >= minLaunchMs && dist < bestDist) {
-                bestDist = dist;
-                best = { village: v, dist: dist.toFixed(2), sec, launchTime: new Date(launchMs) };
+            if (launchMs >= minLaunchMs) {
+                const hasKnight = (v.knightAvailable || (v.homeTroopsDict && v.homeTroopsDict.knight) || 0) >= 1;
+                if (!forbidPaladin || !hasKnight) {
+                    if (dist < bestDist) {
+                        bestDist = dist;
+                        best = { village: v, dist: dist.toFixed(2), sec, launchTime: new Date(launchMs), hasKnight };
+                    }
+                } else {
+                    if (dist < bestFallbackDist) {
+                        bestFallbackDist = dist;
+                        bestFallback = { village: v, dist: dist.toFixed(2), sec, launchTime: new Date(launchMs), hasKnight };
+                    }
+                }
             }
         });
-        return best;
+        return best || bestFallback;
     }
 
     function findClosestDefBunker(pool, usedSet, targetCoord, targetLandMs, minLaunchMs, minPop2, minPop1, model1, model2) {
@@ -2845,56 +2867,75 @@
 
         const STANDARD_RELOCATE_MS = (3 * 3600 + 31 * 60 + 45) * 1000;
 
-        function assignOffNuke(targetLandMs, typeLabel, badgeClass, modelStr, isLeadNuke = false, buildingTarget = '') {
+        function assignOffNuke(targetLandMs, typeLabel, badgeClass, modelStr, isLeadNuke = false, buildingTarget = '', allowPaladin = true) {
+            let candIndex = -1;
             for (let i = 0; i < sortedOff.length; i++) {
                 const cand = sortedOff[i];
                 if (usedOffVillages.has(cand.village.id)) continue;
+                if (!allowPaladin && cand.hasKnight) continue;
                 
                 const travelSec = cand.sec;
                 const launchMs = targetLandMs - (travelSec * 1000);
                 
                 if (launchMs >= minLaunchMs) {
-                    usedOffVillages.add(cand.village.id);
-                    const isPaladinOff = cand.hasKnight;
-                    let finalType = typeLabel;
-                    let finalBadge = badgeClass;
-                    let extraInfo = 'Full Off';
-
-                    if (isPaladinOff) {
-                        finalType = `${typeLabel} (Paladino)`;
-                        finalBadge = 'tw-badge-paladino';
-                        extraInfo = 'Full Off (Buff Paladino ⚔️)';
-                    } else if (isLeadNuke && reqPaladinNuke) {
-                        const timeUntilLaunch = launchMs - now;
-                        if (timeUntilLaunch >= STANDARD_RELOCATE_MS) {
-                            const marginMin = Math.floor((timeUntilLaunch - STANDARD_RELOCATE_MS) / 60000);
-                            extraInfo = `⚠️ Realocar Paladino! (+${marginMin}m folga)`;
-                            finalBadge = 'tw-badge-warn';
-                        } else {
-                            extraInfo = `Sem Paladino (Tempo insuficiente)`;
-                        }
-                    }
-
-                    sequence.push({
-                        type: finalType,
-                        badge: finalBadge,
-                        actionType: 'Attack',
-                        originId: cand.village.id,
-                        originName: cand.village.name,
-                        originCoords: cand.village.coords,
-                        targetCoords: target,
-                        dist: cand.dist.toFixed(2),
-                        sec: travelSec,
-                        launchTime: new Date(launchMs),
-                        landTime: new Date(targetLandMs),
-                        model: modelStr,
-                        building: buildingTarget !== 'none' ? buildingTarget : '',
-                        info: extraInfo
-                    });
-                    return true;
+                    candIndex = i;
+                    break;
                 }
             }
-            return false;
+
+            // Fallback se allowPaladin for falso mas nenhuma aldeia sem paladino estava no alcance
+            if (candIndex === -1 && !allowPaladin) {
+                for (let i = 0; i < sortedOff.length; i++) {
+                    const cand = sortedOff[i];
+                    if (usedOffVillages.has(cand.village.id)) continue;
+                    const travelSec = cand.sec;
+                    const launchMs = targetLandMs - (travelSec * 1000);
+                    if (launchMs >= minLaunchMs) {
+                        candIndex = i;
+                        break;
+                    }
+                }
+            }
+
+            if (candIndex !== -1) {
+                const cand = sortedOff[candIndex];
+                usedOffVillages.add(cand.village.id);
+                const travelSec = cand.sec;
+                const launchMs = targetLandMs - (travelSec * 1000);
+                const isPaladinOff = cand.hasKnight;
+                let finalType = typeLabel;
+                let finalBadge = badgeClass;
+                let extraInfo = 'Full Off';
+
+                if (isPaladinOff) {
+                    finalType = `${typeLabel} (Paladino)`;
+                    finalBadge = 'tw-badge-paladino';
+                    extraInfo = 'Full Off (Buff Paladino ⚔️)';
+                }
+
+                const cmdObj = {
+                    type: finalType,
+                    badge: finalBadge,
+                    actionType: 'Attack',
+                    originId: cand.village.id,
+                    originName: cand.village.name,
+                    originCoords: cand.village.coords,
+                    targetCoords: target,
+                    dist: cand.dist.toFixed(2),
+                    sec: travelSec,
+                    launchTime: new Date(launchMs),
+                    landTime: new Date(targetLandMs),
+                    model: modelStr,
+                    building: buildingTarget !== 'none' ? buildingTarget : '',
+                    info: extraInfo,
+                    hasPaladin: isPaladinOff,
+                    needsPaladinRelocate: false
+                };
+
+                sequence.push(cmdObj);
+                return cmdObj;
+            }
+            return null;
         }
 
         function assignDefBunker(targetLandMs, typeLabel, badgeClass, requirePaladin = false) {
@@ -2952,26 +2993,48 @@
             return false;
         }
 
-        // 1. Catapultas preliminares (Anti-Desvio na Praça de Reunião)
+        // 1. Nukes de Limpeza (Prioridade Máxima para Paladino)
+        let paladinInNukes = false;
+        const nukeCommands = [];
+        for (let i = 0; i < leadNukesCount; i++) {
+            const landOffset = hasNobles ? ((leadNukesCount - i) * 100) : ((leadNukesCount - 1 - i) * 100);
+            const cmd = assignOffNuke(trip1AnchorLandMs - landOffset, `Limpeza Principal #${i+1}`, 'tw-badge-nuke', modelNuke, false, catTargetBuilding, true);
+            if (cmd) {
+                if (cmd.hasPaladin) paladinInNukes = true;
+                nukeCommands.push(cmd);
+            }
+        }
+
+        // Se o utilizador pediu Paladino no Nuke, mas NENHUM dos nukes tem Paladino:
+        // Avisar para realocar no Nuke Principal #1
+        if (reqPaladinNuke && !paladinInNukes && nukeCommands.length > 0) {
+            const primaryNuke = nukeCommands[0]; // Limpeza Principal #1
+            const timeUntilLaunch = primaryNuke.launchTime.getTime() - now;
+            if (timeUntilLaunch >= STANDARD_RELOCATE_MS) {
+                const marginMin = Math.floor((timeUntilLaunch - STANDARD_RELOCATE_MS) / 60000);
+                primaryNuke.info = `⚠️ Realocar Paladino! (+${marginMin}m folga)`;
+                primaryNuke.badge = 'tw-badge-warn';
+                primaryNuke.needsPaladinRelocate = true;
+            } else {
+                primaryNuke.info = `Sem Paladino (Tempo insuficiente)`;
+            }
+        }
+
+        // 2. Catapultas preliminares (Anti-Desvio na Praça de Reunião / Demolição)
+        // NUNCA gastam aldeias com Paladino (allowPaladin = false)
         const modelCats = document.getElementById('tw-nt-model-cats') ? document.getElementById('tw-nt-model-cats').value.trim() || 'Cats' : 'Cats';
         if (attackMode === 'full_storm') {
             const pracaOffsetsMin = [14, 10, 6, 2];
             pracaOffsetsMin.forEach(minBefore => {
-                assignOffNuke(trip1AnchorLandMs - (minBefore * 60 * 1000), `Praça (-${minBefore}m)`, 'tw-badge-praca', modelCats, false, 'place');
+                assignOffNuke(trip1AnchorLandMs - (minBefore * 60 * 1000), `Praça (-${minBefore}m)`, 'tw-badge-praca', modelCats, false, 'place', false);
             });
         } else if (attackMode === 'cat_demolish') {
             const building = catTargetBuilding !== 'none' ? catTargetBuilding : 'place';
-            assignOffNuke(trip1AnchorLandMs - (15 * 60 * 1000), `Demolição (-15m)`, 'tw-badge-muralha', modelCats, false, building);
-            assignOffNuke(trip1AnchorLandMs - (5 * 60 * 1000), `Demolição (-5m)`, 'tw-badge-praca', modelCats, false, building);
+            assignOffNuke(trip1AnchorLandMs - (15 * 60 * 1000), `Demolição (-15m)`, 'tw-badge-muralha', modelCats, false, building, false);
+            assignOffNuke(trip1AnchorLandMs - (5 * 60 * 1000), `Demolição (-5m)`, 'tw-badge-praca', modelCats, false, building, false);
         }
 
-        // 2. Nukes de Limpeza
-        for (let i = 0; i < leadNukesCount; i++) {
-            const landOffset = hasNobles ? ((leadNukesCount - i) * 100) : ((leadNukesCount - 1 - i) * 100);
-            assignOffNuke(trip1AnchorLandMs - landOffset, `Limpeza Principal #${i+1}`, 'tw-badge-nuke', modelNuke, (i === leadNukesCount - 1), catTargetBuilding);
-        }
-
-        // 3. Escoltas Anti-Snipe
+        // 3. Escoltas Anti-Snipe (NUNCA gastam aldeia com Paladino)
         if (hasNobles && antiWavesCount > 0) {
             const antiAnchorLandMs = (attackMode === 'snob_solo' && bvAnchor === 'final') ? baseLandTime : trip1AnchorLandMs;
             const antiSnipeOffsets = [halfStep, msStep + halfStep, (2 * msStep) + halfStep].slice(0, antiWavesCount);
@@ -2982,6 +3045,7 @@
                 for (let i = 0; i < sortedOff.length; i++) {
                     const c = sortedOff[i];
                     if (usedOffVillages.has(c.village.id)) continue;
+                    if (c.hasKnight) continue;
                     const travelSec = c.sec;
                     if ((antiAnchorLandMs + antiSnipeOffsets[0]) - (travelSec * 1000) >= minLaunchMs) {
                         antiCand1 = c;
@@ -2989,16 +3053,41 @@
                         break;
                     }
                 }
+                if (!antiCand1) {
+                    for (let i = 0; i < sortedOff.length; i++) {
+                        const c = sortedOff[i];
+                        if (usedOffVillages.has(c.village.id)) continue;
+                        const travelSec = c.sec;
+                        if ((antiAnchorLandMs + antiSnipeOffsets[0]) - (travelSec * 1000) >= minLaunchMs) {
+                            antiCand1 = c;
+                            usedOffVillages.add(c.village.id);
+                            break;
+                        }
+                    }
+                }
 
                 if (antiWavesCount > 1) {
                     for (let i = 0; i < sortedOff.length; i++) {
                         const c = sortedOff[i];
                         if (usedOffVillages.has(c.village.id)) continue;
+                        if (c.hasKnight) continue;
                         const travelSec = c.sec;
                         if ((antiAnchorLandMs + antiSnipeOffsets[antiSnipeOffsets.length - 1]) - (travelSec * 1000) >= minLaunchMs) {
                             antiCand2 = c;
                             usedOffVillages.add(c.village.id);
                             break;
+                        }
+                    }
+                    if (!antiCand2) {
+                        for (let i = 0; i < sortedOff.length; i++) {
+                            const c = sortedOff[i];
+                            if (usedOffVillages.has(c.village.id)) continue;
+                            const travelSec = c.sec;
+                            if ((antiAnchorLandMs + antiSnipeOffsets[antiSnipeOffsets.length - 1]) - (travelSec * 1000) >= minLaunchMs) {
+                                antiCand2 = c;
+                                usedOffVillages.add(c.village.id);
+                                break;
+                            }
                         }
                     }
                 }
@@ -3041,7 +3130,7 @@
                 });
             } else {
                 antiSnipeOffsets.forEach((offset, idx) => {
-                    assignOffNuke(antiAnchorLandMs + offset, `Anti-Snipe #${idx+1}`, 'tw-badge-anti', modelAnti, false, '');
+                    assignOffNuke(antiAnchorLandMs + offset, `Anti-Snipe #${idx+1}`, 'tw-badge-anti', modelAnti, false, '', false);
                 });
             }
         }
@@ -3260,6 +3349,11 @@
 
         let rows = '', output = '';
         sequence.forEach((cmd, i) => {
+            let actionShortcut = '';
+            if (cmd.needsPaladinRelocate || (cmd.info && cmd.info.includes('Realocar Paladino'))) {
+                actionShortcut = `<a href="game.php?village=${cmd.originId}&screen=statue" target="_blank" class="tw-btn" style="padding:2px 7px; font-size:9.5px; font-weight:bold; background:#7c3aed; border:1px solid #c084fc; color:#fff; border-radius:4px; text-decoration:none; margin-left:6px; display:inline-flex; align-items:center; gap:3px; vertical-align:middle; cursor:pointer;" title="Abre a Estátua da aldeia ${cmd.originName} (${cmd.originCoords}) noutro separador para puxares o Paladino">🏰 Puxar Paladino</a>`;
+            }
+
             rows += `<tr data-vid="${cmd.originId}">
                 <td style="color:#94a3b8; padding:3px 6px;">${i+1}</td>
                 <td style="padding:3px 6px;"><span class="${cmd.badge}">${cmd.type}</span></td>
@@ -3268,7 +3362,7 @@
                 <td style="padding:3px 6px;">${cmd.dist}c</td>
                 <td style="padding:3px 6px;"><b style="color:#f8fafc;">${cmd.launchTime.toLocaleTimeString('pt-PT')}:${String(cmd.launchTime.getMilliseconds()).padStart(3,'0')}</b> <span style="font-size:9.5px; color:#64748b; font-weight:normal;">(${String(cmd.launchTime.getDate()).padStart(2,'0')}/${String(cmd.launchTime.getMonth()+1).padStart(2,'0')})</span></td>
                 <td style="padding:3px 6px;"><b style="color:#38bdf8;">${cmd.landTime.toLocaleTimeString('pt-PT')}:${String(cmd.landTime.getMilliseconds()).padStart(3,'0')}</b> <span style="font-size:9.5px; color:#64748b; font-weight:normal;">(${String(cmd.landTime.getDate()).padStart(2,'0')}/${String(cmd.landTime.getMonth()+1).padStart(2,'0')})</span></td>
-                <td style="padding:3px 6px;"><b style="color:${cmd.actionType==='Support'?'#34d399':'#3fb950'};">${cmd.model}</b> <span style="font-size:10px; color:#94a3b8;">(${cmd.info})</span></td>
+                <td style="padding:3px 6px;"><b style="color:${cmd.actionType==='Support'?'#34d399':'#3fb950'};">${cmd.model}</b> <span style="font-size:10px; color:#94a3b8;">(${cmd.info})</span>${actionShortcut}</td>
             </tr>`;
 
             let u = `https://${location.host}/game.php?village=${cmd.originId}&screen=place&target_coord=${cmd.targetCoords}`;
