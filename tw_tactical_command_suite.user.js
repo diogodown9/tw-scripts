@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TW Tactical Command Suite
 // @namespace    https://tribalwars.com.pt/
-// @version      2.4.0
-// @description  Suite militar avançada para Tribal Wars PT: Visão Geral com regra 22k, Contador Tático, Gerador de Fakes dinâmico, Planeador NT + Anti-Snipe + Bunker com Paladino, Campanha Multialvo com IA de Atribuição e Memória Inteligente de Aldeias Reservadas.
+// @version      2.5.0
+// @description  Suite militar avançada para Tribal Wars PT: Visão Geral com regra 22k, Contador Tático, Gerador de Fakes dinâmico, Planeador NT + Anti-Snipe + Bunker com Paladino, Re-Nobre em Bate e Volta (4 viagens consecutivas), Campanha Multialvo com IA de Atribuição e Memória Inteligente de Aldeias Reservadas.
 // @author       DeepMind / Antigravity
 // @match        https://*.tribalwars.com.pt/game.php*
 // @grant        none
@@ -627,7 +627,7 @@
             counterSummaryData = summary;
             updateMemoryHUD();
             document.getElementById('tw-tabs-container').style.display = 'flex';
-            document.getElementById('tw-title-text').innerHTML = `⚡ TW Tactical Command Suite <span style="font-size:10px; font-weight:600; background:rgba(56,189,248,0.15); color:#38bdf8; padding:2px 7px; border-radius:4px; border:1px solid rgba(56,189,248,0.25); margin-left:6px; vertical-align:middle;">v2.4.0</span> <span style="font-size:11px; font-weight:normal; color:#94a3b8; margin-left:6px; vertical-align:middle;">(${allVillages.length} Aldeias Conectadas)</span>`;
+            document.getElementById('tw-title-text').innerHTML = `⚡ TW Tactical Command Suite <span style="font-size:10px; font-weight:600; background:rgba(56,189,248,0.15); color:#38bdf8; padding:2px 7px; border-radius:4px; border:1px solid rgba(56,189,248,0.25); margin-left:6px; vertical-align:middle;">v2.5.0</span> <span style="font-size:11px; font-weight:normal; color:#94a3b8; margin-left:6px; vertical-align:middle;">(${allVillages.length} Aldeias Conectadas)</span>`;
             
             document.getElementById('tab-btn-overview').onclick = () => switchTab('overview');
             document.getElementById('tab-btn-counter').onclick = () => switchTab('counter');
@@ -1502,7 +1502,8 @@
                                 <option value="nt_simple">👑 NT Simples (Ondas de Nobres Diretas)</option>
                                 <option value="nt_clean">⚔️ NT + Nuke Limpeza (Sem Anti-Snipe)</option>
                                 <option value="split_2x2">🔀 NT Dividido (Split 2x2 Aldeias Distintas)</option>
-                                <option value="snob_solo">🎯 1 Nobre Solitário / Re-Nobre</option>
+                                <option value="snob_solo">🔄 Re-Nobre: Bate e Volta (1 Nobre / 4 Viagens)</option>
+                                <option value="snob_single">🎯 1 Nobre Solitário (Re-Nobre Rápido / 1 Ataque)</option>
                                 <option value="nuke_sweep">💥 Apenas Limpeza / Nuke Sweep (Sem Nobres)</option>
                                 <option value="cat_demolish">🏚️ Demolição Tática (Catapultas em Edifício)</option>
                                 <option value="full_storm">🌪️ Full Storm OP (Muralha + Praça + NT + Bunkers)</option>
@@ -1511,13 +1512,13 @@
 
                         <div style="display:grid; grid-template-columns: 1.1fr 1fr; gap:4px; margin-top:2px;" id="tw-box-noble-controls">
                             <div style="display:flex; flex-direction:column; gap:1px;">
-                                <span style="font-size:9px; color:#94a3b8;">Qtd Nobres:</span>
+                                <span style="font-size:9px; color:#94a3b8;" id="tw-lbl-noble-count">Qtd Nobres:</span>
                                 <select id="tw-nt-noble-count" class="tw-select" style="padding:4px 6px; font-size:11px; font-weight:bold; color:#fbbf24;">
                                     <option value="0">0 Nobres (Apenas Limpeza)</option>
-                                    <option value="1">1 Nobre</option>
-                                    <option value="2">2 Nobres</option>
-                                    <option value="3">3 Nobres</option>
-                                    <option value="4" selected>4 Nobres (Padrão)</option>
+                                    <option value="1">1 Nobre / 1 Viagem</option>
+                                    <option value="2">2 Nobres / 2 Viagens</option>
+                                    <option value="3">3 Nobres / 3 Viagens</option>
+                                    <option value="4" selected>4 Nobres / 4 Viagens</option>
                                     <option value="5">5 Nobres (Recup. Rápida)</option>
                                 </select>
                             </div>
@@ -1526,6 +1527,13 @@
                                 <select id="tw-nt-architecture" class="tw-select" style="padding:4px 6px; font-size:11px;">
                                     <option value="single_4" selected>Única Aldeia</option>
                                     <option value="split_2x2">Dividida 2x2</option>
+                                </select>
+                            </div>
+                            <div style="display:none; flex-direction:column; gap:1px;" id="tw-box-batevolta-anchor">
+                                <span style="font-size:9px; color:#38bdf8;">Âncora Bate e Volta:</span>
+                                <select id="tw-nt-bv-anchor" class="tw-select" style="padding:4px 6px; font-size:11px; font-weight:bold; color:#38bdf8;">
+                                    <option value="first" selected>1ª Viagem (Início)</option>
+                                    <option value="final">Última (Conquista)</option>
                                 </select>
                             </div>
                         </div>
@@ -1792,6 +1800,8 @@
             if (hud) {
                 if (isCleanOnly) {
                     hud.innerHTML = `🎯 <b>${tList.length}</b> Alvos | ⚔️ <b>${tList.length * leadNukes}</b> Nukes Limpeza | 🛡️ <b>${tList.length * bunkerCount}</b> Bunkers | <span style="color:#94a3b8;">👑 Sem Nobres</span>`;
+                } else if (mode === 'snob_solo') {
+                    hud.innerHTML = `🎯 <b>${tList.length}</b> Alvos | 🔄 <b>${tList.length * nobleCount}</b> Viagens Bate-Volta (1 Nobre/alvo) | ⚔️ <b>${tList.length * leadNukes}</b> Nukes | 🛡️ <b>${tList.length * bunkerCount}</b> Bunkers`;
                 } else {
                     hud.innerHTML = `🎯 <b>${tList.length}</b> Alvos | 👑 <b>${tList.length * nobleCount}</b> Nobres | ⚔️ <b>${tList.length * leadNukes}</b> Nukes | 🛡️ <b>${tList.length * bunkerCount}</b> Bunkers`;
                 }
@@ -1803,6 +1813,8 @@
                     hintEl.innerHTML = `💥 <b>IA de Atribuição:</b> Alocação automática dos nukes de ataque mais próximos a cada alvo por menor tempo de viagem. Sem envio de nobres.`;
                 } else if (mode === 'cat_demolish') {
                     hintEl.innerHTML = `🏚️ <b>IA de Atribuição:</b> Alocação de catapultas e nukes mais rápidos para demolir o edifício selecionado. Sem envio de nobres.`;
+                } else if (mode === 'snob_solo') {
+                    hintEl.innerHTML = `🔄 <b>IA de Atribuição:</b> O mesmo nobre realizará ${nobleCount} viagens consecutivas de Bate e Volta (ir, bater, regressar e relançar) para conquista total.`;
                 } else {
                     hintEl.innerHTML = `🤖 <b>IA de Atribuição:</b> As melhores aldeias de nobres e nukes serão alocadas automaticamente a cada alvo por menor tempo de viagem.`;
                 }
@@ -1833,6 +1845,12 @@
         attackModeSelect.onchange = (e) => {
             const mode = e.target.value;
             const isCleanOnly = (mode === 'nuke_sweep' || mode === 'cat_demolish');
+
+            if (mode !== 'snob_solo') {
+                if (document.getElementById('tw-lbl-noble-count')) document.getElementById('tw-lbl-noble-count').innerText = 'Qtd Nobres:';
+                if (document.getElementById('tw-box-noble-arch')) document.getElementById('tw-box-noble-arch').style.display = 'flex';
+                if (document.getElementById('tw-box-batevolta-anchor')) document.getElementById('tw-box-batevolta-anchor').style.display = 'none';
+            }
 
             if (mode === 'nt_simple') {
                 nobleControlsBox.style.display = 'grid';
@@ -1901,12 +1919,29 @@
                 if (noblePrimaryBox) noblePrimaryBox.style.display = 'flex';
                 if (nobleSecondaryBox) nobleSecondaryBox.style.display = 'none';
                 if (document.getElementById('tw-box-manual-nobles')) document.getElementById('tw-box-manual-nobles').style.display = plannerMode === 'single' ? 'block' : 'none';
+                leadNukesInput.value = 1;
+                antiWavesSelect.value = 1;
+                bunkerCountSelect.value = 1;
+                catTargetSelect.value = 'none';
+                archSelect.value = 'single_4';
+                nobleCountSelect.value = 4;
+                if (document.getElementById('tw-lbl-noble-count')) document.getElementById('tw-lbl-noble-count').innerText = 'Viagens (Bate-Volta):';
+                if (document.getElementById('tw-box-noble-arch')) document.getElementById('tw-box-noble-arch').style.display = 'none';
+                if (document.getElementById('tw-box-batevolta-anchor')) document.getElementById('tw-box-batevolta-anchor').style.display = 'flex';
+            } else if (mode === 'snob_single') {
+                nobleControlsBox.style.display = 'grid';
+                if (noblePrimaryBox) noblePrimaryBox.style.display = 'flex';
+                if (nobleSecondaryBox) nobleSecondaryBox.style.display = 'none';
+                if (document.getElementById('tw-box-manual-nobles')) document.getElementById('tw-box-manual-nobles').style.display = plannerMode === 'single' ? 'block' : 'none';
                 leadNukesInput.value = 0;
                 antiWavesSelect.value = 1;
                 bunkerCountSelect.value = 1;
                 catTargetSelect.value = 'none';
                 archSelect.value = 'single_4';
                 nobleCountSelect.value = 1;
+                if (document.getElementById('tw-lbl-noble-count')) document.getElementById('tw-lbl-noble-count').innerText = 'Qtd Nobres:';
+                if (document.getElementById('tw-box-noble-arch')) document.getElementById('tw-box-noble-arch').style.display = 'flex';
+                if (document.getElementById('tw-box-batevolta-anchor')) document.getElementById('tw-box-batevolta-anchor').style.display = 'none';
             } else if (mode === 'nuke_sweep') {
                 nobleControlsBox.style.display = 'none';
                 if (noblePrimaryBox) noblePrimaryBox.style.display = 'none';
@@ -2166,28 +2201,29 @@
             let assignedNobleVillages = [];
 
             if (attackMode !== 'nuke_sweep' && attackMode !== 'cat_demolish') {
+                const reqNobles = (attackMode === 'snob_solo') ? 1 : nobleCount;
                 const candidates = Object.keys(nobleUsage).map(vId => {
                     const v = villagesById[vId];
                     const dist = calcDistance(v.coords, tCoord);
                     const sec = dist * unitSpeedMinutes.snob * 60;
                     const launchMs = baseLandTime - (sec * 1000);
                     return { village: v, dist, sec, launchMs, remaining: nobleUsage[vId] };
-                }).filter(c => c.remaining >= nobleCount && c.launchMs >= minLaunchMs)
+                }).filter(c => c.remaining >= reqNobles && c.launchMs >= minLaunchMs)
                   .sort((a, b) => a.dist - b.dist);
 
                 if (candidates.length === 0) {
-                    alert(`❌ Não há aldeias com ${nobleCount} nobres livres a tempo de atingir o alvo ${tCoord}!\n\nDica: Alarga a hora de impacto ou reduz a quantidade de nobres.`);
+                    alert(`❌ Não há aldeias com ${reqNobles} nobres livres a tempo de atingir o alvo ${tCoord}!\n\nDica: Alarga a hora de impacto ou reduz a quantidade de nobres.`);
                     return;
                 }
 
                 const chosen = candidates[0];
-                nobleUsage[chosen.village.id] -= nobleCount;
+                nobleUsage[chosen.village.id] -= reqNobles;
                 assignedNobleVillages.push({
                     village: chosen.village,
                     dist: chosen.dist,
                     sec: chosen.sec,
                     launchMs: chosen.launchMs,
-                    nobles: nobleCount
+                    nobles: reqNobles
                 });
             }
 
@@ -2235,10 +2271,42 @@
                 }
             }
 
-            // Nobres
-            assignment.nobles.forEach(nItem => {
-                allCampaignCommands.push(makeCmd(`Combo NT (${nItem.nobles}N)`, 'tw-badge-snob', 'Attack', nItem.village, tCoord, nItem.dist.toFixed(2), nItem.sec, new Date(nItem.launchMs), new Date(baseLandTime), modelSnob, '', `${nItem.nobles} Nobres`));
-            });
+            // Nobres / Bate e Volta
+            let lastNobleImpactMs = baseLandTime + (Math.max(1, nobleCount - 1) * msStep);
+            if (attackMode === 'snob_solo') {
+                assignment.nobles.forEach(nItem => {
+                    const numTrips = Math.max(1, nobleCount || 4);
+                    const travelSec = nItem.sec;
+                    const travelMs = Math.round(travelSec * 1000);
+                    const bufferMs = 2000;
+
+                    let currentLaunchMs = baseLandTime - travelMs;
+                    let currentLandMs = baseLandTime;
+
+                    for (let trip = 1; trip <= numTrips; trip++) {
+                        const isConquest = (trip === numTrips);
+                        const typeLabel = isConquest ? `Bate e Volta #${trip} (Conquista)` : `Bate e Volta #${trip}`;
+                        const returnMs = currentLandMs + travelMs;
+                        const retD = new Date(returnMs);
+                        const returnTimeStr = `${retD.toLocaleTimeString('pt-PT')}:${String(retD.getMilliseconds()).padStart(3,'0')}`;
+                        const returnDateStr = `${String(retD.getDate()).padStart(2,'0')}/${String(retD.getMonth()+1).padStart(2,'0')}`;
+                        const infoLabel = isConquest 
+                            ? `Viagem ${trip}/${numTrips} • Conquista Final` 
+                            : `Viagem ${trip}/${numTrips} • Retorno: ${returnTimeStr} (${returnDateStr})`;
+
+                        allCampaignCommands.push(makeCmd(typeLabel, isConquest ? 'tw-badge-snob' : 'tw-badge-anti', 'Attack', nItem.village, tCoord, nItem.dist.toFixed(2), travelSec, new Date(currentLaunchMs), new Date(currentLandMs), modelSnob, '', infoLabel));
+
+                        lastNobleImpactMs = currentLandMs;
+
+                        currentLaunchMs = returnMs + bufferMs;
+                        currentLandMs = currentLaunchMs + travelMs;
+                    }
+                });
+            } else {
+                assignment.nobles.forEach(nItem => {
+                    allCampaignCommands.push(makeCmd(`Combo NT (${nItem.nobles}N)`, 'tw-badge-snob', 'Attack', nItem.village, tCoord, nItem.dist.toFixed(2), nItem.sec, new Date(nItem.launchMs), new Date(baseLandTime), modelSnob, '', `${nItem.nobles} Nobres`));
+                });
+            }
 
             // Escoltas Anti-Snipe
             if (antiWavesCount > 0) {
@@ -2281,7 +2349,7 @@
             }
 
             // Bunkers de Conquista
-            const finalNobleImpactMs = baseLandTime + (Math.max(1, nobleCount - 1) * msStep);
+            const finalNobleImpactMs = lastNobleImpactMs;
             for (let b = 1; b <= bunkerCount; b++) {
                 const bunkerLandMs = finalNobleImpactMs + bunkerGapMs + ((b - 1) * bunkerStepMs);
                 const bunkDef = findClosestDefBunker(defPool, usedDefVillages, tCoord, bunkerLandMs, minLaunchMs, popBunker2, popBunker1, modelBunker1, modelBunker2);
@@ -2304,8 +2372,8 @@
                 <td style="text-align:left; padding-left:10px; font-weight:bold; color:#38bdf8;">${cmd.originName}</td>
                 <td style="font-weight:bold; color:#fbbf24;">${cmd.targetCoords}</td>
                 <td>${cmd.dist}c</td>
-                <td><b style="color:#f8fafc;">${cmd.launchTime.toLocaleTimeString('pt-PT')}:${String(cmd.launchTime.getMilliseconds()).padStart(3,'0')}</b></td>
-                <td><b style="color:#38bdf8;">${cmd.landTime.toLocaleTimeString('pt-PT')}:${String(cmd.landTime.getMilliseconds()).padStart(3,'0')}</b></td>
+                <td><b style="color:#f8fafc;">${cmd.launchTime.toLocaleTimeString('pt-PT')}:${String(cmd.launchTime.getMilliseconds()).padStart(3,'0')}</b> <span style="font-size:9.5px; color:#64748b; font-weight:normal;">(${String(cmd.launchTime.getDate()).padStart(2,'0')}/${String(cmd.launchTime.getMonth()+1).padStart(2,'0')})</span></td>
+                <td><b style="color:#38bdf8;">${cmd.landTime.toLocaleTimeString('pt-PT')}:${String(cmd.landTime.getMilliseconds()).padStart(3,'0')}</b> <span style="font-size:9.5px; color:#64748b; font-weight:normal;">(${String(cmd.landTime.getDate()).padStart(2,'0')}/${String(cmd.landTime.getMonth()+1).padStart(2,'0')})</span></td>
                 <td><b style="color:${cmd.actionType==='Support'?'#34d399':'#3fb950'};">${cmd.model}</b> <span style="font-size:10px; color:#94a3b8;">(${cmd.info})</span></td>
             </tr>`;
 
@@ -2438,15 +2506,27 @@
         const now = Date.now();
         const minLaunchMs = now + 60000;
 
-        let snobDist1 = 0, snobSec1 = 0, nobleLaunchMs1 = 0;
+        const bvAnchor = document.getElementById('tw-nt-bv-anchor') ? document.getElementById('tw-nt-bv-anchor').value : 'first';
+        let snobDist1 = 0, snobSec1 = 0, nobleLaunchMs1 = 0, trip1AnchorLandMs = baseLandTime;
         if (nobleVillage1) {
             snobDist1 = calcDistance(nobleVillage1.coords, target);
             snobSec1 = snobDist1 * unitSpeedMinutes.snob * 60;
-            nobleLaunchMs1 = baseLandTime - (snobSec1 * 1000);
+            const travelMs1 = Math.round(snobSec1 * 1000);
+            const numTrips = Math.max(1, nobleCount || 4);
+
+            if (attackMode === 'snob_solo' && bvAnchor === 'final') {
+                const totalCycleMs = (2 * travelMs1) + 2000;
+                trip1AnchorLandMs = baseLandTime - ((numTrips - 1) * totalCycleMs);
+            }
+            nobleLaunchMs1 = trip1AnchorLandMs - travelMs1;
 
             if (nobleLaunchMs1 < minLaunchMs) {
-                const earliestLand1 = new Date(now + (snobSec1 + 120) * 1000);
-                alert(`❌ A aldeia ${nobleVillage1.name} fica a ${snobDist1.toFixed(1)}c (${formatDuration(snobSec1)}) do alvo.\nA hora de envio já passou.\nHora mínima de impacto para esta aldeia: ${earliestLand1.toLocaleDateString('pt-PT')} ${earliestLand1.toLocaleTimeString('pt-PT')}`);
+                if (attackMode === 'snob_solo' && bvAnchor === 'final') {
+                    alert(`❌ Para a última viagem de conquista chegar à hora definida, a 1ª viagem teria de ter sido enviada no passado (${new Date(nobleLaunchMs1).toLocaleString('pt-PT')}).\nPor favor seleciona uma hora de chegada mais tardia ou usa a âncora "1ª Viagem (Início)".`);
+                } else {
+                    const earliestLand1 = new Date(now + (snobSec1 + 120) * 1000);
+                    alert(`❌ A aldeia ${nobleVillage1.name} fica a ${snobDist1.toFixed(1)}c (${formatDuration(snobSec1)}) do alvo.\nA hora de envio já passou.\nHora mínima de impacto para esta aldeia: ${earliestLand1.toLocaleDateString('pt-PT')} ${earliestLand1.toLocaleTimeString('pt-PT')}`);
+                }
                 return;
             }
         }
@@ -2610,20 +2690,20 @@
         // 1. Catapultas preliminares
         const modelCats = document.getElementById('tw-nt-model-cats') ? document.getElementById('tw-nt-model-cats').value.trim() || 'Cats' : 'Cats';
         if (attackMode === 'full_storm') {
-            assignOffNuke(baseLandTime - (20 * 60 * 1000), 'Muralha (-20m)', 'tw-badge-muralha', modelCats, false, 'wall');
+            assignOffNuke(trip1AnchorLandMs - (20 * 60 * 1000), 'Muralha (-20m)', 'tw-badge-muralha', modelCats, false, 'wall');
             const pracaOffsetsMin = [14, 10, 6, 2];
             pracaOffsetsMin.forEach(minBefore => {
-                assignOffNuke(baseLandTime - (minBefore * 60 * 1000), `Praça (-${minBefore}m)`, 'tw-badge-praca', modelCats, false, 'place');
+                assignOffNuke(trip1AnchorLandMs - (minBefore * 60 * 1000), `Praça (-${minBefore}m)`, 'tw-badge-praca', modelCats, false, 'place');
             });
         } else if (attackMode === 'cat_demolish') {
             const building = catTargetBuilding !== 'none' ? catTargetBuilding : 'place';
-            assignOffNuke(baseLandTime - (15 * 60 * 1000), `Demolição (-15m)`, 'tw-badge-muralha', modelCats, false, building);
-            assignOffNuke(baseLandTime - (5 * 60 * 1000), `Demolição (-5m)`, 'tw-badge-praca', modelCats, false, building);
+            assignOffNuke(trip1AnchorLandMs - (15 * 60 * 1000), `Demolição (-15m)`, 'tw-badge-muralha', modelCats, false, building);
+            assignOffNuke(trip1AnchorLandMs - (5 * 60 * 1000), `Demolição (-5m)`, 'tw-badge-praca', modelCats, false, building);
         }
 
         // 2. Nukes de Limpeza
         for (let i = 0; i < leadNukesCount; i++) {
-            assignOffNuke(baseLandTime - ((leadNukesCount - i) * 100), `Limpeza Principal #${i+1}`, 'tw-badge-nuke', modelNuke, (i === leadNukesCount - 1), catTargetBuilding);
+            assignOffNuke(trip1AnchorLandMs - ((leadNukesCount - i) * 100), `Limpeza Principal #${i+1}`, 'tw-badge-nuke', modelNuke, (i === leadNukesCount - 1), catTargetBuilding);
         }
 
         // 3. Escoltas Anti-Snipe
@@ -2637,7 +2717,7 @@
                     const c = sortedOff[i];
                     if (usedOffVillages.has(c.village.id)) continue;
                     const travelSec = c.sec;
-                    if ((baseLandTime + antiSnipeOffsets[0]) - (travelSec * 1000) >= minLaunchMs) {
+                    if ((trip1AnchorLandMs + antiSnipeOffsets[0]) - (travelSec * 1000) >= minLaunchMs) {
                         antiCand1 = c;
                         usedOffVillages.add(c.village.id);
                         break;
@@ -2649,7 +2729,7 @@
                         const c = sortedOff[i];
                         if (usedOffVillages.has(c.village.id)) continue;
                         const travelSec = c.sec;
-                        if ((baseLandTime + antiSnipeOffsets[antiSnipeOffsets.length - 1]) - (travelSec * 1000) >= minLaunchMs) {
+                        if ((trip1AnchorLandMs + antiSnipeOffsets[antiSnipeOffsets.length - 1]) - (travelSec * 1000) >= minLaunchMs) {
                             antiCand2 = c;
                             usedOffVillages.add(c.village.id);
                             break;
@@ -2658,7 +2738,7 @@
                 }
 
                 antiSnipeOffsets.forEach((offset, idx) => {
-                    const targetLandMs = baseLandTime + offset;
+                    const targetLandMs = trip1AnchorLandMs + offset;
                     let cand = null;
                     if (antiWavesCount === 3) {
                         cand = (idx === 0 || idx === 1) ? antiCand1 : (antiCand2 || antiCand1);
@@ -2695,14 +2775,58 @@
                 });
             } else {
                 antiSnipeOffsets.forEach((offset, idx) => {
-                    assignOffNuke(baseLandTime + offset, `Anti-Snipe #${idx+1}`, 'tw-badge-anti', modelAnti, false, '');
+                    assignOffNuke(trip1AnchorLandMs + offset, `Anti-Snipe #${idx+1}`, 'tw-badge-anti', modelAnti, false, '');
                 });
             }
         }
 
-        // 4. Inserção do Trem de Nobres
+        let lastNobleImpactMs = baseLandTime + (Math.max(1, nobleCount - 1) * msStep);
+
+        // 4. Inserção do Trem de Nobres / Bate e Volta
         if (nobleVillage1) {
-            if (architecture === 'single_4' || attackMode === 'nt_simple' || attackMode === 'snob_solo' || attackMode === 'nt_clean') {
+            if (attackMode === 'snob_solo') {
+                const numTrips = Math.max(1, nobleCount || 4);
+                const travelSec = snobSec1;
+                const travelMs = Math.round(travelSec * 1000);
+                const bufferMs = 2000; // 2s folga de retorno das tropas ao ponto de reunião
+
+                let currentLaunchMs = trip1AnchorLandMs - travelMs;
+                let currentLandMs = trip1AnchorLandMs;
+
+                for (let trip = 1; trip <= numTrips; trip++) {
+                    const isConquest = (trip === numTrips);
+                    const typeLabel = isConquest ? `Bate e Volta #${trip} (Conquista)` : `Bate e Volta #${trip}`;
+                    const returnMs = currentLandMs + travelMs;
+                    const retD = new Date(returnMs);
+                    const returnTimeStr = `${retD.toLocaleTimeString('pt-PT')}:${String(retD.getMilliseconds()).padStart(3,'0')}`;
+                    const returnDateStr = `${String(retD.getDate()).padStart(2,'0')}/${String(retD.getMonth()+1).padStart(2,'0')}`;
+                    const infoLabel = isConquest 
+                        ? `Viagem ${trip}/${numTrips} • Conquista Final` 
+                        : `Viagem ${trip}/${numTrips} • Retorno: ${returnTimeStr} (${returnDateStr})`;
+
+                    sequence.push({
+                        type: typeLabel,
+                        badge: isConquest ? 'tw-badge-snob' : 'tw-badge-anti',
+                        actionType: 'Attack',
+                        originId: nobleVillage1.id,
+                        originName: nobleVillage1.name,
+                        originCoords: nobleVillage1.coords,
+                        targetCoords: target,
+                        dist: snobDist1.toFixed(2),
+                        sec: travelSec,
+                        launchTime: new Date(currentLaunchMs),
+                        landTime: new Date(currentLandMs),
+                        model: modelSnob,
+                        building: '',
+                        info: infoLabel
+                    });
+
+                    lastNobleImpactMs = currentLandMs;
+
+                    currentLaunchMs = returnMs + bufferMs;
+                    currentLandMs = currentLaunchMs + travelMs;
+                }
+            } else if (architecture === 'single_4' || attackMode === 'nt_simple' || attackMode === 'snob_single' || attackMode === 'nt_clean' || attackMode === 'standard_anti' || attackMode === 'standard_anti_50' || attackMode === 'full_storm') {
                 const labelStr = nobleCount === 1 ? '1 Nobre' : `${nobleCount} Nobres`;
                 sequence.push({
                     type: `Combo NT (${labelStr})`,
@@ -2720,6 +2844,7 @@
                     building: '',
                     info: labelStr
                 });
+                lastNobleImpactMs = baseLandTime + (Math.max(1, nobleCount - 1) * msStep);
             } else if (architecture === 'split_2x2' && nobleVillage2) {
                 sequence.push({
                     type: 'Combo NT 1/2 (2 Nobres)',
@@ -2754,11 +2879,12 @@
                     building: '',
                     info: '2 Nobres'
                 });
+                lastNobleImpactMs = nobleLandMs2 + msStep;
             }
         }
 
         // 5. Bunkers de Conquista Milimétricos
-        const finalNobleImpactMs = baseLandTime + (Math.max(1, nobleCount - 1) * msStep);
+        const finalNobleImpactMs = lastNobleImpactMs;
         for (let b = 1; b <= bunkerCount; b++) {
             const bunkerLandMs = finalNobleImpactMs + bunkerGapMs + ((b - 1) * bunkerStepMs);
             if (b === 1) {
@@ -2872,8 +2998,8 @@
                 <td style="text-align:left; padding-left:10px; font-weight:bold; color:#38bdf8;">${cmd.originName}</td>
                 <td style="font-weight:bold; color:#fbbf24;">${cmd.targetCoords}</td>
                 <td>${cmd.dist}c</td>
-                <td><b style="color:#f8fafc;">${cmd.launchTime.toLocaleTimeString('pt-PT')}:${String(cmd.launchTime.getMilliseconds()).padStart(3,'0')}</b></td>
-                <td><b style="color:#38bdf8;">${cmd.landTime.toLocaleTimeString('pt-PT')}:${String(cmd.landTime.getMilliseconds()).padStart(3,'0')}</b></td>
+                <td><b style="color:#f8fafc;">${cmd.launchTime.toLocaleTimeString('pt-PT')}:${String(cmd.launchTime.getMilliseconds()).padStart(3,'0')}</b> <span style="font-size:9.5px; color:#64748b; font-weight:normal;">(${String(cmd.launchTime.getDate()).padStart(2,'0')}/${String(cmd.launchTime.getMonth()+1).padStart(2,'0')})</span></td>
+                <td><b style="color:#38bdf8;">${cmd.landTime.toLocaleTimeString('pt-PT')}:${String(cmd.landTime.getMilliseconds()).padStart(3,'0')}</b> <span style="font-size:9.5px; color:#64748b; font-weight:normal;">(${String(cmd.landTime.getDate()).padStart(2,'0')}/${String(cmd.landTime.getMonth()+1).padStart(2,'0')})</span></td>
                 <td><b style="color:${cmd.actionType==='Support'?'#34d399':'#3fb950'};">${cmd.model}</b> <span style="font-size:10px; color:#94a3b8;">(${cmd.info})</span></td>
             </tr>`;
 
