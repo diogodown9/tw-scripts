@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW Tactical Command Suite
 // @namespace    https://tribalwars.com.pt/
-// @version      2.5.3
+// @version      2.5.4
 // @description  Suite militar avançada para Tribal Wars PT: Visão Geral com regra 22k, Contador Tático, Gerador de Fakes dinâmico, Planeador NT + Anti-Snipe + Bunker com Paladino, Re-Nobre em Bate e Volta (4 viagens consecutivas), Campanha Multialvo com IA de Atribuição e Memória Inteligente de Aldeias Reservadas.
 // @author       DeepMind / Antigravity
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -9,7 +9,7 @@
 // ==/UserScript==
 
 (async function () {
-    const SCRIPT_VERSION = '2.5.3';
+    const SCRIPT_VERSION = '2.5.4';
     const modalId = 'tw-master-suite';
     
     // Limpeza de instâncias anteriores
@@ -245,6 +245,18 @@
             if (!cmd.originId) return;
             const existing = current[cmd.originId];
             
+            let snobsInCmd = 0;
+            if (cmd.type.includes('Bate e Volta')) {
+                snobsInCmd = (existing && existing.snobsCommitted) ? 0 : 1;
+            } else {
+                const match = cmd.type.match(/(\d+)\s*Nobres?/i) || (cmd.info && cmd.info.match(/(\d+)\s*Nobres?/i)) || cmd.type.match(/\((\d+)N\)/i);
+                if (match) {
+                    snobsInCmd = parseInt(match[1], 10) || 1;
+                } else if (cmd.type.includes('Nobre') || cmd.type.includes('NT')) {
+                    snobsInCmd = 1;
+                }
+            }
+
             current[cmd.originId] = {
                 villageId: cmd.originId,
                 name: cmd.originName || (villagesById[cmd.originId] ? villagesById[cmd.originId].name : 'Aldeia'),
@@ -257,7 +269,7 @@
                 expiresAt: Math.max(expiresAt, (existing ? existing.expiresAt : 0), (cmd.landTime ? cmd.landTime.getTime() : expiresAt)),
                 isOffenseCommitted: cmd.actionType === 'Attack' || cmd.type.includes('Nuke') || cmd.type.includes('Anti') || cmd.type.includes('NT'),
                 isDefenseCommitted: cmd.actionType === 'Support' || cmd.type.includes('Bunker'),
-                snobsCommitted: (cmd.type.includes('4 Nobres') ? 4 : cmd.type.includes('2 Nobres') ? 2 : cmd.type.includes('Nobre') ? 1 : 0) + (existing ? (existing.snobsCommitted || 0) : 0)
+                snobsCommitted: snobsInCmd + (existing ? (existing.snobsCommitted || 0) : 0)
             };
             count++;
         });
@@ -1811,62 +1823,7 @@
             document.getElementById('tw-btn-open-map-planner').onclick = () => openMapIframeModal('planner');
         }
 
-        function updatePaladinNukeState() {
-            const leadNukes = parseInt(document.getElementById('tw-nt-lead-nukes') ? document.getElementById('tw-nt-lead-nukes').value : '0', 10) || 0;
-            const box = document.getElementById('tw-box-paladin-nuke');
-            const chk = document.getElementById('tw-nt-req-paladin-nuke');
-            if (box && chk) {
-                if (leadNukes === 0) {
-                    box.style.opacity = '0.35';
-                    box.style.pointerEvents = 'none';
-                    chk.checked = false;
-                } else {
-                    box.style.opacity = '1';
-                    box.style.pointerEvents = 'auto';
-                }
-            }
-        }
-
-        const updateMultiHUD = () => {
-            const raw = document.getElementById('tw-nt-targets-multi') ? document.getElementById('tw-nt-targets-multi').value : '';
-            const tList = Array.from(new Set(raw.match(/\d{3}\|\d{3}/g) || []));
-            const mode = document.getElementById('tw-nt-attack-mode') ? document.getElementById('tw-nt-attack-mode').value : 'standard_anti';
-            const isCleanOnly = (mode === 'nuke_sweep' || mode === 'cat_demolish');
-            const nobleCount = isCleanOnly ? 0 : (parseInt(document.getElementById('tw-nt-noble-count').value, 10) || 0);
-            const leadNukes = parseInt(document.getElementById('tw-nt-lead-nukes').value, 10) || 0;
-            const bunkerCount = parseInt(document.getElementById('tw-nt-bunker-count').value, 10) || 0;
-            const { waves: antiWaves } = getAntiSnipeConfig();
-            
-            const hud = document.getElementById('tw-nt-multi-hud');
-            if (hud) {
-                if (isCleanOnly) {
-                    hud.innerHTML = `🎯 <b>${tList.length}</b> Alvos | ⚔️ <b>${tList.length * leadNukes}</b> Nukes Limpeza | 🛡️ <b>${tList.length * bunkerCount}</b> Bunkers | <span style="color:#94a3b8;">👑 Sem Nobres</span>`;
-                } else if (mode === 'snob_solo') {
-                    hud.innerHTML = `🎯 <b>${tList.length}</b> Alvos | 🔄 <b>${tList.length * nobleCount}</b> Viagens Bate-Volta (1 Nobre/alvo) | ⚔️ <b>${tList.length * leadNukes}</b> Nukes | 🛡️ <b>${tList.length * antiWaves}</b> Escoltas | 🛡️ <b>${tList.length * bunkerCount}</b> Bunkers`;
-                } else {
-                    hud.innerHTML = `🎯 <b>${tList.length}</b> Alvos | 👑 <b>${tList.length * nobleCount}</b> Nobres | ⚔️ <b>${tList.length * leadNukes}</b> Nukes | 🛡️ <b>${tList.length * antiWaves}</b> Escoltas | 🛡️ <b>${tList.length * bunkerCount}</b> Bunkers`;
-                }
-            }
-
-            const hintEl = document.getElementById('tw-box-auto-nobles-hint');
-            if (hintEl) {
-                if (mode === 'nuke_sweep') {
-                    hintEl.innerHTML = `💥 <b>IA de Atribuição:</b> Alocação automática dos nukes de ataque mais próximos a cada alvo por menor tempo de viagem. Sem envio de nobres.`;
-                } else if (mode === 'cat_demolish') {
-                    hintEl.innerHTML = `🏚️ <b>IA de Atribuição:</b> Alocação de catapultas e nukes mais rápidos para demolir o edifício selecionado. Sem envio de nobres.`;
-                } else if (mode === 'snob_solo') {
-                    hintEl.innerHTML = `🔄 <b>IA de Atribuição:</b> O mesmo nobre realizará ${nobleCount} viagens consecutivas de Bate e Volta (ir, bater, regressar e relançar) para conquista total.`;
-                } else {
-                    hintEl.innerHTML = `🤖 <b>IA de Atribuição:</b> As melhores aldeias de nobres e nukes serão alocadas automaticamente a cada alvo por menor tempo de viagem.`;
-                }
-            }
-        };
-
-        if (document.getElementById('tw-nt-targets-multi')) {
-            document.getElementById('tw-nt-targets-multi').oninput = updateMultiHUD;
-        }
-
-        // Manipulação da mudança de Perfis de Ataque
+        // Controlos do Planeador
         const attackModeSelect = document.getElementById('tw-nt-attack-mode');
         const nobleControlsBox = document.getElementById('tw-box-noble-controls');
         const noblePrimaryBox = document.getElementById('tw-box-noble-primary');
@@ -1878,11 +1835,329 @@
         const nobleCountSelect = document.getElementById('tw-nt-noble-count');
         const archSelect = document.getElementById('tw-nt-architecture');
 
+        const updateMultiHUD = () => {
+            const raw = document.getElementById('tw-nt-targets-multi') ? document.getElementById('tw-nt-targets-multi').value : '';
+            const tList = Array.from(new Set(raw.match(/\d{3}\|\d{3}/g) || []));
+            const attackMode = attackModeSelect ? attackModeSelect.value : 'standard_anti';
+            const isCleanOnly = (attackMode === 'nuke_sweep' || attackMode === 'cat_demolish');
+            const rawNobleCount = parseInt(nobleCountSelect ? nobleCountSelect.value : '4', 10);
+            const nobleCount = isCleanOnly ? 0 : (isNaN(rawNobleCount) ? 4 : rawNobleCount);
+            const hasNobles = nobleCount > 0;
+            const leadNukes = parseInt(leadNukesInput ? leadNukesInput.value : '0', 10) || 0;
+            const bunkerCount = hasNobles ? (parseInt(bunkerCountSelect ? bunkerCountSelect.value : '0', 10) || 0) : 0;
+            const { waves: rawAntiWaves } = getAntiSnipeConfig();
+            const antiWaves = hasNobles ? rawAntiWaves : 0;
+            
+            const hud = document.getElementById('tw-nt-multi-hud');
+            if (hud) {
+                if (!hasNobles) {
+                    hud.innerHTML = `🎯 <b>${tList.length}</b> Alvos | ⚔️ <b>${tList.length * leadNukes}</b> Nukes Limpeza | <span style="color:#94a3b8;">👑 Sem Nobres / Sem Bunkers</span>`;
+                } else if (attackMode === 'snob_solo') {
+                    hud.innerHTML = `🎯 <b>${tList.length}</b> Alvos | 🔄 <b>${tList.length * nobleCount}</b> Viagens Bate-Volta (1 Nobre/alvo) | ⚔️ <b>${tList.length * leadNukes}</b> Nukes | 🛡️ <b>${tList.length * antiWaves}</b> Escoltas | 🛡️ <b>${tList.length * bunkerCount}</b> Bunkers`;
+                } else {
+                    hud.innerHTML = `🎯 <b>${tList.length}</b> Alvos | 👑 <b>${tList.length * nobleCount}</b> Nobres | ⚔️ <b>${tList.length * leadNukes}</b> Nukes | 🛡️ <b>${tList.length * antiWaves}</b> Escoltas | 🛡️ <b>${tList.length * bunkerCount}</b> Bunkers`;
+                }
+            }
+
+            const hintEl = document.getElementById('tw-box-auto-nobles-hint');
+            if (hintEl) {
+                if (!hasNobles) {
+                    hintEl.innerHTML = `💥 <b>IA de Atribuição:</b> Alocação automática dos nukes de ataque mais próximos a cada alvo por menor tempo de viagem. Sem envio de nobres ou apoios.`;
+                } else if (attackMode === 'snob_solo') {
+                    hintEl.innerHTML = `🔄 <b>IA de Atribuição:</b> O mesmo nobre realizará ${nobleCount} viagens consecutivas de Bate e Volta (ir, bater, regressar e relançar) para conquista total.`;
+                } else {
+                    hintEl.innerHTML = `🤖 <b>IA de Atribuição:</b> As melhores aldeias de nobres e nukes serão alocadas automaticamente a cada alvo por menor tempo de viagem.`;
+                }
+            }
+        };
+
+        if (document.getElementById('tw-nt-targets-multi')) {
+            document.getElementById('tw-nt-targets-multi').oninput = updateMultiHUD;
+        }
+
+        function applyProfilePresets(mode) {
+            if (mode === 'nt_simple') {
+                if (nobleCountSelect) nobleCountSelect.value = '4';
+                if (archSelect) archSelect.value = 'single_4';
+                if (leadNukesInput) leadNukesInput.value = '0';
+                if (antiModeSelect) antiModeSelect.value = 'none';
+                if (bunkerCountSelect) bunkerCountSelect.value = '0';
+                if (catTargetSelect) catTargetSelect.value = 'none';
+                const snobEl = document.getElementById('tw-nt-model-snob');
+                if (snobEl) snobEl.value = 'NT 25%';
+            } else if (mode === 'nt_clean') {
+                if (nobleCountSelect) nobleCountSelect.value = '4';
+                if (archSelect) archSelect.value = 'single_4';
+                if (leadNukesInput) leadNukesInput.value = '1';
+                if (antiModeSelect) antiModeSelect.value = 'none';
+                if (bunkerCountSelect) bunkerCountSelect.value = '2';
+                if (catTargetSelect) catTargetSelect.value = 'none';
+                const snobEl = document.getElementById('tw-nt-model-snob');
+                if (snobEl) snobEl.value = 'NT 25%';
+                const nukeEl = document.getElementById('tw-nt-model-nuke');
+                if (nukeEl) nukeEl.value = 'Ataque Full';
+            } else if (mode === 'standard_anti') {
+                if (nobleCountSelect) nobleCountSelect.value = '4';
+                if (archSelect) archSelect.value = 'single_4';
+                if (leadNukesInput) leadNukesInput.value = '1';
+                if (antiModeSelect) antiModeSelect.value = 'anti_full_3';
+                if (bunkerCountSelect) bunkerCountSelect.value = '2';
+                if (catTargetSelect) catTargetSelect.value = 'place';
+                const snobEl = document.getElementById('tw-nt-model-snob');
+                if (snobEl) snobEl.value = 'NT 25%';
+                const antiEl = document.getElementById('tw-nt-model-anti');
+                if (antiEl) antiEl.value = 'Ataque Full';
+                const nukeEl = document.getElementById('tw-nt-model-nuke');
+                if (nukeEl) nukeEl.value = 'Ataque Full';
+            } else if (mode === 'standard_anti_50') {
+                if (nobleCountSelect) nobleCountSelect.value = '4';
+                if (archSelect) archSelect.value = 'single_4';
+                if (leadNukesInput) leadNukesInput.value = '1';
+                if (antiModeSelect) antiModeSelect.value = 'anti_50_2';
+                if (bunkerCountSelect) bunkerCountSelect.value = '1';
+                if (catTargetSelect) catTargetSelect.value = 'place';
+                const snobEl = document.getElementById('tw-nt-model-snob');
+                if (snobEl) snobEl.value = 'NT 25%';
+                const antiEl = document.getElementById('tw-nt-model-anti');
+                if (antiEl) antiEl.value = 'Ataque 50%';
+                const nukeEl = document.getElementById('tw-nt-model-nuke');
+                if (nukeEl) nukeEl.value = 'Ataque Full';
+            } else if (mode === 'split_2x2') {
+                if (nobleCountSelect) nobleCountSelect.value = '4';
+                if (archSelect) archSelect.value = 'split_2x2';
+                if (leadNukesInput) leadNukesInput.value = '1';
+                if (antiModeSelect) antiModeSelect.value = 'anti_50_2';
+                if (bunkerCountSelect) bunkerCountSelect.value = '2';
+                if (catTargetSelect) catTargetSelect.value = 'place';
+                const snobEl = document.getElementById('tw-nt-model-snob');
+                if (snobEl) snobEl.value = 'NT - 2 - 50%';
+                const antiEl = document.getElementById('tw-nt-model-anti');
+                if (antiEl) antiEl.value = 'Ataque 50%';
+                const nukeEl = document.getElementById('tw-nt-model-nuke');
+                if (nukeEl) nukeEl.value = 'Ataque Full';
+            } else if (mode === 'snob_solo') {
+                if (nobleCountSelect) nobleCountSelect.value = '4';
+                if (archSelect) archSelect.value = 'single_4';
+                if (leadNukesInput) leadNukesInput.value = '0';
+                if (antiModeSelect) antiModeSelect.value = 'none';
+                if (bunkerCountSelect) bunkerCountSelect.value = '1';
+                if (catTargetSelect) catTargetSelect.value = 'none';
+                const snobEl = document.getElementById('tw-nt-model-snob');
+                if (snobEl) snobEl.value = 'Nobre';
+                const anchorEl = document.getElementById('tw-nt-bv-anchor');
+                if (anchorEl) anchorEl.value = 'first';
+            } else if (mode === 'snob_single') {
+                if (nobleCountSelect) nobleCountSelect.value = '1';
+                if (archSelect) archSelect.value = 'single_4';
+                if (leadNukesInput) leadNukesInput.value = '0';
+                if (antiModeSelect) antiModeSelect.value = 'none';
+                if (bunkerCountSelect) bunkerCountSelect.value = '1';
+                if (catTargetSelect) catTargetSelect.value = 'none';
+                const snobEl = document.getElementById('tw-nt-model-snob');
+                if (snobEl) snobEl.value = 'Nobre';
+            } else if (mode === 'nuke_sweep') {
+                if (nobleCountSelect) nobleCountSelect.value = '0';
+                if (leadNukesInput) leadNukesInput.value = '1';
+                if (antiModeSelect) antiModeSelect.value = 'none';
+                if (bunkerCountSelect) bunkerCountSelect.value = '0';
+                if (catTargetSelect) catTargetSelect.value = 'wall';
+                const nukeEl = document.getElementById('tw-nt-model-nuke');
+                if (nukeEl) nukeEl.value = 'Ataque Full';
+            } else if (mode === 'cat_demolish') {
+                if (nobleCountSelect) nobleCountSelect.value = '0';
+                if (leadNukesInput) leadNukesInput.value = '1';
+                if (antiModeSelect) antiModeSelect.value = 'none';
+                if (bunkerCountSelect) bunkerCountSelect.value = '0';
+                if (catTargetSelect) catTargetSelect.value = 'place';
+                const catsEl = document.getElementById('tw-nt-model-cats');
+                if (catsEl) catsEl.value = 'Cats';
+            } else if (mode === 'full_storm') {
+                if (nobleCountSelect) nobleCountSelect.value = '4';
+                if (archSelect) archSelect.value = 'single_4';
+                if (leadNukesInput) leadNukesInput.value = '2';
+                if (antiModeSelect) antiModeSelect.value = 'anti_full_3';
+                if (bunkerCountSelect) bunkerCountSelect.value = '3';
+                if (catTargetSelect) catTargetSelect.value = 'place';
+                const snobEl = document.getElementById('tw-nt-model-snob');
+                if (snobEl) snobEl.value = 'NT 25%';
+                const antiEl = document.getElementById('tw-nt-model-anti');
+                if (antiEl) antiEl.value = 'Ataque Full';
+                const nukeEl = document.getElementById('tw-nt-model-nuke');
+                if (nukeEl) nukeEl.value = 'Ataque Full';
+                const catsEl = document.getElementById('tw-nt-model-cats');
+                if (catsEl) catsEl.value = 'Cats';
+            }
+        }
+
+        function syncPlannerFormState() {
+            const attackMode = attackModeSelect ? attackModeSelect.value : 'standard_anti';
+            const isBateVolta = (attackMode === 'snob_solo');
+            const isCleanOnlyProfile = (attackMode === 'nuke_sweep' || attackMode === 'cat_demolish');
+
+            const rawNobleCount = parseInt(nobleCountSelect ? nobleCountSelect.value : '4', 10);
+            let nobleCount = isCleanOnlyProfile ? 0 : (isNaN(rawNobleCount) ? 4 : rawNobleCount);
+            const hasNobles = nobleCount > 0;
+
+            const archVal = archSelect ? archSelect.value : 'single_4';
+            const isSplit = (hasNobles && !isBateVolta && archVal === 'split_2x2' && nobleCount >= 2);
+
+            // 1. Card 1: Controlos de Nobres
+            if (nobleControlsBox) {
+                nobleControlsBox.style.display = isCleanOnlyProfile ? 'none' : 'grid';
+            }
+
+            const lblNobleCount = document.getElementById('tw-lbl-noble-count');
+            if (lblNobleCount) {
+                lblNobleCount.innerText = isBateVolta ? 'Viagens (Bate-Volta):' : 'Qtd Nobres:';
+            }
+
+            if (nobleCountSelect) {
+                Array.from(nobleCountSelect.options).forEach(opt => {
+                    const v = parseInt(opt.value, 10);
+                    if (isBateVolta) {
+                        if (v === 0) opt.text = '0 Viagens (Inválido)';
+                        else if (v === 1) opt.text = '1 Viagem';
+                        else if (v === 2) opt.text = '2 Viagens';
+                        else if (v === 3) opt.text = '3 Viagens';
+                        else if (v === 4) opt.text = '4 Viagens (Padrão)';
+                        else if (v === 5) opt.text = '5 Viagens (Segurança)';
+                    } else {
+                        if (v === 0) opt.text = '0 Nobres (Apenas Limpeza)';
+                        else if (v === 1) opt.text = '1 Nobre (Re-Nobre)';
+                        else if (v === 2) opt.text = '2 Nobres';
+                        else if (v === 3) opt.text = '3 Nobres';
+                        else if (v === 4) opt.text = '4 Nobres (NT Completo)';
+                        else if (v === 5) opt.text = '5 Nobres';
+                    }
+                });
+            }
+
+            const boxArch = document.getElementById('tw-box-noble-arch');
+            const boxAnchor = document.getElementById('tw-box-batevolta-anchor');
+            if (isBateVolta) {
+                if (boxArch) boxArch.style.display = 'none';
+                if (boxAnchor) boxAnchor.style.display = 'flex';
+            } else {
+                if (boxAnchor) boxAnchor.style.display = 'none';
+                if (boxArch) boxArch.style.display = (hasNobles && nobleCount >= 2) ? 'flex' : 'none';
+            }
+
+            const boxManualNobles = document.getElementById('tw-box-manual-nobles');
+            if (boxManualNobles) {
+                boxManualNobles.style.display = (plannerMode === 'single' && hasNobles) ? 'block' : 'none';
+            }
+            if (noblePrimaryBox) {
+                noblePrimaryBox.style.display = hasNobles ? 'flex' : 'none';
+                const lblPrimary = document.getElementById('tw-lbl-noble-primary');
+                if (lblPrimary) {
+                    lblPrimary.innerText = isSplit ? 'Aldeia Nobres (Parte 1 / 2N):' : 'Aldeia Nobres Principal:';
+                }
+            }
+            if (nobleSecondaryBox) {
+                nobleSecondaryBox.style.display = (hasNobles && isSplit) ? 'flex' : 'none';
+            }
+
+            const modelSnobInput = document.getElementById('tw-nt-model-snob');
+            if (modelSnobInput) {
+                modelSnobInput.disabled = !hasNobles;
+                modelSnobInput.style.opacity = hasNobles ? '1' : '0.4';
+                if (isBateVolta) {
+                    if (modelSnobInput.value === 'NT 25%' || modelSnobInput.value === 'NT - 2 - 50%') modelSnobInput.value = 'Nobre';
+                } else if (isSplit) {
+                    if (modelSnobInput.value === 'NT 25%' || modelSnobInput.value === 'Nobre') modelSnobInput.value = 'NT - 2 - 50%';
+                } else if (hasNobles) {
+                    if (modelSnobInput.value === 'NT - 2 - 50%') modelSnobInput.value = (nobleCount === 1 ? 'Nobre' : 'NT 25%');
+                }
+            }
+
+            // 2. Card 2: Limpezas, Escoltas & Modelos
+            let leadNukes = parseInt(leadNukesInput ? leadNukesInput.value : '0', 10) || 0;
+            if (!hasNobles && leadNukes === 0 && attackMode !== 'full_storm' && attackMode !== 'cat_demolish') {
+                leadNukes = 1;
+                if (leadNukesInput) leadNukesInput.value = '1';
+            }
+
+            const boxPaladin = document.getElementById('tw-box-paladin-nuke');
+            const chkPaladin = document.getElementById('tw-nt-req-paladin-nuke');
+            if (boxPaladin && chkPaladin) {
+                if (leadNukes === 0) {
+                    boxPaladin.style.opacity = '0.35';
+                    boxPaladin.style.pointerEvents = 'none';
+                    chkPaladin.checked = false;
+                } else {
+                    boxPaladin.style.opacity = '1';
+                    boxPaladin.style.pointerEvents = 'auto';
+                }
+            }
+
+            const modelNukeInput = document.getElementById('tw-nt-model-nuke');
+            if (modelNukeInput) {
+                modelNukeInput.disabled = (leadNukes === 0);
+                modelNukeInput.style.opacity = (leadNukes === 0) ? '0.4' : '1';
+            }
+
+            if (antiModeSelect) {
+                if (!hasNobles) {
+                    antiModeSelect.value = 'none';
+                    antiModeSelect.disabled = true;
+                    antiModeSelect.style.opacity = '0.4';
+                } else {
+                    antiModeSelect.disabled = false;
+                    antiModeSelect.style.opacity = '1';
+                    if (antiModeSelect.value === 'none') {
+                        if (attackMode === 'standard_anti' || attackMode === 'full_storm') antiModeSelect.value = 'anti_full_3';
+                        else if (attackMode === 'standard_anti_50' || attackMode === 'split_2x2') antiModeSelect.value = 'anti_50_2';
+                    }
+                }
+            }
+
+            const modelAntiInput = document.getElementById('tw-nt-model-anti');
+            if (modelAntiInput) {
+                const antiCfg = getAntiSnipeConfig();
+                const isAntiActive = (hasNobles && antiCfg.waves > 0);
+                modelAntiInput.disabled = !isAntiActive;
+                modelAntiInput.style.opacity = isAntiActive ? '1' : '0.4';
+            }
+
+            const modelCatsInput = document.getElementById('tw-nt-model-cats');
+            if (modelCatsInput && catTargetSelect) {
+                const hasCats = (catTargetSelect.value !== 'none' || attackMode === 'cat_demolish' || attackMode === 'full_storm');
+                modelCatsInput.disabled = !hasCats;
+                modelCatsInput.style.opacity = hasCats ? '1' : '0.4';
+            }
+
+            // 3. Card 3: Bunker Conquista
+            const cardBunker = document.querySelector('.tw-card[style*="border-color:#059669"]') || document.querySelector('.tw-card[style*="rgba(6, 78, 59"]');
+            if (bunkerCountSelect) {
+                if (!hasNobles) {
+                    bunkerCountSelect.value = '0';
+                    bunkerCountSelect.disabled = true;
+                    bunkerCountSelect.style.opacity = '0.4';
+                    if (cardBunker) {
+                        cardBunker.style.opacity = '0.4';
+                        cardBunker.style.pointerEvents = 'none';
+                    }
+                } else {
+                    bunkerCountSelect.disabled = false;
+                    bunkerCountSelect.style.opacity = '1';
+                    if (cardBunker) {
+                        cardBunker.style.opacity = '1';
+                        cardBunker.style.pointerEvents = 'auto';
+                    }
+                    if (bunkerCountSelect.value === '0') {
+                        if (attackMode === 'standard_anti' || attackMode === 'nt_clean' || attackMode === 'split_2x2') bunkerCountSelect.value = '2';
+                        else if (attackMode === 'standard_anti_50' || attackMode === 'snob_solo' || attackMode === 'snob_single') bunkerCountSelect.value = '1';
+                        else if (attackMode === 'full_storm') bunkerCountSelect.value = '3';
+                    }
+                }
+            }
+
+            // 4. Multi HUD
+            updateMultiHUD();
+        }
+
         if (leadNukesInput) {
-            leadNukesInput.oninput = () => {
-                updatePaladinNukeState();
-                updateMultiHUD();
-            };
+            leadNukesInput.oninput = () => syncPlannerFormState();
         }
         if (antiModeSelect) {
             antiModeSelect.onchange = (e) => {
@@ -1895,152 +2170,27 @@
                     }
                 }
                 savePrefs('tw_nt_anti_mode', e.target.value);
-                updateMultiHUD();
+                syncPlannerFormState();
             };
         }
-        if (bunkerCountSelect) bunkerCountSelect.onchange = updateMultiHUD;
-        if (nobleCountSelect) nobleCountSelect.onchange = updateMultiHUD;
-
-        attackModeSelect.onchange = (e) => {
-            const mode = e.target.value;
-            const isCleanOnly = (mode === 'nuke_sweep' || mode === 'cat_demolish');
-
-            if (mode !== 'snob_solo') {
-                if (document.getElementById('tw-lbl-noble-count')) document.getElementById('tw-lbl-noble-count').innerText = 'Qtd Nobres:';
-                if (document.getElementById('tw-box-noble-arch')) document.getElementById('tw-box-noble-arch').style.display = 'flex';
-                if (document.getElementById('tw-box-batevolta-anchor')) document.getElementById('tw-box-batevolta-anchor').style.display = 'none';
-            }
-
-            if (mode === 'nt_simple') {
-                nobleControlsBox.style.display = 'grid';
-                if (noblePrimaryBox) noblePrimaryBox.style.display = 'flex';
-                if (nobleSecondaryBox) nobleSecondaryBox.style.display = 'none';
-                if (document.getElementById('tw-box-manual-nobles')) document.getElementById('tw-box-manual-nobles').style.display = plannerMode === 'single' ? 'block' : 'none';
-                leadNukesInput.value = 0;
-                if (antiModeSelect) antiModeSelect.value = 'none';
-                bunkerCountSelect.value = 0;
-                catTargetSelect.value = 'none';
-                archSelect.value = 'single_4';
-                nobleCountSelect.value = 4;
-            } else if (mode === 'nt_clean') {
-                nobleControlsBox.style.display = 'grid';
-                if (noblePrimaryBox) noblePrimaryBox.style.display = 'flex';
-                if (nobleSecondaryBox) nobleSecondaryBox.style.display = 'none';
-                if (document.getElementById('tw-box-manual-nobles')) document.getElementById('tw-box-manual-nobles').style.display = plannerMode === 'single' ? 'block' : 'none';
-                leadNukesInput.value = 1;
-                if (antiModeSelect) antiModeSelect.value = 'none';
-                bunkerCountSelect.value = 2;
-                catTargetSelect.value = 'none';
-                archSelect.value = 'single_4';
-                nobleCountSelect.value = 4;
-            } else if (mode === 'standard_anti') {
-                nobleControlsBox.style.display = 'grid';
-                if (noblePrimaryBox) noblePrimaryBox.style.display = 'flex';
-                if (nobleSecondaryBox) nobleSecondaryBox.style.display = 'none';
-                if (document.getElementById('tw-box-manual-nobles')) document.getElementById('tw-box-manual-nobles').style.display = plannerMode === 'single' ? 'block' : 'none';
-                leadNukesInput.value = 1;
-                if (antiModeSelect) antiModeSelect.value = 'anti_full_3';
-                bunkerCountSelect.value = 2;
-                catTargetSelect.value = 'place';
-                archSelect.value = 'single_4';
-                nobleCountSelect.value = 4;
-                if (document.getElementById('tw-nt-model-anti')) document.getElementById('tw-nt-model-anti').value = 'Ataque Full';
-            } else if (mode === 'standard_anti_50') {
-                nobleControlsBox.style.display = 'grid';
-                if (noblePrimaryBox) noblePrimaryBox.style.display = 'flex';
-                if (nobleSecondaryBox) nobleSecondaryBox.style.display = 'none';
-                if (document.getElementById('tw-box-manual-nobles')) document.getElementById('tw-box-manual-nobles').style.display = plannerMode === 'single' ? 'block' : 'none';
-                leadNukesInput.value = 1;
-                if (antiModeSelect) antiModeSelect.value = 'anti_50_2';
-                bunkerCountSelect.value = 1;
-                catTargetSelect.value = 'place';
-                archSelect.value = 'single_4';
-                nobleCountSelect.value = 4;
-                if (document.getElementById('tw-nt-model-anti')) document.getElementById('tw-nt-model-anti').value = 'Ataque 50%';
-            } else if (mode === 'split_2x2') {
-                nobleControlsBox.style.display = 'grid';
-                if (noblePrimaryBox) noblePrimaryBox.style.display = 'flex';
-                if (nobleSecondaryBox) nobleSecondaryBox.style.display = 'flex';
-                if (document.getElementById('tw-box-manual-nobles')) document.getElementById('tw-box-manual-nobles').style.display = plannerMode === 'single' ? 'block' : 'none';
-                leadNukesInput.value = 1;
-                if (antiModeSelect) antiModeSelect.value = 'anti_full_3';
-                bunkerCountSelect.value = 2;
-                catTargetSelect.value = 'place';
-                archSelect.value = 'split_2x2';
-                nobleCountSelect.value = 4;
-                document.getElementById('tw-nt-model-snob').value = 'NT - 2 - 50%';
-            } else if (mode === 'snob_solo') {
-                nobleControlsBox.style.display = 'grid';
-                if (noblePrimaryBox) noblePrimaryBox.style.display = 'flex';
-                if (nobleSecondaryBox) nobleSecondaryBox.style.display = 'none';
-                if (document.getElementById('tw-box-manual-nobles')) document.getElementById('tw-box-manual-nobles').style.display = plannerMode === 'single' ? 'block' : 'none';
-                leadNukesInput.value = 1;
-                if (antiModeSelect) antiModeSelect.value = 'anti_50_1';
-                bunkerCountSelect.value = 1;
-                catTargetSelect.value = 'none';
-                archSelect.value = 'single_4';
-                nobleCountSelect.value = 4;
-                if (document.getElementById('tw-lbl-noble-count')) document.getElementById('tw-lbl-noble-count').innerText = 'Viagens (Bate-Volta):';
-                if (document.getElementById('tw-box-noble-arch')) document.getElementById('tw-box-noble-arch').style.display = 'none';
-                if (document.getElementById('tw-box-batevolta-anchor')) document.getElementById('tw-box-batevolta-anchor').style.display = 'flex';
-            } else if (mode === 'snob_single') {
-                nobleControlsBox.style.display = 'grid';
-                if (noblePrimaryBox) noblePrimaryBox.style.display = 'flex';
-                if (nobleSecondaryBox) nobleSecondaryBox.style.display = 'none';
-                if (document.getElementById('tw-box-manual-nobles')) document.getElementById('tw-box-manual-nobles').style.display = plannerMode === 'single' ? 'block' : 'none';
-                leadNukesInput.value = 0;
-                if (antiModeSelect) antiModeSelect.value = 'anti_50_1';
-                bunkerCountSelect.value = 1;
-                catTargetSelect.value = 'none';
-                archSelect.value = 'single_4';
-                nobleCountSelect.value = 1;
-                if (document.getElementById('tw-lbl-noble-count')) document.getElementById('tw-lbl-noble-count').innerText = 'Qtd Nobres:';
-                if (document.getElementById('tw-box-noble-arch')) document.getElementById('tw-box-noble-arch').style.display = 'flex';
-                if (document.getElementById('tw-box-batevolta-anchor')) document.getElementById('tw-box-batevolta-anchor').style.display = 'none';
-            } else if (mode === 'nuke_sweep') {
-                nobleControlsBox.style.display = 'none';
-                if (noblePrimaryBox) noblePrimaryBox.style.display = 'none';
-                if (nobleSecondaryBox) nobleSecondaryBox.style.display = 'none';
-                if (document.getElementById('tw-box-manual-nobles')) document.getElementById('tw-box-manual-nobles').style.display = 'none';
-                leadNukesInput.value = 1;
-                if (antiModeSelect) antiModeSelect.value = 'none';
-                bunkerCountSelect.value = 0;
-                catTargetSelect.value = 'wall';
-                nobleCountSelect.value = 0;
-            } else if (mode === 'cat_demolish') {
-                nobleControlsBox.style.display = 'none';
-                if (noblePrimaryBox) noblePrimaryBox.style.display = 'none';
-                if (nobleSecondaryBox) nobleSecondaryBox.style.display = 'none';
-                if (document.getElementById('tw-box-manual-nobles')) document.getElementById('tw-box-manual-nobles').style.display = 'none';
-                leadNukesInput.value = 1;
-                if (antiModeSelect) antiModeSelect.value = 'none';
-                bunkerCountSelect.value = 0;
-                catTargetSelect.value = 'place';
-                nobleCountSelect.value = 0;
-            } else if (mode === 'full_storm') {
-                nobleControlsBox.style.display = 'grid';
-                if (noblePrimaryBox) noblePrimaryBox.style.display = 'flex';
-                if (nobleSecondaryBox) nobleSecondaryBox.style.display = 'none';
-                if (document.getElementById('tw-box-manual-nobles')) document.getElementById('tw-box-manual-nobles').style.display = plannerMode === 'single' ? 'block' : 'none';
-                leadNukesInput.value = 2;
-                if (antiModeSelect) antiModeSelect.value = 'anti_full_3';
-                bunkerCountSelect.value = 3;
-                catTargetSelect.value = 'place';
-                archSelect.value = 'single_4';
-                nobleCountSelect.value = 4;
-            }
-            updatePaladinNukeState();
-            updateMultiHUD();
-        };
-
-        archSelect.onchange = (e) => {
-            const isSplit = e.target.value === 'split_2x2';
-            if (nobleSecondaryBox) nobleSecondaryBox.style.display = isSplit ? 'flex' : 'none';
-            document.getElementById('tw-nt-model-snob').value = isSplit ? 'NT - 2 - 50%' : 'NT 25%';
-            if (document.getElementById('tw-lbl-noble-primary')) {
-                document.getElementById('tw-lbl-noble-primary').innerText = isSplit ? 'Aldeia Nobres (Parte 1):' : 'Aldeia Nobres Principal:';
-            }
-        };
+        if (bunkerCountSelect) {
+            bunkerCountSelect.onchange = () => syncPlannerFormState();
+        }
+        if (nobleCountSelect) {
+            nobleCountSelect.onchange = () => syncPlannerFormState();
+        }
+        if (catTargetSelect) {
+            catTargetSelect.onchange = () => syncPlannerFormState();
+        }
+        if (archSelect) {
+            archSelect.onchange = () => syncPlannerFormState();
+        }
+        if (attackModeSelect) {
+            attackModeSelect.onchange = (e) => {
+                applyProfilePresets(e.target.value);
+                syncPlannerFormState();
+            };
+        }
 
         const targetInput = document.getElementById('tw-nt-target');
         if (targetInput) {
@@ -2182,8 +2332,7 @@
             document.getElementById('tw-nt-status').innerHTML = `<span style="color:#c084fc;">💾 Agendamento registado na memória por ${hours}h (${count} aldeias reservadas)!</span>`;
         };
 
-        updatePaladinNukeState();
-        updateMultiHUD();
+        syncPlannerFormState();
     }
 
     // ==========================================
@@ -2218,51 +2367,62 @@
             }
 
             const attackMode = document.getElementById('tw-nt-attack-mode').value;
-        const nobleCount = parseInt(document.getElementById('tw-nt-noble-count').value, 10) || 4;
-        const leadNukesCount = parseInt(document.getElementById('tw-nt-lead-nukes').value, 10) || 0;
-        const { waves: antiWavesCount, origins: antiOrigins } = getAntiSnipeConfig();
-        const bunkerCount = parseInt(document.getElementById('tw-nt-bunker-count').value, 10) || 0;
-        const bunkerGapMs = parseInt(document.getElementById('tw-nt-bunker-gap').value, 10) || 200;
-        const bunkerStepMs = parseInt(document.getElementById('tw-nt-bunker-step').value, 10) || 50;
-        const msStep = parseInt(document.getElementById('tw-nt-ms-interval').value, 10) || 200;
-        const halfStep = Math.floor(msStep / 2);
+            const isCleanOnlyProfile = (attackMode === 'nuke_sweep' || attackMode === 'cat_demolish');
+            const rawNobleVal = document.getElementById('tw-nt-noble-count') ? document.getElementById('tw-nt-noble-count').value : '4';
+            const parsedNobles = parseInt(rawNobleVal, 10);
+            const nobleCount = isCleanOnlyProfile ? 0 : (isNaN(parsedNobles) ? 4 : parsedNobles);
+            const hasNobles = nobleCount > 0;
 
-        const modelBunker1 = document.getElementById('tw-nt-model-bunker-1').value.trim() || 'BUNK';
-        const popBunker1 = parseInt(document.getElementById('tw-nt-pop-bunker-1').value, 10) || 12000;
-        const modelBunker2 = document.getElementById('tw-nt-model-bunker-2').value.trim() || 'BUNK';
-        const popBunker2 = parseInt(document.getElementById('tw-nt-pop-bunker-2').value, 10) || 4000;
+            const leadNukesCount = parseInt(document.getElementById('tw-nt-lead-nukes').value, 10) || 0;
+            const { waves: rawAntiWaves, origins: antiOrigins } = getAntiSnipeConfig();
+            const antiWavesCount = hasNobles ? rawAntiWaves : 0;
+            const bunkerCount = hasNobles ? (parseInt(document.getElementById('tw-nt-bunker-count').value, 10) || 0) : 0;
+            const bunkerGapMs = parseInt(document.getElementById('tw-nt-bunker-gap').value, 10) || 200;
+            const bunkerStepMs = parseInt(document.getElementById('tw-nt-bunker-step').value, 10) || 50;
+            const msStep = parseInt(document.getElementById('tw-nt-ms-interval').value, 10) || 200;
+            const halfStep = Math.floor(msStep / 2);
 
-        const modelNuke = document.getElementById('tw-nt-model-nuke').value.trim() || 'Ataque Full';
-        const modelAnti = document.getElementById('tw-nt-model-anti').value.trim() || 'Ataque Full';
-        const modelSnob = document.getElementById('tw-nt-model-snob').value.trim() || 'NT 25%';
-        const catTargetBuilding = document.getElementById('tw-nt-cat-target-building').value;
-        const modelCats = document.getElementById('tw-nt-model-cats') ? document.getElementById('tw-nt-model-cats').value.trim() || 'Cats' : 'Cats';
-
-        const excludeCommitted = document.getElementById('tw-nt-exclude-committed').checked;
-        const committedMap = getCommittedSchedules();
-
-        const now = Date.now();
-        const minLaunchMs = now + 60000;
-
-        // Pools de aldeias disponíveis
-        const nobleUsage = {};
-        allVillages.forEach(v => {
-            if (v.snobsAvailable > 0 && (!excludeCommitted || !committedMap[v.id])) {
-                nobleUsage[v.id] = v.snobsAvailable;
+            if (!hasNobles && leadNukesCount === 0 && attackMode !== 'full_storm' && attackMode !== 'cat_demolish') {
+                alert('❌ Nenhuma unidade ou ataque selecionado para agendar na campanha (0 Nobres e 0 Limpezas).\nSeleciona pelo menos 1 Nuke de Limpeza ou Nobres.');
+                return;
             }
-        });
 
-        const usedOffVillages = new Set();
-        const usedDefVillages = new Set();
-        const allCampaignCommands = [];
+            const modelBunker1 = document.getElementById('tw-nt-model-bunker-1').value.trim() || 'BUNK';
+            const popBunker1 = parseInt(document.getElementById('tw-nt-pop-bunker-1').value, 10) || 12000;
+            const modelBunker2 = document.getElementById('tw-nt-model-bunker-2').value.trim() || 'BUNK';
+            const popBunker2 = parseInt(document.getElementById('tw-nt-pop-bunker-2').value, 10) || 4000;
 
-        // 1. Atribuição de Nobres por Alvo (Heurística de Menor Distância)
-        const targetAssignments = [];
-        for (const tCoord of targets) {
-            let assignedNobleVillages = [];
+            const modelNuke = document.getElementById('tw-nt-model-nuke').value.trim() || 'Ataque Full';
+            const modelAnti = document.getElementById('tw-nt-model-anti').value.trim() || 'Ataque Full';
+            const modelSnob = document.getElementById('tw-nt-model-snob').value.trim() || 'NT 25%';
+            const catTargetBuilding = document.getElementById('tw-nt-cat-target-building').value;
+            const modelCats = document.getElementById('tw-nt-model-cats') ? document.getElementById('tw-nt-model-cats').value.trim() || 'Cats' : 'Cats';
 
-            if (attackMode !== 'nuke_sweep' && attackMode !== 'cat_demolish') {
-                const reqNobles = (attackMode === 'snob_solo') ? 1 : nobleCount;
+            const excludeCommitted = document.getElementById('tw-nt-exclude-committed').checked;
+            const committedMap = getCommittedSchedules();
+
+            const now = Date.now();
+            const minLaunchMs = now + 60000;
+
+            // Pools de aldeias disponíveis
+            const nobleUsage = {};
+            allVillages.forEach(v => {
+                if (v.snobsAvailable > 0 && (!excludeCommitted || !committedMap[v.id])) {
+                    nobleUsage[v.id] = v.snobsAvailable;
+                }
+            });
+
+            const usedOffVillages = new Set();
+            const usedDefVillages = new Set();
+            const allCampaignCommands = [];
+
+            // 1. Atribuição de Nobres por Alvo (Heurística de Menor Distância)
+            const targetAssignments = [];
+            for (const tCoord of targets) {
+                let assignedNobleVillages = [];
+
+                if (hasNobles) {
+                    const reqNobles = (attackMode === 'snob_solo') ? 1 : nobleCount;
                 const candidates = Object.keys(nobleUsage).map(vId => {
                     const v = villagesById[vId];
                     const dist = calcDistance(v.coords, tCoord);
@@ -2324,7 +2484,8 @@
 
             // Nukes de Limpeza
             for (let i = 0; i < leadNukesCount; i++) {
-                const landMs = baseLandTime - ((leadNukesCount - i) * 100);
+                const landOffset = hasNobles ? ((leadNukesCount - i) * 100) : ((leadNukesCount - 1 - i) * 100);
+                const landMs = baseLandTime - landOffset;
                 const nukeOff = findClosestAvailable(offPool, usedOffVillages, tCoord, landMs, minLaunchMs);
                 if (nukeOff) {
                     usedOffVillages.add(nukeOff.village.id);
@@ -2334,7 +2495,7 @@
 
             // Nobres / Bate e Volta
             let lastNobleImpactMs = baseLandTime + (Math.max(1, nobleCount - 1) * msStep);
-            if (attackMode === 'snob_solo') {
+            if (hasNobles && attackMode === 'snob_solo') {
                 assignment.nobles.forEach(nItem => {
                     const numTrips = Math.max(1, nobleCount || 4);
                     const travelSec = nItem.sec;
@@ -2363,14 +2524,14 @@
                         currentLandMs = currentLaunchMs + travelMs;
                     }
                 });
-            } else {
+            } else if (hasNobles) {
                 assignment.nobles.forEach(nItem => {
                     allCampaignCommands.push(makeCmd(`Combo NT (${nItem.nobles}N)`, 'tw-badge-snob', 'Attack', nItem.village, tCoord, nItem.dist.toFixed(2), nItem.sec, new Date(nItem.launchMs), new Date(baseLandTime), modelSnob, '', `${nItem.nobles} Nobres`));
                 });
             }
 
             // Escoltas Anti-Snipe
-            if (antiWavesCount > 0) {
+            if (hasNobles && antiWavesCount > 0) {
                 const antiOffsets = [halfStep, msStep + halfStep, (2 * msStep) + halfStep].slice(0, antiWavesCount);
                 if (antiOrigins === 'max2') {
                     const v1 = findClosestAvailable(offPool, usedOffVillages, tCoord, baseLandTime + antiOffsets[0], minLaunchMs);
@@ -2410,13 +2571,15 @@
             }
 
             // Bunkers de Conquista
-            const finalNobleImpactMs = lastNobleImpactMs;
-            for (let b = 1; b <= bunkerCount; b++) {
-                const bunkerLandMs = finalNobleImpactMs + bunkerGapMs + ((b - 1) * bunkerStepMs);
-                const bunkDef = findClosestDefBunker(defPool, usedDefVillages, tCoord, bunkerLandMs, minLaunchMs, popBunker2, popBunker1, modelBunker1, modelBunker2);
-                if (bunkDef) {
-                    usedDefVillages.add(bunkDef.village.id);
-                    allCampaignCommands.push(makeCmd(`Bunker Apoio #${b}`, bunkDef.hasKnight ? 'tw-badge-paladino' : 'tw-badge-bunker', 'Support', bunkDef.village, tCoord, bunkDef.dist, bunkDef.sec, bunkDef.launchTime, new Date(bunkerLandMs), bunkDef.model, '', bunkDef.info));
+            if (hasNobles && bunkerCount > 0) {
+                const finalNobleImpactMs = lastNobleImpactMs;
+                for (let b = 1; b <= bunkerCount; b++) {
+                    const bunkerLandMs = finalNobleImpactMs + bunkerGapMs + ((b - 1) * bunkerStepMs);
+                    const bunkDef = findClosestDefBunker(defPool, usedDefVillages, tCoord, bunkerLandMs, minLaunchMs, popBunker2, popBunker1, modelBunker1, modelBunker2);
+                    if (bunkDef) {
+                        usedDefVillages.add(bunkDef.village.id);
+                        allCampaignCommands.push(makeCmd(`Bunker Apoio #${b}`, bunkDef.hasKnight ? 'tw-badge-paladino' : 'tw-badge-bunker', 'Support', bunkDef.village, tCoord, bunkDef.dist, bunkDef.sec, bunkDef.launchTime, new Date(bunkerLandMs), bunkDef.model, '', bunkDef.info));
+                    }
                 }
             }
         }
@@ -2462,7 +2625,7 @@
             tPanel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         }
         const copyNotice = copied ? 'copiada para o Clipboard' : 'gerada (copia do campo de texto)';
-        if (attackMode === 'nuke_sweep' || attackMode === 'cat_demolish') {
+        if (attackMode === 'nuke_sweep' || attackMode === 'cat_demolish' || !hasNobles) {
             document.getElementById('tw-nt-status').innerHTML = `<span style="color:#34d399;">✅ Campanha de Limpeza: ${targets.length} alvos (${allCampaignCommands.length} nukes) ${copyNotice}!</span>`;
             showToast(copied ? `⚡ Campanha de Limpeza copiada para o Clipboard!` : `⚡ Campanha gerada com sucesso!`);
         } else {
@@ -2551,12 +2714,16 @@
 
             const attackMode = document.getElementById('tw-nt-attack-mode').value;
             const architecture = document.getElementById('tw-nt-architecture').value;
-            const nobleCount = parseInt(document.getElementById('tw-nt-noble-count').value, 10) || 4;
+            const isCleanOnlyProfile = (attackMode === 'nuke_sweep' || attackMode === 'cat_demolish');
+            const rawNobleVal = document.getElementById('tw-nt-noble-count') ? document.getElementById('tw-nt-noble-count').value : '4';
+            const parsedNobles = parseInt(rawNobleVal, 10);
+            const nobleCount = isCleanOnlyProfile ? 0 : (isNaN(parsedNobles) ? 4 : parsedNobles);
+            const hasNobles = nobleCount > 0;
             const excludeCommitted = document.getElementById('tw-nt-exclude-committed').checked;
             const committedMap = getCommittedSchedules();
 
             let nobleVillage1 = null, nobleVillage2 = null;
-            if (attackMode !== 'nuke_sweep' && attackMode !== 'cat_demolish') {
+            if (hasNobles) {
                 const nobleVillageId1 = document.getElementById('tw-nt-noble-village').value;
                 nobleVillage1 = villagesById[nobleVillageId1];
                 if (!nobleVillage1) {
@@ -2574,19 +2741,25 @@
                 }
             }
 
-            const bunkerCount = parseInt(document.getElementById('tw-nt-bunker-count').value, 10) || 0;
+            const bunkerCount = hasNobles ? (parseInt(document.getElementById('tw-nt-bunker-count').value, 10) || 0) : 0;
             const bunkerGapMs = parseInt(document.getElementById('tw-nt-bunker-gap').value, 10) || 200;
             const bunkerStepMs = parseInt(document.getElementById('tw-nt-bunker-step').value, 10) || 50;
 
-        const modelBunker1 = document.getElementById('tw-nt-model-bunker-1').value.trim() || 'BUNK';
-        const popBunker1 = parseInt(document.getElementById('tw-nt-pop-bunker-1').value, 10) || 12000;
-        const modelBunker2 = document.getElementById('tw-nt-model-bunker-2').value.trim() || 'BUNK';
-        const popBunker2 = parseInt(document.getElementById('tw-nt-pop-bunker-2').value, 10) || 4000;
+            const modelBunker1 = document.getElementById('tw-nt-model-bunker-1').value.trim() || 'BUNK';
+            const popBunker1 = parseInt(document.getElementById('tw-nt-pop-bunker-1').value, 10) || 12000;
+            const modelBunker2 = document.getElementById('tw-nt-model-bunker-2').value.trim() || 'BUNK';
+            const popBunker2 = parseInt(document.getElementById('tw-nt-pop-bunker-2').value, 10) || 4000;
 
-        const leadNukesCount = parseInt(document.getElementById('tw-nt-lead-nukes').value, 10) || 0;
-        const { waves: antiWavesCount, origins: antiOrigins } = getAntiSnipeConfig();
-        const msStep = parseInt(document.getElementById('tw-nt-ms-interval').value, 10) || 200;
-        const halfStep = Math.floor(msStep / 2);
+            const leadNukesCount = parseInt(document.getElementById('tw-nt-lead-nukes').value, 10) || 0;
+            const { waves: rawAntiWaves, origins: antiOrigins } = getAntiSnipeConfig();
+            const antiWavesCount = hasNobles ? rawAntiWaves : 0;
+            const msStep = parseInt(document.getElementById('tw-nt-ms-interval').value, 10) || 200;
+            const halfStep = Math.floor(msStep / 2);
+
+            if (!hasNobles && leadNukesCount === 0 && attackMode !== 'full_storm' && attackMode !== 'cat_demolish') {
+                alert('❌ Nenhuma unidade ou ataque selecionado para agendar (0 Nobres e 0 Limpezas).\nSeleciona pelo menos 1 Nuke de Limpeza ou Nobres.');
+                return;
+            }
         
         const reqPaladinNuke = document.getElementById('tw-nt-req-paladin-nuke') ? document.getElementById('tw-nt-req-paladin-nuke').checked : true;
         const modelNuke = document.getElementById('tw-nt-model-nuke').value.trim() || 'Ataque Full';
@@ -2794,11 +2967,12 @@
 
         // 2. Nukes de Limpeza
         for (let i = 0; i < leadNukesCount; i++) {
-            assignOffNuke(trip1AnchorLandMs - ((leadNukesCount - i) * 100), `Limpeza Principal #${i+1}`, 'tw-badge-nuke', modelNuke, (i === leadNukesCount - 1), catTargetBuilding);
+            const landOffset = hasNobles ? ((leadNukesCount - i) * 100) : ((leadNukesCount - 1 - i) * 100);
+            assignOffNuke(trip1AnchorLandMs - landOffset, `Limpeza Principal #${i+1}`, 'tw-badge-nuke', modelNuke, (i === leadNukesCount - 1), catTargetBuilding);
         }
 
         // 3. Escoltas Anti-Snipe
-        if (antiWavesCount > 0) {
+        if (hasNobles && antiWavesCount > 0) {
             const antiAnchorLandMs = (attackMode === 'snob_solo' && bvAnchor === 'final') ? baseLandTime : trip1AnchorLandMs;
             const antiSnipeOffsets = [halfStep, msStep + halfStep, (2 * msStep) + halfStep].slice(0, antiWavesCount);
             if (antiOrigins === 'max2') {
@@ -2875,7 +3049,7 @@
         let lastNobleImpactMs = baseLandTime + (Math.max(1, nobleCount - 1) * msStep);
 
         // 4. Inserção do Trem de Nobres / Bate e Volta
-        if (nobleVillage1) {
+        if (hasNobles && nobleVillage1) {
             if (attackMode === 'snob_solo') {
                 const numTrips = Math.max(1, nobleCount || 4);
                 const travelSec = snobSec1;
@@ -2976,16 +3150,18 @@
         }
 
         // 5. Bunkers de Conquista Milimétricos
-        const finalNobleImpactMs = lastNobleImpactMs;
-        for (let b = 1; b <= bunkerCount; b++) {
-            const bunkerLandMs = finalNobleImpactMs + bunkerGapMs + ((b - 1) * bunkerStepMs);
-            if (b === 1) {
-                const paladinFound = assignDefBunker(bunkerLandMs, `🛡️ Bunker Apoio 1`, 'tw-badge-bunker', true);
-                if (!paladinFound) {
-                    assignDefBunker(bunkerLandMs, `🛡️ Bunker Apoio 1`, 'tw-badge-bunker', false);
+        if (hasNobles && bunkerCount > 0) {
+            const finalNobleImpactMs = lastNobleImpactMs;
+            for (let b = 1; b <= bunkerCount; b++) {
+                const bunkerLandMs = finalNobleImpactMs + bunkerGapMs + ((b - 1) * bunkerStepMs);
+                if (b === 1) {
+                    const paladinFound = assignDefBunker(bunkerLandMs, `🛡️ Bunker Apoio 1`, 'tw-badge-bunker', true);
+                    if (!paladinFound) {
+                        assignDefBunker(bunkerLandMs, `🛡️ Bunker Apoio 1`, 'tw-badge-bunker', false);
+                    }
+                } else {
+                    assignDefBunker(bunkerLandMs, `🛡️ Bunker Apoio ${b}`, 'tw-badge-bunker', false);
                 }
-            } else {
-                assignDefBunker(bunkerLandMs, `🛡️ Bunker Apoio ${b}`, 'tw-badge-bunker', false);
             }
         }
 
@@ -3119,7 +3295,7 @@
             tPanel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         }
         const copyNotice = copied ? 'copiado para o Clipboard' : 'gerado (copia do campo de texto abaixo)';
-        if (attackMode === 'nuke_sweep' || attackMode === 'cat_demolish') {
+        if (attackMode === 'nuke_sweep' || attackMode === 'cat_demolish' || !hasNobles) {
             document.getElementById('tw-nt-status').innerHTML = `<span style="color:#34d399;">✅ Limpeza (${sequence.length} ataques) ${copyNotice}!</span>`;
             showToast(copied ? `⚡ Limpeza copiada para o Clipboard!` : `⚡ Limpeza gerada com sucesso!`);
         } else {
