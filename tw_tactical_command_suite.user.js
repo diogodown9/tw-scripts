@@ -1,15 +1,16 @@
 // ==UserScript==
 // @name         TW Tactical Command Suite
 // @namespace    https://tribalwars.com.pt/
-// @version      2.5.4
-// @description  Suite militar avançada para Tribal Wars PT: Visão Geral com regra 22k, Contador Tático, Gerador de Fakes dinâmico, Planeador NT + Anti-Snipe + Bunker com Paladino, Re-Nobre em Bate e Volta (4 viagens consecutivas), Campanha Multialvo com IA de Atribuição e Memória Inteligente de Aldeias Reservadas.
-// @author       DeepMind / Antigravity
+// @version      2.5.5
+// @description  Suite militar avançada para Tribal Wars PT: Visão Geral com regra 22k, Contador Tático, Gerador de Fakes dinâmico, Planeador NT + Anti-Snipe + Bunker com Paladino, Re-Nobre em Bate e Volta (4 viagens consecutivas), Campanha Multialvo com IA de Atribuição e exportação BBCode.
+// @author       Diogo & Antigravity
 // @match        https://*.tribalwars.com.pt/game.php*
+// @icon         https://www.google.com/s2/favicons?sz=64&domain=tribalwars.com.pt
 // @grant        none
 // ==/UserScript==
 
 (async function () {
-    const SCRIPT_VERSION = '2.5.4';
+    const SCRIPT_VERSION = '2.5.5';
     const modalId = 'tw-master-suite';
     
     // Limpeza de instâncias anteriores
@@ -2072,10 +2073,6 @@
 
             // 2. Card 2: Limpezas, Escoltas & Modelos
             let leadNukes = parseInt(leadNukesInput ? leadNukesInput.value : '0', 10) || 0;
-            if (!hasNobles && leadNukes === 0 && attackMode !== 'full_storm' && attackMode !== 'cat_demolish') {
-                leadNukes = 1;
-                if (leadNukesInput) leadNukesInput.value = '1';
-            }
 
             const boxPaladin = document.getElementById('tw-box-paladin-nuke');
             const chkPaladin = document.getElementById('tw-nt-req-paladin-nuke');
@@ -2104,10 +2101,6 @@
                 } else {
                     antiModeSelect.disabled = false;
                     antiModeSelect.style.opacity = '1';
-                    if (antiModeSelect.value === 'none') {
-                        if (attackMode === 'standard_anti' || attackMode === 'full_storm') antiModeSelect.value = 'anti_full_3';
-                        else if (attackMode === 'standard_anti_50' || attackMode === 'split_2x2') antiModeSelect.value = 'anti_50_2';
-                    }
                 }
             }
 
@@ -2144,11 +2137,6 @@
                         cardBunker.style.opacity = '1';
                         cardBunker.style.pointerEvents = 'auto';
                     }
-                    if (bunkerCountSelect.value === '0') {
-                        if (attackMode === 'standard_anti' || attackMode === 'nt_clean' || attackMode === 'split_2x2') bunkerCountSelect.value = '2';
-                        else if (attackMode === 'standard_anti_50' || attackMode === 'snob_solo' || attackMode === 'snob_single') bunkerCountSelect.value = '1';
-                        else if (attackMode === 'full_storm') bunkerCountSelect.value = '3';
-                    }
                 }
             }
 
@@ -2177,7 +2165,22 @@
             bunkerCountSelect.onchange = () => syncPlannerFormState();
         }
         if (nobleCountSelect) {
-            nobleCountSelect.onchange = () => syncPlannerFormState();
+            nobleCountSelect.onchange = (e) => {
+                const val = parseInt(e.target.value, 10);
+                if (val > 0) {
+                    const mode = attackModeSelect ? attackModeSelect.value : 'standard_anti';
+                    if (bunkerCountSelect && bunkerCountSelect.value === '0') {
+                        if (mode === 'standard_anti' || mode === 'nt_clean' || mode === 'split_2x2') bunkerCountSelect.value = '2';
+                        else if (mode === 'standard_anti_50' || mode === 'snob_solo' || mode === 'snob_single') bunkerCountSelect.value = '1';
+                        else if (mode === 'full_storm') bunkerCountSelect.value = '3';
+                    }
+                    if (antiModeSelect && antiModeSelect.value === 'none') {
+                        if (mode === 'standard_anti' || mode === 'full_storm') antiModeSelect.value = 'anti_full_3';
+                        else if (mode === 'standard_anti_50' || mode === 'split_2x2') antiModeSelect.value = 'anti_50_2';
+                    }
+                }
+                syncPlannerFormState();
+            };
         }
         if (catTargetSelect) {
             catTargetSelect.onchange = () => syncPlannerFormState();
