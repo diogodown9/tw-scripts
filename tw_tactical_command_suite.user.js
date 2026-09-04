@@ -179,6 +179,9 @@
         <div id="tw-main-body" style="flex-grow:1; display:flex; flex-direction:column; overflow:hidden;"></div>
     `;
     document.body.appendChild(ui);
+    const closeBtn = document.getElementById('tw-btn-close');
+    if (closeBtn) closeBtn.onclick = closeSuite;
+    if (backdrop) backdrop.onclick = closeSuite;
 
     const tooltip = document.createElement('div');
     tooltip.id = `${modalId}-tooltip`;
@@ -370,7 +373,8 @@
         });
     }
 
-    document.getElementById('tw-btn-memory-mgmt').onclick = openMemoryModal;
+    const memMgmtBtn = document.getElementById('tw-btn-memory-mgmt');
+    if (memMgmtBtn) memMgmtBtn.onclick = openMemoryModal;
 
     // ==========================================
     // VARIÁVEIS DE ESTADO E VELOCIDADES
