@@ -2226,6 +2226,8 @@
                 const isEnabled = chkFakeEnable.checked;
                 boxFakesInputs.style.opacity = isEnabled ? '1' : '0.4';
                 boxFakesInputs.style.pointerEvents = isEnabled ? 'auto' : 'none';
+                savePrefs('tw_nt_fake_enable', String(isEnabled));
+                if (typeof updateRadiusFakesHUD === 'function') updateRadiusFakesHUD();
             };
         }
 
@@ -2540,8 +2542,13 @@
             }
 
             const modelCatsInput = document.getElementById('tw-nt-model-cats');
-            if (modelCatsInput && catTargetSelect) {
-                const hasCats = (catTargetSelect.value !== 'none' || attackMode === 'cat_demolish' || attackMode === 'full_storm');
+            if (modelCatsInput) {
+                const hasCats = (
+                    (catTargetSelect && catTargetSelect.value !== 'none') ||
+                    (nukeCatTargetSelect && nukeCatTargetSelect.value !== 'none' && leadNukes > 0) ||
+                    (antiCatTargetSelect && antiCatTargetSelect.value !== 'none' && hasNobles) ||
+                    attackMode === 'cat_demolish' || attackMode === 'full_storm'
+                );
                 modelCatsInput.disabled = !hasCats;
                 modelCatsInput.style.opacity = hasCats ? '1' : '0.4';
             }
@@ -3206,6 +3213,9 @@
         const savedFakeMaxOrigin = getPref('tw_nt_fake_max_origin', '2');
         const savedFakeIncTarget = getPref('tw_nt_fake_include_target', 'true');
         const savedFakeSmartLimit = getPref('tw_nt_fake_smart_limit', 'false');
+        const savedFakeEnable = getPref('tw_nt_fake_enable', 'false');
+        const savedPreferFull = getPref('tw_nt_prefer_full_nukes', 'true');
+        const savedReqPaladinNuke = getPref('tw_nt_req_paladin_nuke', 'true');
         const savedNukeCat = getPref('tw_nt_nuke_cat_target', 'place');
         const savedAntiCat = getPref('tw_nt_anti_cat_target', 'none');
 
@@ -3222,6 +3232,28 @@
         if (document.getElementById('tw-nt-fake-max-origin')) document.getElementById('tw-nt-fake-max-origin').value = savedFakeMaxOrigin;
         if (document.getElementById('tw-nt-fake-include-target')) document.getElementById('tw-nt-fake-include-target').checked = (savedFakeIncTarget === 'true');
         if (document.getElementById('tw-nt-fake-smart-limit')) document.getElementById('tw-nt-fake-smart-limit').checked = (savedFakeSmartLimit === 'true');
+        if (document.getElementById('tw-nt-fake-enable')) {
+            const isFakeOn = (savedFakeEnable === 'true');
+            document.getElementById('tw-nt-fake-enable').checked = isFakeOn;
+            if (boxFakesInputs) {
+                boxFakesInputs.style.opacity = isFakeOn ? '1' : '0.4';
+                boxFakesInputs.style.pointerEvents = isFakeOn ? 'auto' : 'none';
+            }
+        }
+        if (document.getElementById('tw-nt-prefer-full-nukes')) {
+            document.getElementById('tw-nt-prefer-full-nukes').checked = (savedPreferFull === 'true');
+            document.getElementById('tw-nt-prefer-full-nukes').onchange = (e) => {
+                savePrefs('tw_nt_prefer_full_nukes', String(e.target.checked));
+                updateNukeProximityHUD(null, false);
+            };
+        }
+        if (document.getElementById('tw-nt-req-paladin-nuke')) {
+            document.getElementById('tw-nt-req-paladin-nuke').checked = (savedReqPaladinNuke === 'true');
+            document.getElementById('tw-nt-req-paladin-nuke').onchange = (e) => {
+                savePrefs('tw_nt_req_paladin_nuke', String(e.target.checked));
+                syncPlannerFormState();
+            };
+        }
         if (document.getElementById('tw-nt-nuke-cat-target')) document.getElementById('tw-nt-nuke-cat-target').value = savedNukeCat;
         if (document.getElementById('tw-nt-anti-cat-target')) document.getElementById('tw-nt-anti-cat-target').value = savedAntiCat;
 
