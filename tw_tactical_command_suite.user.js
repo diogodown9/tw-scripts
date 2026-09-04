@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TW Tactical Command Suite
 // @namespace    https://tribalwars.com.pt/
-// @version      2.7.1
-// @description  Suite militar avançada para Tribal Wars PT: Fakes Inteligentes (Auto Fake Limit 1% Dinâmico por Pontos), Arsenal Tático de Fakes (Raio Livre, Fake NT 4x, Saturação do Alvo Real & Modo Campanha), Seleção Independente de Alvo de Catapulta com Auto-Seleção na Praça, Deteção de Tropas Fora (⚠️), Seletor Inteligente de Full Nuke, e Planeador Tático.
+// @version      2.7.2
+// @description  Suite militar avançada para Tribal Wars PT: Fakes Inteligentes (Auto Fake Limit 1% Dinâmico por Pontos), Arsenal Tático de Fakes (Raio Livre, Fake NT 4x, Saturação do Alvo Real & Modo Campanha), UI Intuitiva de Limpezas/Nobres/Demolição, Seleção Independente de Alvo de Catapulta com Auto-Seleção na Praça, Deteção de Tropas Fora (⚠️), Seletor Inteligente de Full Nuke, e Planeador Tático.
 // @author       Diogo & Antigravity
 // @match        https://*.tribalwars.com.pt/game.php*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=tribalwars.com.pt
@@ -10,7 +10,7 @@
 // ==/UserScript==
 
 (async function () {
-    const SCRIPT_VERSION = '2.7.1';
+    const SCRIPT_VERSION = '2.7.2';
 
     // Auto-selecionar alvo de catapulta na confirmação de ataque na Praça de Reunião se especificado no URL
     try {
@@ -1779,31 +1779,40 @@
                             </select>
                         </div>
 
-                        <div style="display:grid; grid-template-columns: 1.1fr 1fr; gap:4px; margin-top:2px;" id="tw-box-noble-controls">
-                            <div style="display:flex; flex-direction:column; gap:1px;">
-                                <span style="font-size:9px; color:#94a3b8;" id="tw-lbl-noble-count">Qtd Nobres:</span>
-                                <select id="tw-nt-noble-count" class="tw-select" style="padding:4px 6px; font-size:11px; font-weight:bold; color:#fbbf24;">
-                                    <option value="0">0 Nobres (Apenas Limpeza)</option>
-                                    <option value="1">1 Nobre / 1 Viagem</option>
-                                    <option value="2">2 Nobres / 2 Viagens</option>
-                                    <option value="3">3 Nobres / 3 Viagens</option>
-                                    <option value="4" selected>4 Nobres / 4 Viagens</option>
-                                    <option value="5">5 Nobres (Recup. Rápida)</option>
-                                </select>
+                        <!-- CONTROLOS DE NOBRES & INTERVALO -->
+                        <div style="display:flex; flex-direction:column; gap:4px; margin-top:2px;" id="tw-box-noble-controls">
+                            <div style="display:grid; grid-template-columns: 1.1fr 1fr; gap:4px;">
+                                <div style="display:flex; flex-direction:column; gap:1px;">
+                                    <span style="font-size:9px; color:#94a3b8;" id="tw-lbl-noble-count">Qtd Nobres:</span>
+                                    <select id="tw-nt-noble-count" class="tw-select" style="padding:4px 6px; font-size:11px; font-weight:bold; color:#fbbf24;">
+                                        <option value="0">0 Nobres (Apenas Limpeza)</option>
+                                        <option value="1">1 Nobre / 1 Viagem</option>
+                                        <option value="2">2 Nobres / 2 Viagens</option>
+                                        <option value="3">3 Nobres / 3 Viagens</option>
+                                        <option value="4" selected>4 Nobres / 4 Viagens</option>
+                                        <option value="5">5 Nobres (Recup. Rápida)</option>
+                                    </select>
+                                </div>
+                                <div style="display:flex; flex-direction:column; gap:1px;" id="tw-box-ms-interval">
+                                    <span style="font-size:9px; color:#94a3b8;">Intervalo NT (ms):</span>
+                                    <input type="number" id="tw-nt-ms-interval" class="tw-input" value="200" min="50" max="1000" style="padding:4px 6px; font-size:11px; text-align:center; font-weight:bold; color:#fbbf24;" title="Intervalo em milissegundos entre as ondas do Trem de Nobres">
+                                </div>
                             </div>
-                            <div style="display:flex; flex-direction:column; gap:1px;" id="tw-box-noble-arch">
-                                <span style="font-size:9px; color:#94a3b8;">Arquitetura:</span>
-                                <select id="tw-nt-architecture" class="tw-select" style="padding:4px 6px; font-size:11px;">
-                                    <option value="single_4" selected>Única Aldeia</option>
-                                    <option value="split_2x2">Dividida 2x2</option>
-                                </select>
-                            </div>
-                            <div style="display:none; flex-direction:column; gap:1px;" id="tw-box-batevolta-anchor">
-                                <span style="font-size:9px; color:#38bdf8;">Âncora Bate e Volta:</span>
-                                <select id="tw-nt-bv-anchor" class="tw-select" style="padding:4px 6px; font-size:11px; font-weight:bold; color:#38bdf8;">
-                                    <option value="first" selected>1ª Viagem (Início)</option>
-                                    <option value="final">Última (Conquista)</option>
-                                </select>
+                            <div style="display:grid; grid-template-columns: 1fr; gap:4px;" id="tw-box-noble-suboptions">
+                                <div style="display:flex; flex-direction:column; gap:1px;" id="tw-box-noble-arch">
+                                    <span style="font-size:9px; color:#94a3b8;">Arquitetura do NT:</span>
+                                    <select id="tw-nt-architecture" class="tw-select" style="padding:4px 6px; font-size:11px;">
+                                        <option value="single_4" selected>Única Aldeia</option>
+                                        <option value="split_2x2">Dividida 2x2</option>
+                                    </select>
+                                </div>
+                                <div style="display:none; flex-direction:column; gap:1px;" id="tw-box-batevolta-anchor">
+                                    <span style="font-size:9px; color:#38bdf8;">Âncora Bate e Volta:</span>
+                                    <select id="tw-nt-bv-anchor" class="tw-select" style="padding:4px 6px; font-size:11px; font-weight:bold; color:#38bdf8;">
+                                        <option value="first" selected>1ª Viagem (Início)</option>
+                                        <option value="final">Última (Conquista)</option>
+                                    </select>
+                                </div>
                             </div>
                         </div>
 
@@ -1849,7 +1858,7 @@
                             </div>
                             <div style="display:flex; flex-direction:column; gap:1px;">
                                 <span style="font-size:9px; color:#f87171; font-weight:bold;">🎯 Alvo Cats (Nuke):</span>
-                                <select id="tw-nt-nuke-cat-target" class="tw-select" style="padding:4px 6px; font-size:10.5px; font-weight:bold; color:#f87171;">
+                                <select id="tw-nt-nuke-cat-target" class="tw-select" style="padding:4px 6px; font-size:10.5px; font-weight:bold; color:#f87171;" title="Alvo caso o modelo de Nuke leve catapultas">
                                     <option value="place" selected>Praça (place)</option>
                                     <option value="wall">Muralha (wall)</option>
                                     <option value="farm">Fazenda (farm)</option>
@@ -1888,24 +1897,19 @@
                             </div>
                         </div>
 
-                        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:4px;">
-                            <div style="display:flex; flex-direction:column; gap:1px;">
-                                <span style="font-size:9px; color:#94a3b8;">Intervalo (ms):</span>
-                                <input type="number" id="tw-nt-ms-interval" class="tw-input" value="200" min="50" max="1000" style="padding:4px 6px; font-size:11px; text-align:center;">
-                            </div>
-                            <div style="display:flex; flex-direction:column; gap:1px;">
-                                <span style="font-size:9px; color:#f43f5e;">Alvo Demolição:</span>
-                                <select id="tw-nt-cat-target-building" class="tw-select" style="padding:4px 6px; font-size:10.5px; font-weight:bold; color:#f43f5e;">
-                                    <option value="place" selected>Praça (place)</option>
-                                    <option value="wall">Muralha (wall)</option>
-                                    <option value="farm">Fazenda (farm)</option>
-                                    <option value="smith">Ferreiro (smith)</option>
-                                    <option value="main">Ed. Principal (main)</option>
-                                    <option value="barracks">Quartel (barracks)</option>
-                                    <option value="storage">Armazém (storage)</option>
-                                    <option value="none">Nenhum</option>
-                                </select>
-                            </div>
+                        <!-- ONDA DEDICADA DE DEMOLIÇÃO TÁTICA (APENAS VISÍVEL QUANDO PERFIL É DEMOLIÇÃO TÁTICA) -->
+                        <div id="tw-box-cat-demolish" style="display:none; flex-direction:column; gap:2px; padding:4px 6px; background:rgba(244, 63, 94, 0.08); border:1px dashed rgba(244, 63, 94, 0.4); border-radius:4px;">
+                            <span style="font-size:9.5px; color:#fb7185; font-weight:bold;">🏚️ Alvo Demolição Tática (-10m/-15m):</span>
+                            <select id="tw-nt-cat-target-building" class="tw-select" style="padding:4px 6px; font-size:10.5px; font-weight:bold; color:#fb7185;">
+                                <option value="place">Praça de Reunião (place)</option>
+                                <option value="wall">Muralha (wall)</option>
+                                <option value="farm">Fazenda (farm)</option>
+                                <option value="smith">Ferreiro (smith)</option>
+                                <option value="main" selected>Edifício Principal (main)</option>
+                                <option value="barracks">Quartel (barracks)</option>
+                                <option value="storage">Armazém (storage)</option>
+                                <option value="none">Nenhum</option>
+                            </select>
                         </div>
 
                         <!-- SELETOR E TICKBOX DE PALADINO NO NUKE (Dimmed se 0 Nukes) -->
@@ -2296,6 +2300,8 @@
                 if (leadNukesInput) leadNukesInput.value = '0';
                 if (antiModeSelect) antiModeSelect.value = 'none';
                 if (bunkerCountSelect) bunkerCountSelect.value = '0';
+                if (nukeCatTargetSelect) nukeCatTargetSelect.value = 'place';
+                if (antiCatTargetSelect) antiCatTargetSelect.value = 'none';
                 if (catTargetSelect) catTargetSelect.value = 'none';
                 const snobEl = document.getElementById('tw-nt-model-snob');
                 if (snobEl) snobEl.value = 'NT 25%';
@@ -2305,6 +2311,8 @@
                 if (leadNukesInput) leadNukesInput.value = '1';
                 if (antiModeSelect) antiModeSelect.value = 'none';
                 if (bunkerCountSelect) bunkerCountSelect.value = '2';
+                if (nukeCatTargetSelect) nukeCatTargetSelect.value = 'place';
+                if (antiCatTargetSelect) antiCatTargetSelect.value = 'none';
                 if (catTargetSelect) catTargetSelect.value = 'none';
                 const snobEl = document.getElementById('tw-nt-model-snob');
                 if (snobEl) snobEl.value = 'NT 25%';
@@ -2316,6 +2324,8 @@
                 if (leadNukesInput) leadNukesInput.value = '1';
                 if (antiModeSelect) antiModeSelect.value = 'anti_full_3';
                 if (bunkerCountSelect) bunkerCountSelect.value = '2';
+                if (nukeCatTargetSelect) nukeCatTargetSelect.value = 'place';
+                if (antiCatTargetSelect) antiCatTargetSelect.value = 'none';
                 if (catTargetSelect) catTargetSelect.value = 'place';
                 const snobEl = document.getElementById('tw-nt-model-snob');
                 if (snobEl) snobEl.value = 'NT 25%';
@@ -2329,6 +2339,8 @@
                 if (leadNukesInput) leadNukesInput.value = '1';
                 if (antiModeSelect) antiModeSelect.value = 'anti_50_2';
                 if (bunkerCountSelect) bunkerCountSelect.value = '1';
+                if (nukeCatTargetSelect) nukeCatTargetSelect.value = 'place';
+                if (antiCatTargetSelect) antiCatTargetSelect.value = 'none';
                 if (catTargetSelect) catTargetSelect.value = 'place';
                 const snobEl = document.getElementById('tw-nt-model-snob');
                 if (snobEl) snobEl.value = 'NT 25%';
@@ -2342,6 +2354,8 @@
                 if (leadNukesInput) leadNukesInput.value = '1';
                 if (antiModeSelect) antiModeSelect.value = 'anti_50_2';
                 if (bunkerCountSelect) bunkerCountSelect.value = '2';
+                if (nukeCatTargetSelect) nukeCatTargetSelect.value = 'place';
+                if (antiCatTargetSelect) antiCatTargetSelect.value = 'none';
                 if (catTargetSelect) catTargetSelect.value = 'place';
                 const snobEl = document.getElementById('tw-nt-model-snob');
                 if (snobEl) snobEl.value = 'NT - 2 - 50%';
@@ -2355,6 +2369,8 @@
                 if (leadNukesInput) leadNukesInput.value = '0';
                 if (antiModeSelect) antiModeSelect.value = 'none';
                 if (bunkerCountSelect) bunkerCountSelect.value = '1';
+                if (nukeCatTargetSelect) nukeCatTargetSelect.value = 'none';
+                if (antiCatTargetSelect) antiCatTargetSelect.value = 'none';
                 if (catTargetSelect) catTargetSelect.value = 'none';
                 const snobEl = document.getElementById('tw-nt-model-snob');
                 if (snobEl) snobEl.value = 'Nobre';
@@ -2366,6 +2382,8 @@
                 if (leadNukesInput) leadNukesInput.value = '0';
                 if (antiModeSelect) antiModeSelect.value = 'none';
                 if (bunkerCountSelect) bunkerCountSelect.value = '1';
+                if (nukeCatTargetSelect) nukeCatTargetSelect.value = 'none';
+                if (antiCatTargetSelect) antiCatTargetSelect.value = 'none';
                 if (catTargetSelect) catTargetSelect.value = 'none';
                 const snobEl = document.getElementById('tw-nt-model-snob');
                 if (snobEl) snobEl.value = 'Nobre';
@@ -2374,6 +2392,8 @@
                 if (leadNukesInput) leadNukesInput.value = '1';
                 if (antiModeSelect) antiModeSelect.value = 'none';
                 if (bunkerCountSelect) bunkerCountSelect.value = '0';
+                if (nukeCatTargetSelect) nukeCatTargetSelect.value = 'wall';
+                if (antiCatTargetSelect) antiCatTargetSelect.value = 'none';
                 if (catTargetSelect) catTargetSelect.value = 'wall';
                 const nukeEl = document.getElementById('tw-nt-model-nuke');
                 if (nukeEl) nukeEl.value = 'Ataque Full';
@@ -2382,7 +2402,9 @@
                 if (leadNukesInput) leadNukesInput.value = '1';
                 if (antiModeSelect) antiModeSelect.value = 'none';
                 if (bunkerCountSelect) bunkerCountSelect.value = '0';
-                if (catTargetSelect) catTargetSelect.value = 'place';
+                if (nukeCatTargetSelect) nukeCatTargetSelect.value = 'place';
+                if (antiCatTargetSelect) antiCatTargetSelect.value = 'none';
+                if (catTargetSelect) catTargetSelect.value = 'main';
                 const catsEl = document.getElementById('tw-nt-model-cats');
                 if (catsEl) catsEl.value = 'Cats';
             } else if (mode === 'full_storm') {
@@ -2391,6 +2413,8 @@
                 if (leadNukesInput) leadNukesInput.value = '2';
                 if (antiModeSelect) antiModeSelect.value = 'anti_full_3';
                 if (bunkerCountSelect) bunkerCountSelect.value = '3';
+                if (nukeCatTargetSelect) nukeCatTargetSelect.value = 'place';
+                if (antiCatTargetSelect) antiCatTargetSelect.value = 'none';
                 if (catTargetSelect) catTargetSelect.value = 'place';
                 const snobEl = document.getElementById('tw-nt-model-snob');
                 if (snobEl) snobEl.value = 'NT 25%';
@@ -2417,7 +2441,7 @@
 
             // 1. Card 1: Controlos de Nobres
             if (nobleControlsBox) {
-                nobleControlsBox.style.display = isCleanOnlyProfile ? 'none' : 'grid';
+                nobleControlsBox.style.display = isCleanOnlyProfile ? 'none' : 'flex';
             }
 
             const lblNobleCount = document.getElementById('tw-lbl-noble-count');
@@ -2446,14 +2470,18 @@
                 });
             }
 
+            const boxSuboptions = document.getElementById('tw-box-noble-suboptions');
             const boxArch = document.getElementById('tw-box-noble-arch');
             const boxAnchor = document.getElementById('tw-box-batevolta-anchor');
             if (isBateVolta) {
                 if (boxArch) boxArch.style.display = 'none';
                 if (boxAnchor) boxAnchor.style.display = 'flex';
+                if (boxSuboptions) boxSuboptions.style.display = 'grid';
             } else {
                 if (boxAnchor) boxAnchor.style.display = 'none';
-                if (boxArch) boxArch.style.display = (hasNobles && nobleCount >= 2) ? 'flex' : 'none';
+                const showArch = (hasNobles && nobleCount >= 2);
+                if (boxArch) boxArch.style.display = showArch ? 'flex' : 'none';
+                if (boxSuboptions) boxSuboptions.style.display = showArch ? 'grid' : 'none';
             }
 
             const boxManualNobles = document.getElementById('tw-box-manual-nobles');
@@ -2541,14 +2569,18 @@
                 antiCatTargetSelect.style.opacity = isAntiActive ? '1' : '0.4';
             }
 
+            const boxCatDemolish = document.getElementById('tw-box-cat-demolish');
+            if (boxCatDemolish) {
+                boxCatDemolish.style.display = (attackMode === 'cat_demolish') ? 'flex' : 'none';
+            }
+
             const modelCatsInput = document.getElementById('tw-nt-model-cats');
             if (modelCatsInput) {
-                const hasCats = (
-                    (catTargetSelect && catTargetSelect.value !== 'none') ||
-                    (nukeCatTargetSelect && nukeCatTargetSelect.value !== 'none' && leadNukes > 0) ||
-                    (antiCatTargetSelect && antiCatTargetSelect.value !== 'none' && hasNobles) ||
-                    attackMode === 'cat_demolish' || attackMode === 'full_storm'
-                );
+                const isCatDemolishActive = (attackMode === 'cat_demolish');
+                const isNukeCatActive = (nukeCatTargetSelect && nukeCatTargetSelect.value !== 'none' && leadNukes > 0);
+                const isAntiCatActive = (antiCatTargetSelect && antiCatTargetSelect.value !== 'none' && hasNobles);
+                const isFullStormActive = (attackMode === 'full_storm');
+                const hasCats = isCatDemolishActive || isNukeCatActive || isAntiCatActive || isFullStormActive;
                 modelCatsInput.disabled = !hasCats;
                 modelCatsInput.style.opacity = hasCats ? '1' : '0.4';
             }
@@ -2646,7 +2678,10 @@
             };
         }
         if (catTargetSelect) {
-            catTargetSelect.onchange = () => syncPlannerFormState();
+            catTargetSelect.onchange = (e) => {
+                savePrefs('tw_nt_cat_target_building', e.target.value);
+                syncPlannerFormState();
+            };
         }
         if (nukeCatTargetSelect) {
             nukeCatTargetSelect.onchange = (e) => {
@@ -3218,6 +3253,8 @@
         const savedReqPaladinNuke = getPref('tw_nt_req_paladin_nuke', 'true');
         const savedNukeCat = getPref('tw_nt_nuke_cat_target', 'place');
         const savedAntiCat = getPref('tw_nt_anti_cat_target', 'none');
+        const savedMsInterval = getPref('tw_nt_ms_interval', '200');
+        const savedCatDemolishTarget = getPref('tw_nt_cat_target_building', 'main');
 
         if (document.getElementById('tw-nt-model-nuke')) document.getElementById('tw-nt-model-nuke').value = savedNukeModel;
         if (document.getElementById('tw-nt-model-anti')) document.getElementById('tw-nt-model-anti').value = savedAntiModel;
@@ -3256,6 +3293,11 @@
         }
         if (document.getElementById('tw-nt-nuke-cat-target')) document.getElementById('tw-nt-nuke-cat-target').value = savedNukeCat;
         if (document.getElementById('tw-nt-anti-cat-target')) document.getElementById('tw-nt-anti-cat-target').value = savedAntiCat;
+        if (document.getElementById('tw-nt-cat-target-building')) document.getElementById('tw-nt-cat-target-building').value = savedCatDemolishTarget;
+        if (document.getElementById('tw-nt-ms-interval')) {
+            document.getElementById('tw-nt-ms-interval').value = savedMsInterval;
+            document.getElementById('tw-nt-ms-interval').oninput = (e) => savePrefs('tw_nt_ms_interval', e.target.value);
+        }
 
         document.getElementById('tw-nt-model-nuke').onchange = (e) => savePrefs('tw_nt_model_nuke', e.target.value);
         document.getElementById('tw-nt-model-anti').onchange = (e) => savePrefs('tw_nt_model_anti', e.target.value);
