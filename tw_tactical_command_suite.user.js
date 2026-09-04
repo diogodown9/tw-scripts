@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TW Tactical Command Suite
 // @namespace    https://tribalwars.com.pt/
-// @version      2.6.1
-// @description  Suite militar avançada para Tribal Wars PT: Design Otimizado em 3 Colunas (Bunker + Fakes empilhados para layout mais prático e elegante), Indicação Inteligente da Aldeia de Nobres Mais Perto (com cálculo de distância, tempo de viagem e compatibilidade de nobres), Seleção Personalizada de Paladino para Ataque / Realocação (Preservação de QuimConquista p/ Nobres c/ Persuasão), Reconhecimento Real de Todos os Paladinos c/ Atalho Direto na Estátua, Contador Tático, Gerador de Fakes dinâmico, Planeador NT + Anti-Snipe + Bunker, Re-Nobre em Bate e Volta e Campanha Multialvo.
+// @version      2.6.2
+// @description  Suite militar avançada para Tribal Wars PT: Seletor Inteligente & Manual de Aldeia para Nuke de Limpeza (com indicação de tropas reais, fazenda e tempos de viagem), Filtro para Priorizar Full Nukes Reais (≥20k Fazenda), Design Otimizado em 3 Colunas (Bunker + Fakes empilhados), Indicação de Nobres Mais Perto, Seleção de Paladino Personalizada e Campanha Multialvo.
 // @author       Diogo & Antigravity
 // @match        https://*.tribalwars.com.pt/game.php*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=tribalwars.com.pt
@@ -10,7 +10,7 @@
 // ==/UserScript==
 
 (async function () {
-    const SCRIPT_VERSION = '2.6.1';
+    const SCRIPT_VERSION = '2.6.2';
     const modalId = 'tw-master-suite';
     
     // Limpeza de instâncias anteriores
@@ -1735,6 +1735,23 @@
                             </div>
                         </div>
 
+                        <!-- SELETOR MANUAL E INTELIGENTE DE ALDEIA DO NUKE PRINCIPAL -->
+                        <div id="tw-box-lead-nuke-village" style="display:flex; flex-direction:column; gap:3px; margin:1px 0; padding:4px 6px; background:rgba(239, 68, 68, 0.08); border:1px dashed rgba(239, 68, 68, 0.3); border-radius:4px;">
+                            <div style="display:flex; justify-content:space-between; align-items:center;">
+                                <span style="font-size:9.5px; color:#f87171; font-weight:bold;">🎯 Aldeia Nuke Principal:</span>
+                                <label style="font-size:8.5px; color:#fca5a5; display:flex; align-items:center; gap:3px; cursor:pointer;" title="Dá prioridade a Full Nukes reais (Fazenda ≥ 20.000) sobre Semi Nukes incompletos">
+                                    <input type="checkbox" id="tw-nt-prefer-full-nukes" checked style="cursor:pointer; width:12px; height:12px;">
+                                    Priorizar Fulls (≥20k)
+                                </label>
+                            </div>
+                            <select id="tw-nt-lead-nuke-village" class="tw-select" style="font-size:9.5px; padding:2px 4px; font-weight:bold; color:#fca5a5; background:#1e1b4b; border:1px solid #ef4444; width:100%; text-overflow:ellipsis;">
+                                <option value="auto">⚡ Auto (Melhor Full Nuke mais perto)</option>
+                            </select>
+                            <div id="tw-nt-nuke-proximity-hint" style="font-size:8.5px; color:#94a3b8; line-height:1.2;">
+                                🎯 Insere a coordenada do alvo para ver aldeias de nuke e tropas disponíveis.
+                            </div>
+                        </div>
+
                         <div style="display:grid; grid-template-columns: 1fr 1fr; gap:4px;">
                             <div style="display:flex; flex-direction:column; gap:1px;">
                                 <span style="font-size:8.5px; color:#94a3b8;">Mod. Nuke:</span>
@@ -2286,6 +2303,11 @@
                 modelCatsInput.style.opacity = hasCats ? '1' : '0.4';
             }
 
+            const boxLeadNuke = document.getElementById('tw-box-lead-nuke-village');
+            if (boxLeadNuke) {
+                boxLeadNuke.style.display = (plannerMode === 'single' && leadNukes > 0) ? 'flex' : 'none';
+            }
+
             // 3. Card 3: Bunker Conquista
             const boxBunkerInputs = document.getElementById('tw-box-bunker-inputs');
             if (bunkerCountSelect) {
@@ -2319,6 +2341,11 @@
             // 5. Proximity HUD de Nobres (no modo alvo único)
             if (plannerMode === 'single' && typeof updateNobleProximityHUD === 'function') {
                 updateNobleProximityHUD(null, true);
+            }
+
+            // 6. Proximity HUD de Nuke (no modo alvo único)
+            if (plannerMode === 'single' && typeof updateNukeProximityHUD === 'function') {
+                updateNukeProximityHUD(null, true);
             }
         }
 
@@ -2611,6 +2638,154 @@
             }
         }
 
+        function updateNukeProximityHUD(preferredNukeId = null, isUserManualChange = false) {
+            const target = targetInput ? targetInput.value.trim() : '';
+            const selNuke = document.getElementById('tw-nt-lead-nuke-village');
+            const hintBox = document.getElementById('tw-nt-nuke-proximity-hint');
+            const chkPreferFull = document.getElementById('tw-nt-prefer-full-nukes');
+            const boxLeadNuke = document.getElementById('tw-box-lead-nuke-village');
+            const leadNukesCount = parseInt(leadNukesInput ? leadNukesInput.value : '0', 10) || 0;
+
+            if (!selNuke) return;
+
+            if (leadNukesCount === 0 || plannerMode !== 'single') {
+                if (boxLeadNuke) boxLeadNuke.style.display = 'none';
+                return;
+            } else {
+                if (boxLeadNuke) boxLeadNuke.style.display = 'flex';
+            }
+
+            const excludeCommitted = document.getElementById('tw-nt-exclude-committed') ? document.getElementById('tw-nt-exclude-committed').checked : true;
+            const committedMap = getCommittedSchedules();
+
+            const nobleVillageId1 = document.getElementById('tw-nt-noble-village') ? document.getElementById('tw-nt-noble-village').value : null;
+            const nobleVillageId2 = document.getElementById('tw-nt-noble-village-2') ? document.getElementById('tw-nt-noble-village-2').value : null;
+            const excludedIds = [];
+            if (nobleVillageId1) excludedIds.push(nobleVillageId1);
+            if (nobleVillageId2) excludedIds.push(nobleVillageId2);
+
+            let offPool = allVillages.filter(v => v.rowClass === 'tw-row-off' && !excludedIds.includes(v.id));
+            if (excludeCommitted) {
+                offPool = offPool.filter(v => !committedMap[v.id]);
+            }
+
+            if (offPool.length === 0) {
+                selNuke.innerHTML = '<option value="auto">❌ Nenhuma aldeia de ataque disponível</option>';
+                if (hintBox) hintBox.innerHTML = '❌ <b style="color:#ef4444;">Sem aldeias de ataque disponíveis.</b>';
+                return;
+            }
+
+            const isValidTarget = /^\d{3}\|\d{3}$/.test(target);
+            const prevSelected = preferredNukeId || selNuke.value || 'auto';
+            const preferFull = chkPreferFull ? chkPreferFull.checked : true;
+            const reqPaladinNuke = document.getElementById('tw-nt-req-paladin-nuke') ? document.getElementById('tw-nt-req-paladin-nuke').checked : true;
+            const palChoice = document.getElementById('tw-nt-paladin-choice') ? document.getElementById('tw-nt-paladin-choice').value : 'auto';
+
+            const formatTroopsShort = (v) => {
+                const d = v.homeTroopsDict || v.troopsDict || {};
+                const p = [];
+                if (d.axe) p.push(`${(d.axe/1000).toFixed(1)}k🪓`);
+                if (d.light) p.push(`${(d.light/1000).toFixed(1)}k🐎`);
+                if (d.ram) p.push(`${d.ram}🪵`);
+                if (d.catapult) p.push(`${d.catapult}☄️`);
+                return p.length > 0 ? p.join(' ') : '0 tropas';
+            };
+
+            if (!isValidTarget) {
+                let defaultOptions = '<option value="auto">⚡ Auto (Melhor Full Nuke mais perto)</option>';
+                defaultOptions += offPool.map(v => {
+                    const isFull = (v.farm && v.farm.used >= 20000);
+                    const tag = isFull ? '⭐ [FULL]' : '⚠️ [SEMI]';
+                    const pal = (v.paladin && v.paladin.isHome) ? ` [${v.paladin.name} ⚔️]` : '';
+                    const comm = committedMap[v.id] ? ' [🔒 Reservada]' : '';
+                    const farmK = (v.farm && v.farm.used) ? (v.farm.used/1000).toFixed(1) : '?';
+                    return `<option value="${v.id}">${tag} ${cleanVillageDisplayName(v)} • Faz. ${farmK}k • ${formatTroopsShort(v)}${pal}${comm}</option>`;
+                }).join('');
+                selNuke.innerHTML = defaultOptions;
+                if (prevSelected && selNuke.querySelector(`option[value="${prevSelected}"]`)) {
+                    selNuke.value = prevSelected;
+                }
+                if (hintBox) hintBox.innerHTML = '🎯 <i>Insere a coordenada do alvo para ver distâncias, tempos e tropas.</i>';
+                return;
+            }
+
+            // Alvo válido
+            const ramSpeedMin = unitSpeedMinutes.ram || 30;
+            const listWithDist = offPool.map(v => {
+                const dist = calcDistance(v.coords, target);
+                const sec = dist * ramSpeedMin * 60;
+                const isComm = !!committedMap[v.id];
+                const isFull = (v.farm && v.farm.used >= 20000) || (v.roleTag && v.roleTag.label && v.roleTag.label.includes('Full Nuke'));
+                const pal = v.paladin;
+                const hasKnight = pal ? pal.isHome : ((v.knightAvailable || (v.homeTroopsDict && v.homeTroopsDict.knight) || 0) >= 1);
+                let hasMatchingPaladin = false;
+                if (palChoice === 'auto') {
+                    hasMatchingPaladin = pal ? (pal.isOffense && pal.isHome) : hasKnight;
+                } else {
+                    hasMatchingPaladin = pal ? (String(pal.id) === String(palChoice) && pal.isHome) : false;
+                }
+                return {
+                    village: v,
+                    dist,
+                    sec,
+                    timeStr: formatDuration(sec),
+                    isComm,
+                    isFull,
+                    hasMatchingPaladin
+                };
+            }).sort((a, b) => {
+                if (reqPaladinNuke) {
+                    if (a.hasMatchingPaladin && !b.hasMatchingPaladin) return -1;
+                    if (!a.hasMatchingPaladin && b.hasMatchingPaladin) return 1;
+                }
+                if (preferFull) {
+                    if (a.isFull && !b.isFull) return -1;
+                    if (!a.isFull && b.isFull) return 1;
+                }
+                return a.dist - b.dist;
+            });
+
+            const bestAuto = listWithDist[0];
+
+            let optionsHtml = '<option value="auto">⚡ Auto (Melhor Nuke Mais Perto)</option>';
+            optionsHtml += listWithDist.map((item, idx) => {
+                const v = item.village;
+                const isFull = item.isFull;
+                const tag = isFull ? '⭐ [FULL]' : '⚠️ [SEMI]';
+                const isBest = (v.id === bestAuto.village.id);
+                const prefix = isBest ? '⭐ [1º RECOMENDADO] ' : `[#${idx + 1}] `;
+                const pal = (v.paladin && v.paladin.isHome) ? ` [${v.paladin.name} ⚔️]` : '';
+                const comm = item.isComm ? ' [🔒 Reservada]' : '';
+                const farmK = (v.farm && v.farm.used) ? (v.farm.used/1000).toFixed(1) : '?';
+                return `<option value="${v.id}">${prefix}${tag} ${cleanVillageDisplayName(v)} • ${item.dist.toFixed(1)}c • ⏳ ${item.timeStr} • Faz. ${farmK}k • ${formatTroopsShort(v)}${pal}${comm}</option>`;
+            }).join('');
+
+            selNuke.innerHTML = optionsHtml;
+
+            if (isUserManualChange && prevSelected && selNuke.querySelector(`option[value="${prevSelected}"]`)) {
+                selNuke.value = prevSelected;
+            } else if (!isUserManualChange && prevSelected && prevSelected !== 'auto' && selNuke.querySelector(`option[value="${prevSelected}"]`)) {
+                selNuke.value = prevSelected;
+            } else {
+                selNuke.value = 'auto';
+            }
+
+            // Atualizar o banner descritivo
+            if (hintBox) {
+                const currentVal = selNuke.value;
+                if (currentVal === 'auto') {
+                    const bV = bestAuto.village;
+                    const farmK = (bV.farm && bV.farm.used) ? (bV.farm.used/1000).toFixed(1) : '?';
+                    hintBox.innerHTML = `⭐ <b>Auto:</b> <span style="color:#fbbf24; font-weight:bold;">${cleanVillageDisplayName(bV)}</span> (${bestAuto.dist.toFixed(1)}c • ⏳ ${bestAuto.timeStr}) • 🌾 Faz. <b>${farmK}k</b> • ⚔️ ${formatTroopsShort(bV)}`;
+                } else {
+                    const chosenItem = listWithDist.find(i => i.village.id === currentVal) || bestAuto;
+                    const cV = chosenItem.village;
+                    const farmK = (cV.farm && cV.farm.used) ? (cV.farm.used/1000).toFixed(1) : '?';
+                    hintBox.innerHTML = `🎯 <b>Manual:</b> <span style="color:#38bdf8; font-weight:bold;">${cleanVillageDisplayName(cV)}</span> (${chosenItem.dist.toFixed(1)}c • ⏳ ${chosenItem.timeStr}) • 🌾 Faz. <b>${farmK}k</b> • ⚔️ ${formatTroopsShort(cV)}`;
+                }
+            }
+        }
+
         if (targetInput) {
             const handleTargetChange = () => {
                 let val = targetInput.value;
@@ -2619,6 +2794,7 @@
                 }
                 updateRadiusFakesHUD();
                 updateNobleProximityHUD(null, false);
+                updateNukeProximityHUD(null, false);
             };
             targetInput.addEventListener('input', handleTargetChange);
             targetInput.addEventListener('change', handleTargetChange);
@@ -2627,15 +2803,33 @@
 
         const selNoblePrimary = document.getElementById('tw-nt-noble-village');
         if (selNoblePrimary) {
-            selNoblePrimary.onchange = () => updateNobleProximityHUD(selNoblePrimary.value, true);
+            selNoblePrimary.onchange = () => {
+                updateNobleProximityHUD(selNoblePrimary.value, true);
+                updateNukeProximityHUD(null, false);
+            };
         }
         const selNobleSecondary = document.getElementById('tw-nt-noble-village-2');
         if (selNobleSecondary) {
-            selNobleSecondary.onchange = () => updateNobleProximityHUD(null, true);
+            selNobleSecondary.onchange = () => {
+                updateNobleProximityHUD(null, true);
+                updateNukeProximityHUD(null, false);
+            };
         }
         const chkExcludeCommitted = document.getElementById('tw-nt-exclude-committed');
         if (chkExcludeCommitted) {
-            chkExcludeCommitted.onchange = () => updateNobleProximityHUD(null, false);
+            chkExcludeCommitted.onchange = () => {
+                updateNobleProximityHUD(null, false);
+                updateNukeProximityHUD(null, false);
+            };
+        }
+
+        const selLeadNukeVillage = document.getElementById('tw-nt-lead-nuke-village');
+        if (selLeadNukeVillage) {
+            selLeadNukeVillage.onchange = () => updateNukeProximityHUD(selLeadNukeVillage.value, true);
+        }
+        const chkPreferFullNukes = document.getElementById('tw-nt-prefer-full-nukes');
+        if (chkPreferFullNukes) {
+            chkPreferFullNukes.onchange = () => updateNukeProximityHUD(null, false);
         }
 
         document.querySelectorAll('.tw-time-shortcut').forEach(btn => btn.onclick = function() {
@@ -2721,7 +2915,10 @@
         };
 
         syncPlannerFormState();
-        if (plannerMode === 'single') updateNobleProximityHUD(null, false);
+        if (plannerMode === 'single') {
+            updateNobleProximityHUD(null, false);
+            updateNukeProximityHUD(null, false);
+        }
     }
 
     // ==========================================
@@ -2789,6 +2986,7 @@
 
             const reqPaladinNuke = document.getElementById('tw-nt-req-paladin-nuke') ? document.getElementById('tw-nt-req-paladin-nuke').checked : true;
             const paladinChoice = document.getElementById('tw-nt-paladin-choice') ? document.getElementById('tw-nt-paladin-choice').value : 'auto';
+            const preferFullNukes = document.getElementById('tw-nt-prefer-full-nukes') ? document.getElementById('tw-nt-prefer-full-nukes').checked : true;
 
             const excludeCommitted = document.getElementById('tw-nt-exclude-committed').checked;
             const committedMap = getCommittedSchedules();
@@ -2857,7 +3055,7 @@
             for (let i = 0; i < leadNukesCount; i++) {
                 const landOffset = hasNobles ? ((leadNukesCount - i) * 100) : ((leadNukesCount - 1 - i) * 100);
                 const landMs = baseLandTime - landOffset;
-                const nukeOff = findClosestAvailable(offPool, usedOffVillages, tCoord, landMs, minLaunchMs, false, reqPaladinNuke, paladinChoice);
+                const nukeOff = findClosestAvailable(offPool, usedOffVillages, tCoord, landMs, minLaunchMs, false, reqPaladinNuke, paladinChoice, preferFullNukes);
                 if (nukeOff) {
                     usedOffVillages.add(nukeOff.village.id);
                     const pal = nukeOff.village.paladin;
@@ -3099,8 +3297,9 @@
     }
 }
 
-    function findClosestAvailable(pool, usedSet, targetCoord, targetLandMs, minLaunchMs, forbidPaladin = false, preferPaladin = false, paladinChoice = 'auto') {
+    function findClosestAvailable(pool, usedSet, targetCoord, targetLandMs, minLaunchMs, forbidPaladin = false, preferPaladin = false, paladinChoice = 'auto', preferFull = false) {
         let bestPal = null, bestPalDist = Infinity;
+        let bestFull = null, bestFullDist = Infinity;
         let best = null, bestDist = Infinity;
         let bestFallback = null, bestFallbackDist = Infinity;
 
@@ -3119,26 +3318,36 @@
                     hasMatchingPaladin = pal ? (String(pal.id) === String(paladinChoice) && pal.isHome) : false;
                 }
                 const hasOffPaladin = pal ? (pal.isOffense && pal.isHome) : hasKnight;
+                const isFullNuke = (v.farm && v.farm.used >= 20000) || (v.roleTag && v.roleTag.label && v.roleTag.label.includes('Full Nuke'));
+                const candObj = { village: v, dist: dist.toFixed(2), sec, launchTime: new Date(launchMs), hasKnight, hasOffPaladin, hasMatchingPaladin, isFullNuke };
+
                 if (!forbidPaladin || !hasKnight) {
                     if (preferPaladin && hasMatchingPaladin) {
                         if (dist < bestPalDist) {
                             bestPalDist = dist;
-                            bestPal = { village: v, dist: dist.toFixed(2), sec, launchTime: new Date(launchMs), hasKnight, hasOffPaladin, hasMatchingPaladin };
+                            bestPal = candObj;
+                        }
+                    }
+                    if (preferFull && isFullNuke) {
+                        if (dist < bestFullDist) {
+                            bestFullDist = dist;
+                            bestFull = candObj;
                         }
                     }
                     if (dist < bestDist) {
                         bestDist = dist;
-                        best = { village: v, dist: dist.toFixed(2), sec, launchTime: new Date(launchMs), hasKnight, hasOffPaladin, hasMatchingPaladin };
+                        best = candObj;
                     }
                 } else {
                     if (dist < bestFallbackDist) {
                         bestFallbackDist = dist;
-                        bestFallback = { village: v, dist: dist.toFixed(2), sec, launchTime: new Date(launchMs), hasKnight, hasOffPaladin, hasMatchingPaladin };
+                        bestFallback = candObj;
                     }
                 }
             }
         });
         if (preferPaladin && bestPal) return bestPal;
+        if (preferFull && bestFull) return bestFull;
         return best || bestFallback;
     }
 
@@ -3347,6 +3556,9 @@
             defPool = defPool.filter(v => !committedMap[v.id]);
         }
 
+        const preferFullNukes = document.getElementById('tw-nt-prefer-full-nukes') ? document.getElementById('tw-nt-prefer-full-nukes').checked : true;
+        const preferredLeadNukeId = document.getElementById('tw-nt-lead-nuke-village') ? document.getElementById('tw-nt-lead-nuke-village').value : 'auto';
+
         const sortedOff = offPool.map(v => {
             const dist = calcDistance(v.coords, target);
             const pal = v.paladin;
@@ -3358,11 +3570,16 @@
                 hasMatchingPaladin = pal ? (String(pal.id) === String(paladinChoice) && pal.isHome) : false;
             }
             const hasOffPaladin = pal ? (pal.isOffense && pal.isHome) : hasKnight;
-            return { village: v, dist, sec: dist * unitSpeedMinutes.ram * 60, hasKnight, hasOffPaladin, hasMatchingPaladin, paladin: pal };
+            const isFullNuke = (v.farm && v.farm.used >= 20000) || (v.roleTag && v.roleTag.label && v.roleTag.label.includes('Full Nuke'));
+            return { village: v, dist, sec: dist * unitSpeedMinutes.ram * 60, hasKnight, hasOffPaladin, hasMatchingPaladin, paladin: pal, isFullNuke };
         }).sort((a,b) => {
             if (reqPaladinNuke) {
                 if (a.hasMatchingPaladin && !b.hasMatchingPaladin) return -1;
                 if (!a.hasMatchingPaladin && b.hasMatchingPaladin) return 1;
+            }
+            if (preferFullNukes) {
+                if (a.isFullNuke && !b.isFullNuke) return -1;
+                if (!a.isFullNuke && b.isFullNuke) return 1;
             }
             return a.dist - b.dist;
         });
@@ -3378,19 +3595,37 @@
 
         const STANDARD_RELOCATE_MS = (3 * 3600 + 31 * 60 + 45) * 1000;
 
-        function assignOffNuke(targetLandMs, typeLabel, badgeClass, modelStr, isLeadNuke = false, buildingTarget = '', allowPaladin = true) {
+        function assignOffNuke(targetLandMs, typeLabel, badgeClass, modelStr, isLeadNuke = false, buildingTarget = '', allowPaladin = true, forceVillageId = null) {
             let candIndex = -1;
-            for (let i = 0; i < sortedOff.length; i++) {
-                const cand = sortedOff[i];
-                if (usedOffVillages.has(cand.village.id)) continue;
-                if (!allowPaladin && cand.hasKnight) continue;
-                
-                const travelSec = cand.sec;
-                const launchMs = targetLandMs - (travelSec * 1000);
-                
-                if (launchMs >= minLaunchMs) {
-                    candIndex = i;
-                    break;
+            if (forceVillageId && forceVillageId !== 'auto') {
+                const idx = sortedOff.findIndex(c => c.village.id === forceVillageId && !usedOffVillages.has(c.village.id));
+                if (idx !== -1) {
+                    const cand = sortedOff[idx];
+                    const travelSec = cand.sec;
+                    const launchMs = targetLandMs - (travelSec * 1000);
+                    if (launchMs >= minLaunchMs) {
+                        candIndex = idx;
+                    } else {
+                        const earliestLand = new Date(now + (travelSec + 120) * 1000);
+                        alert(`❌ A aldeia de limpeza selecionada (${cleanVillageDisplayName(cand.village)}) fica a ${cand.dist.toFixed(1)}c (${formatDuration(travelSec)}) do alvo.\nA hora de envio já passou.\nHora mínima de impacto para esta aldeia: ${earliestLand.toLocaleDateString('pt-PT')} ${earliestLand.toLocaleTimeString('pt-PT')}`);
+                        throw new Error(`Hora de envio no passado para ${cand.village.name}`);
+                    }
+                }
+            }
+
+            if (candIndex === -1) {
+                for (let i = 0; i < sortedOff.length; i++) {
+                    const cand = sortedOff[i];
+                    if (usedOffVillages.has(cand.village.id)) continue;
+                    if (!allowPaladin && cand.hasKnight) continue;
+                    
+                    const travelSec = cand.sec;
+                    const launchMs = targetLandMs - (travelSec * 1000);
+                    
+                    if (launchMs >= minLaunchMs) {
+                        candIndex = i;
+                        break;
+                    }
                 }
             }
 
@@ -3416,17 +3651,25 @@
                 const isPaladinOff = cand.hasOffPaladin || cand.hasKnight;
                 let finalType = typeLabel;
                 let finalBadge = badgeClass;
-                let extraInfo = 'Full Off';
+
+                const d = cand.village.homeTroopsDict || cand.village.troopsDict || {};
+                const axe = d.axe ? `${(d.axe/1000).toFixed(1)}k🪓 ` : '';
+                const lc = d.light ? `${(d.light/1000).toFixed(1)}k🐎 ` : '';
+                const ram = d.ram ? `${d.ram}🪵 ` : '';
+                const cat = d.catapult ? `${d.catapult}☄️ ` : '';
+                const farmK = (cand.village.farm && cand.village.farm.used) ? `Faz. ${(cand.village.farm.used/1000).toFixed(1)}k` : '';
+                const troopsInline = (axe || lc || ram || cat) ? `• ${axe}${lc}${ram}${cat}`.trim() : '';
+                let extraInfo = isLeadNuke ? `${farmK} ${troopsInline}`.trim() : 'Full Off';
 
                 if (cand.paladin && cand.paladin.isHome) {
                     const pal = cand.paladin;
                     finalType = `${typeLabel} (${pal.name} ⚔️)`;
                     finalBadge = 'tw-badge-paladino';
-                    extraInfo = `Full Off (Buff ${pal.name} ⚔️ Lvl ${pal.level})`;
+                    extraInfo = `Buff ${pal.name} ⚔️ Lvl ${pal.level} ${troopsInline}`.trim();
                 } else if (isPaladinOff) {
                     finalType = `${typeLabel} (Paladino)`;
                     finalBadge = 'tw-badge-paladino';
-                    extraInfo = 'Full Off (Buff Paladino ⚔️)';
+                    extraInfo = `Buff Paladino ⚔️ ${troopsInline}`.trim();
                 }
 
                 const cmdObj = {
@@ -3518,7 +3761,8 @@
         const nukeCommands = [];
         for (let i = 0; i < leadNukesCount; i++) {
             const landOffset = hasNobles ? ((leadNukesCount - i) * 100) : ((leadNukesCount - 1 - i) * 100);
-            const cmd = assignOffNuke(trip1AnchorLandMs - landOffset, `Limpeza Principal #${i+1}`, 'tw-badge-nuke', modelNuke, false, catTargetBuilding, true);
+            const forceId = (i === 0 && preferredLeadNukeId !== 'auto') ? preferredLeadNukeId : null;
+            const cmd = assignOffNuke(trip1AnchorLandMs - landOffset, `Limpeza Principal #${i+1}`, 'tw-badge-nuke', modelNuke, true, catTargetBuilding, true, forceId);
             if (cmd) {
                 if (cmd.hasPaladin) paladinInNukes = true;
                 nukeCommands.push(cmd);
