@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         TW Tactical Command Suite - Attack v2 (PSEvolution Edition)
+// @name         TW Tactical Command Suite
 // @namespace    https://tribalwars.com.pt/
-// @version      2.0.0
-// @description  Suite militar avançada para Tribal Wars PT: Visão Geral com regra 22k, Contador Tático, Gerador de Fakes dinâmico, Planeador NT + Anti-Snipe + Bunker com Paladino e Memória Inteligente de Aldeias Reservadas para o PSEvolution.
+// @version      2.1.0
+// @description  Suite militar avançada para Tribal Wars PT: Visão Geral com regra 22k, Contador Tático, Gerador de Fakes dinâmico, Planeador NT + Anti-Snipe + Bunker com Paladino, Campanha Multialvo com IA de Atribuição e Memória Inteligente de Aldeias Reservadas.
 // @author       DeepMind / Antigravity
 // @match        https://*.tribalwars.com.pt/game.php*
 // @grant        none
@@ -173,7 +173,7 @@
                 <button class="tw-tab active" id="tab-btn-overview">📊 Visão Geral</button>
                 <button class="tw-tab" id="tab-btn-counter">⚔️ Contador Tático</button>
                 <button class="tw-tab" id="tab-btn-fakes">🎭 Fakes & Mascaramento</button>
-                <button class="tw-tab tw-tab-special" id="tab-btn-nt">👑 Planeador de Ataques (PSEvolution)</button>
+                <button class="tw-tab tw-tab-special" id="tab-btn-nt">👑 Planeador de Ataques</button>
             </div>
         </div>
         <div id="tw-main-body" style="flex-grow:1; display:flex; flex-direction:column; overflow:hidden;"></div>
@@ -304,7 +304,7 @@
 
         let rows = '';
         if (entries.length === 0) {
-            rows = `<tr><td colspan="6" style="padding:30px; text-align:center; color:#64748b;">Nenhuma aldeia reservada no momento. Os agendamentos expiram automaticamente ou são limpos aqui.</td></tr>`;
+            rows = `<tr><td colspan="7" style="padding:30px; text-align:center; color:#64748b;">Nenhuma aldeia reservada no momento. Os agendamentos expiram automaticamente ou são limpos aqui.</td></tr>`;
         } else {
             entries.forEach((e, idx) => {
                 const minLeft = Math.max(0, Math.ceil((e.expiresAt - Date.now()) / 60000));
@@ -389,6 +389,7 @@
     let savedCounterUnit = 'ram';
     let lastGeneratedCommands = [];
     let lastGeneratedTarget = '';
+    let plannerMode = 'single'; // 'single' ou 'multi'
 
     const PT114_TIME_MODIFIER = 58.8227 / 60;
     const unitSpeedMinutes = { 
@@ -622,7 +623,7 @@
             counterSummaryData = summary;
             updateMemoryHUD();
             document.getElementById('tw-tabs-container').style.display = 'flex';
-            document.getElementById('tw-title-text').innerHTML = `⚡ TW Tactical Command Suite v2 (${allVillages.length} Aldeias Conectadas)`;
+            document.getElementById('tw-title-text').innerHTML = `⚡ TW Tactical Command Suite (${allVillages.length} Aldeias Conectadas)`;
             
             document.getElementById('tab-btn-overview').onclick = () => switchTab('overview');
             document.getElementById('tab-btn-counter').onclick = () => switchTab('counter');
@@ -646,7 +647,7 @@
         if (tab === 'overview') renderOverview();
         else if (tab === 'counter') renderCounter();
         else if (tab === 'fakes') renderFakes();
-        else if (tab === 'nt') renderAntiBotNT();
+        else if (tab === 'nt') renderAttackPlanner();
     }
 
     // ==========================================
@@ -1165,7 +1166,7 @@
                 <div style="display:flex; justify-content:space-between; align-items:center; padding:2px 0;">
                     <div style="display:flex; gap:8px; align-items:center;">
                         <button class="tw-btn tw-btn-gold" id="tw-btn-gen-russo" style="padding:7px 18px;">
-                            ⚡ Gerar Plano de Fakes (Copiar para PSEvolution)
+                            ⚡ Gerar Plano de Fakes (Copiar BBCode)
                         </button>
                         <button class="tw-btn tw-btn-purple" id="tw-btn-fakes-commit-1h" style="padding:7px 14px; font-weight:bold;">
                             💾 Agendamento feito - guardar durante 1h
@@ -1186,7 +1187,7 @@
                                     <th style="width:75px;">Distância</th>
                                     <th style="width:140px;">Hora de Envio</th>
                                     <th style="width:140px;">Hora de Impacto</th>
-                                    <th style="width:90px;">Modelo Bot</th>
+                                    <th style="width:110px;">Modelo de Tropas</th>
                                 </tr>
                             </thead>
                             <tbody id="tw-f-tbody">
@@ -1236,8 +1237,8 @@
             document.getElementById('tw-f-model').onchange = (e) => savePrefs('tw_f_model', e.target.value);
         }
 
-        document.getElementById('tw-btn-open-map-modal').onclick = openMapIframeModal;
-        document.getElementById('tw-btn-gen-russo').onclick = () => buildBotPlan('russo');
+        document.getElementById('tw-btn-open-map-modal').onclick = () => openMapIframeModal('fakes');
+        document.getElementById('tw-btn-gen-russo').onclick = () => buildFakePlan('russo');
 
         document.getElementById('tw-btn-fakes-commit-1h').onclick = () => {
             if (!lastGeneratedCommands || lastGeneratedCommands.length === 0) {
@@ -1268,7 +1269,7 @@
         document.getElementById('tw-f-group').onchange = updateFakesHUD;
     }
 
-    async function buildBotPlan(format = 'russo') {
+    async function buildFakePlan(format = 'russo') {
         const raw = document.getElementById('tw-f-targets').value;
         const targets = Array.from(new Set(raw.match(/\d{3}\|\d{3}/g) || []));
         if (targets.length === 0) {
@@ -1415,14 +1416,14 @@
         document.getElementById('tw-f-tbody').innerHTML = rows;
         document.getElementById('tw-f-preview').value = output.trim();
         await navigator.clipboard.writeText(output.trim());
-        document.getElementById('tw-f-status').innerHTML = `<span style="color:#34d399;">✅ ${commands.length} fakes gerados e copiados para PSEvolution!</span>`;
+        document.getElementById('tw-f-status').innerHTML = `<span style="color:#34d399;">✅ ${commands.length} fakes gerados e copiados para o Clipboard!</span>`;
         showToast(`⚡ ${commands.length} Fakes copiados para a Área de Transferência!`);
     }
 
     // ==========================================
-    // ABA 4: PLANEADOR DE ATAQUES (PSEVOLUTION)
+    // ABA 4: PLANEADOR DE ATAQUES & CAMPANHA MULTIALVO
     // ==========================================
-    function renderAntiBotNT() {
+    function renderAttackPlanner() {
         const now = new Date();
         const tomorrow = new Date(now.getTime() + 18 * 3600 * 1000);
         const landDefaultStr = `${tomorrow.getFullYear()}-${String(tomorrow.getMonth()+1).padStart(2,'0')}-${String(tomorrow.getDate()).padStart(2,'0')}T20:00:00`;
@@ -1441,10 +1442,18 @@
             <div class="tw-pane active" style="padding: 2px; gap:6px;">
                 <div style="display:grid; grid-template-columns: repeat(4, 1fr); gap:6px;">
                     
-                    <!-- CARD 1: ALVO, MODO DE ATAQUE & NOBRES -->
+                    <!-- CARD 1: ALVO, MODO DE OPERAÇÃO & NOBRES -->
                     <div class="tw-card" style="padding:8px 10px; gap:4px;">
-                        <div class="tw-card-title" style="color:#fbbf24; font-size:10px;">🎯 1. Alvo & Modo de Ataque</div>
-                        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:4px;">
+                        <div class="tw-card-title" style="color:#fbbf24; font-size:10px;">
+                            <span>🎯 1. Alvo & Operação</span>
+                            <div style="display:flex; gap:3px;">
+                                <button class="tw-pill ${plannerMode==='single'?'active':''}" id="tw-btn-mode-single" style="padding:1px 6px; font-size:9px;">🎯 Único</button>
+                                <button class="tw-pill ${plannerMode==='multi'?'active':''}" id="tw-btn-mode-multi" style="padding:1px 6px; font-size:9px;">🌐 Multialvo</button>
+                            </div>
+                        </div>
+
+                        <!-- MODO ALVO ÚNICO -->
+                        <div id="tw-box-target-single" style="display:${plannerMode==='single'?'grid':'none'}; grid-template-columns: 1fr 1fr; gap:4px;">
                             <div style="display:flex; flex-direction:column; gap:1px;">
                                 <span style="font-size:9px; color:#94a3b8;">Coordenada:</span>
                                 <input type="text" id="tw-nt-target" class="tw-input" placeholder="xxx|yyy" maxlength="7" style="font-weight:bold; color:#fbbf24; text-align:center; padding:4px 6px;">
@@ -1452,6 +1461,22 @@
                             <div style="display:flex; flex-direction:column; gap:1px;">
                                 <span style="font-size:9px; color:#94a3b8;">Impacto Chegada:</span>
                                 <input type="datetime-local" id="tw-nt-landtime" class="tw-input" step="1" value="${landDefaultStr}" style="padding:4px 4px; font-size:11px;">
+                            </div>
+                        </div>
+
+                        <!-- MODO CAMPANHA MULTIALVO -->
+                        <div id="tw-box-target-multi" style="display:${plannerMode==='multi'?'flex':'none'}; flex-direction:column; gap:2px;">
+                            <div style="display:flex; justify-content:space-between; align-items:center;">
+                                <span style="font-size:9px; color:#c084fc; font-weight:bold;">Alvos da Campanha:</span>
+                                <button class="tw-btn tw-btn-blue" id="tw-btn-open-map-planner" style="padding:1px 6px; font-size:9px;">🗺️ Seleção no Mapa</button>
+                            </div>
+                            <textarea id="tw-nt-targets-multi" class="tw-textarea" style="height:36px; font-size:10px;" placeholder="Cola lista de alvos (ex: 500|500 501|501 502|502) ou clica em Seleção no Mapa...">${Array.from(grabbedTargets).join(' ')}</textarea>
+                            <div style="display:flex; justify-content:space-between; align-items:center; margin-top:1px;">
+                                <span style="font-size:9px; color:#94a3b8;">Impacto Chegada (OP):</span>
+                                <input type="datetime-local" id="tw-nt-landtime-multi" class="tw-input" step="1" value="${landDefaultStr}" style="padding:2px 4px; font-size:10px; width:140px;">
+                            </div>
+                            <div id="tw-nt-multi-hud" style="font-size:9px; color:#34d399; font-weight:bold; background:rgba(52, 211, 153, 0.1); padding:2px 4px; border-radius:4px; margin-top:2px;">
+                                🎯 0 Alvos | 👑 0 Nobres req.
                             </div>
                         </div>
 
@@ -1490,7 +1515,7 @@
                                     <option value="5">5 Nobres (Recup. Rápida)</option>
                                 </select>
                             </div>
-                            <div style="display:flex; flex-direction:column; gap:1px;">
+                            <div style="display:flex; flex-direction:column; gap:1px;" id="tw-box-noble-arch">
                                 <span style="font-size:9px; color:#94a3b8;">Arquitetura:</span>
                                 <select id="tw-nt-architecture" class="tw-select" style="padding:4px 6px; font-size:11px;">
                                     <option value="single_4" selected>Única Aldeia</option>
@@ -1499,13 +1524,21 @@
                             </div>
                         </div>
 
-                        <div style="display:flex; flex-direction:column; gap:1px;" id="tw-box-noble-primary">
-                            <span style="font-size:9px; color:#94a3b8;" id="tw-lbl-noble-primary">Aldeia Nobres Principal:</span>
-                            <select id="tw-nt-noble-village" class="tw-select" style="padding:4px 6px; font-size:11px;">${nobleOptions}</select>
+                        <!-- SELEÇÃO MANUAL DE ALDEIA DE NOBRES (SÓ NO MODO ÚNICO) -->
+                        <div id="tw-box-manual-nobles" style="display:${plannerMode==='single'?'block':'none'};">
+                            <div style="display:flex; flex-direction:column; gap:1px;" id="tw-box-noble-primary">
+                                <span style="font-size:9px; color:#94a3b8;" id="tw-lbl-noble-primary">Aldeia Nobres Principal:</span>
+                                <select id="tw-nt-noble-village" class="tw-select" style="padding:4px 6px; font-size:11px;">${nobleOptions}</select>
+                            </div>
+                            <div style="display:none; flex-direction:column; gap:1px;" id="tw-box-noble-secondary">
+                                <span style="font-size:9px; color:#94a3b8;">Aldeia Nobres Secundária:</span>
+                                <select id="tw-nt-noble-village-2" class="tw-select" style="padding:4px 6px; font-size:11px;">${nobleOptions}</select>
+                            </div>
                         </div>
-                        <div style="display:none; flex-direction:column; gap:1px;" id="tw-box-noble-secondary">
-                            <span style="font-size:9px; color:#94a3b8;">Aldeia Nobres Secundária:</span>
-                            <select id="tw-nt-noble-village-2" class="tw-select" style="padding:4px 6px; font-size:11px;">${nobleOptions}</select>
+
+                        <!-- INDICAÇÃO IA NO MODO MULTIALVO -->
+                        <div id="tw-box-auto-nobles-hint" style="display:${plannerMode==='multi'?'block':'none'}; padding:4px 6px; background:rgba(56, 189, 248, 0.1); border:1px dashed #0284c7; border-radius:4px; font-size:9.5px; color:#bae6fd;">
+                            🤖 <b>IA de Atribuição Ativa:</b> As melhores aldeias de nobres serão alocadas automaticamente a cada alvo por menor tempo de viagem.
                         </div>
 
                         <!-- EXCLUSÃO INTELIGENTE DE ALDEIAS RESERVADAS -->
@@ -1539,11 +1572,11 @@
 
                         <div style="display:grid; grid-template-columns: 1fr 1fr; gap:4px;">
                             <div style="display:flex; flex-direction:column; gap:1px;">
-                                <span style="font-size:9px; color:#94a3b8;">Gap Bot (ms):</span>
+                                <span style="font-size:9px; color:#94a3b8;">Intervalo (ms):</span>
                                 <input type="number" id="tw-nt-ms-interval" class="tw-input" value="200" min="50" max="1000" style="padding:4px 6px; font-size:11px; text-align:center;">
                             </div>
                             <div style="display:flex; flex-direction:column; gap:1px;">
-                                <span style="font-size:9px; color:#94a3b8;">Alvo Catapulta (PSE):</span>
+                                <span style="font-size:9px; color:#94a3b8;">Alvo Catapulta (Edifício):</span>
                                 <select id="tw-nt-cat-target-building" class="tw-select" style="padding:4px 6px; font-size:11px; font-weight:bold; color:#f43f5e;">
                                     <option value="none">Nenhum</option>
                                     <option value="place" selected>Praça (place)</option>
@@ -1652,7 +1685,7 @@
                         </div>
 
                         <div style="display:flex; flex-direction:column; gap:1px;">
-                            <span style="font-size:9px; color:#e9d5ff;">Modelo no Bot:</span>
+                            <span style="font-size:9px; color:#e9d5ff;">Modelo de Tropas:</span>
                             <input type="text" id="tw-nt-fake-model" class="tw-input" value="Fake" style="font-weight:bold; color:#c084fc; padding:4px 6px; font-size:11px;">
                         </div>
 
@@ -1667,7 +1700,7 @@
                 <div style="display:flex; justify-content:space-between; align-items:center; padding:3px 0; margin-top:2px;">
                     <div style="display:flex; gap:8px; align-items:center;">
                         <button class="tw-btn tw-btn-gold" id="tw-btn-gen-nt-russo" style="padding:7px 18px;">
-                            ⚡ Gerar Plano de Ataque (Copiar para PSEvolution)
+                            ⚡ Gerar Plano de Ataque (Copiar BBCode)
                         </button>
                         <div style="display:flex; align-items:center; gap:4px; background:#0f172a; border:1px solid #7e22ce; border-radius:6px; padding:2px 6px;">
                             <button class="tw-btn tw-btn-purple" id="tw-btn-commit-1h" style="padding:5px 12px; font-size:11px; font-weight:bold;" title="Regista na memória que as aldeias desta operação estão ocupadas">
@@ -1710,6 +1743,38 @@
             </div>
         `;
 
+        // Alternância entre Alvo Único e Campanha Multialvo
+        document.getElementById('tw-btn-mode-single').onclick = () => {
+            plannerMode = 'single';
+            renderAttackPlanner();
+        };
+        document.getElementById('tw-btn-mode-multi').onclick = () => {
+            plannerMode = 'multi';
+            renderAttackPlanner();
+        };
+
+        if (document.getElementById('tw-btn-open-map-planner')) {
+            document.getElementById('tw-btn-open-map-planner').onclick = () => openMapIframeModal('planner');
+        }
+
+        const updateMultiHUD = () => {
+            const raw = document.getElementById('tw-nt-targets-multi') ? document.getElementById('tw-nt-targets-multi').value : '';
+            const tList = Array.from(new Set(raw.match(/\d{3}\|\d{3}/g) || []));
+            const nobleCount = parseInt(document.getElementById('tw-nt-noble-count').value, 10) || 4;
+            const leadNukes = parseInt(document.getElementById('tw-nt-lead-nukes').value, 10) || 0;
+            const bunkerCount = parseInt(document.getElementById('tw-nt-bunker-count').value, 10) || 0;
+            
+            const hud = document.getElementById('tw-nt-multi-hud');
+            if (hud) {
+                hud.innerHTML = `🎯 <b>${tList.length}</b> Alvos | 👑 <b>${tList.length * nobleCount}</b> Nobres | ⚔️ <b>${tList.length * leadNukes}</b> Nukes | 🛡️ <b>${tList.length * bunkerCount}</b> Bunkers`;
+            }
+        };
+
+        if (document.getElementById('tw-nt-targets-multi')) {
+            document.getElementById('tw-nt-targets-multi').oninput = updateMultiHUD;
+        }
+
+        // Manipulação da mudança de Perfis de Ataque
         const attackModeSelect = document.getElementById('tw-nt-attack-mode');
         const nobleControlsBox = document.getElementById('tw-box-noble-controls');
         const noblePrimaryBox = document.getElementById('tw-box-noble-primary');
@@ -1725,8 +1790,8 @@
             const mode = e.target.value;
             if (mode === 'nt_simple') {
                 nobleControlsBox.style.display = 'grid';
-                noblePrimaryBox.style.display = 'flex';
-                nobleSecondaryBox.style.display = 'none';
+                if (noblePrimaryBox) noblePrimaryBox.style.display = 'flex';
+                if (nobleSecondaryBox) nobleSecondaryBox.style.display = 'none';
                 leadNukesInput.value = 0;
                 antiWavesSelect.value = 0;
                 bunkerCountSelect.value = 0;
@@ -1735,8 +1800,8 @@
                 nobleCountSelect.value = 4;
             } else if (mode === 'nt_clean') {
                 nobleControlsBox.style.display = 'grid';
-                noblePrimaryBox.style.display = 'flex';
-                nobleSecondaryBox.style.display = 'none';
+                if (noblePrimaryBox) noblePrimaryBox.style.display = 'flex';
+                if (nobleSecondaryBox) nobleSecondaryBox.style.display = 'none';
                 leadNukesInput.value = 1;
                 antiWavesSelect.value = 0;
                 bunkerCountSelect.value = 2;
@@ -1745,8 +1810,8 @@
                 nobleCountSelect.value = 4;
             } else if (mode === 'standard_anti') {
                 nobleControlsBox.style.display = 'grid';
-                noblePrimaryBox.style.display = 'flex';
-                nobleSecondaryBox.style.display = 'none';
+                if (noblePrimaryBox) noblePrimaryBox.style.display = 'flex';
+                if (nobleSecondaryBox) nobleSecondaryBox.style.display = 'none';
                 leadNukesInput.value = 1;
                 antiWavesSelect.value = 3;
                 bunkerCountSelect.value = 2;
@@ -1755,8 +1820,8 @@
                 nobleCountSelect.value = 4;
             } else if (mode === 'split_2x2') {
                 nobleControlsBox.style.display = 'grid';
-                noblePrimaryBox.style.display = 'flex';
-                nobleSecondaryBox.style.display = 'flex';
+                if (noblePrimaryBox) noblePrimaryBox.style.display = 'flex';
+                if (nobleSecondaryBox) nobleSecondaryBox.style.display = 'flex';
                 leadNukesInput.value = 1;
                 antiWavesSelect.value = 3;
                 bunkerCountSelect.value = 2;
@@ -1766,8 +1831,8 @@
                 document.getElementById('tw-nt-model-snob').value = 'NT - 2 - 50%';
             } else if (mode === 'snob_solo') {
                 nobleControlsBox.style.display = 'grid';
-                noblePrimaryBox.style.display = 'flex';
-                nobleSecondaryBox.style.display = 'none';
+                if (noblePrimaryBox) noblePrimaryBox.style.display = 'flex';
+                if (nobleSecondaryBox) nobleSecondaryBox.style.display = 'none';
                 leadNukesInput.value = 0;
                 antiWavesSelect.value = 1;
                 bunkerCountSelect.value = 1;
@@ -1776,24 +1841,24 @@
                 nobleCountSelect.value = 1;
             } else if (mode === 'nuke_sweep') {
                 nobleControlsBox.style.display = 'none';
-                noblePrimaryBox.style.display = 'none';
-                nobleSecondaryBox.style.display = 'none';
+                if (noblePrimaryBox) noblePrimaryBox.style.display = 'none';
+                if (nobleSecondaryBox) nobleSecondaryBox.style.display = 'none';
                 leadNukesInput.value = 3;
                 antiWavesSelect.value = 0;
                 bunkerCountSelect.value = 0;
                 catTargetSelect.value = 'wall';
             } else if (mode === 'cat_demolish') {
                 nobleControlsBox.style.display = 'none';
-                noblePrimaryBox.style.display = 'none';
-                nobleSecondaryBox.style.display = 'none';
+                if (noblePrimaryBox) noblePrimaryBox.style.display = 'none';
+                if (nobleSecondaryBox) nobleSecondaryBox.style.display = 'none';
                 leadNukesInput.value = 2;
                 antiWavesSelect.value = 0;
                 bunkerCountSelect.value = 0;
                 catTargetSelect.value = 'place';
             } else if (mode === 'full_storm') {
                 nobleControlsBox.style.display = 'grid';
-                noblePrimaryBox.style.display = 'flex';
-                nobleSecondaryBox.style.display = 'none';
+                if (noblePrimaryBox) noblePrimaryBox.style.display = 'flex';
+                if (nobleSecondaryBox) nobleSecondaryBox.style.display = 'none';
                 leadNukesInput.value = 2;
                 antiWavesSelect.value = 3;
                 bunkerCountSelect.value = 3;
@@ -1801,26 +1866,31 @@
                 archSelect.value = 'single_4';
                 nobleCountSelect.value = 4;
             }
+            updateMultiHUD();
         };
 
         archSelect.onchange = (e) => {
             const isSplit = e.target.value === 'split_2x2';
-            nobleSecondaryBox.style.display = isSplit ? 'flex' : 'none';
+            if (nobleSecondaryBox) nobleSecondaryBox.style.display = isSplit ? 'flex' : 'none';
             document.getElementById('tw-nt-model-snob').value = isSplit ? 'NT - 2 - 50%' : 'NT 25%';
-            document.getElementById('tw-lbl-noble-primary').innerText = isSplit ? 'Aldeia Nobres (Parte 1):' : 'Aldeia Nobres Principal:';
+            if (document.getElementById('tw-lbl-noble-primary')) {
+                document.getElementById('tw-lbl-noble-primary').innerText = isSplit ? 'Aldeia Nobres (Parte 1):' : 'Aldeia Nobres Principal:';
+            }
         };
 
         const targetInput = document.getElementById('tw-nt-target');
-        targetInput.addEventListener('input', (e) => {
-            let val = e.target.value;
-            if (/^\d{3}$/.test(val) && !val.includes('|')) {
-                e.target.value = val + '|';
-            }
-            updateRadiusFakesHUD();
-        });
+        if (targetInput) {
+            targetInput.addEventListener('input', (e) => {
+                let val = e.target.value;
+                if (/^\d{3}$/.test(val) && !val.includes('|')) {
+                    e.target.value = val + '|';
+                }
+                updateRadiusFakesHUD();
+            });
+        }
 
         const updateRadiusFakesHUD = async () => {
-            const target = targetInput.value.trim();
+            const target = targetInput ? targetInput.value.trim() : '';
             const radius = parseFloat(document.getElementById('tw-nt-fake-radius').value) || 8;
             const fakesPerTarget = parseInt(document.getElementById('tw-nt-fake-count').value, 10) || 4;
             const infoBox = document.getElementById('tw-nt-fake-info');
@@ -1869,7 +1939,7 @@
         document.querySelectorAll('.tw-time-shortcut').forEach(btn => btn.onclick = function() {
             const addH = parseInt(this.getAttribute('data-add-h'), 10);
             const setH = this.getAttribute('data-set-h');
-            const landInput = document.getElementById('tw-nt-landtime');
+            const landInput = plannerMode === 'single' ? document.getElementById('tw-nt-landtime') : document.getElementById('tw-nt-landtime-multi');
             let d = landInput.value ? new Date(landInput.value) : new Date();
 
             if (!isNaN(addH)) {
@@ -1917,7 +1987,13 @@
         document.getElementById('tw-nt-fake-radius').onchange = updateRadiusFakesHUD;
         document.getElementById('tw-nt-fake-count').oninput = updateRadiusFakesHUD;
 
-        document.getElementById('tw-btn-gen-nt-russo').onclick = () => buildMasterOPPlan();
+        document.getElementById('tw-btn-gen-nt-russo').onclick = () => {
+            if (plannerMode === 'single') {
+                buildMasterOPPlan();
+            } else {
+                buildMultiTargetCampaignPlan();
+            }
+        };
 
         document.getElementById('tw-btn-commit-1h').onclick = () => {
             if (!lastGeneratedCommands || lastGeneratedCommands.length === 0) {
@@ -1930,10 +2006,249 @@
             showToast(`🔒 ${count} aldeias guardadas na memória durante ${hours}h!`);
             document.getElementById('tw-nt-status').innerHTML = `<span style="color:#c084fc;">💾 Agendamento registado na memória por ${hours}h (${count} aldeias reservadas)!</span>`;
         };
+
+        updateMultiHUD();
     }
 
     // ==========================================
-    // MOTOR DE CALENDÁRIO & SINCRONIZAÇÃO
+    // MOTOR DE CAMPANHA MULTIALVO (IA DE ATRIBUIÇÃO)
+    // ==========================================
+    async function buildMultiTargetCampaignPlan() {
+        const raw = document.getElementById('tw-nt-targets-multi').value;
+        const targets = Array.from(new Set(raw.match(/\d{3}\|\d{3}/g) || []));
+        if (targets.length === 0) {
+            alert('Por favor insere pelo menos uma coordenada alvo válida (ex: 500|500 501|501).');
+            return;
+        }
+
+        const baseLandTime = new Date(document.getElementById('tw-nt-landtime-multi').value).getTime();
+        const attackMode = document.getElementById('tw-nt-attack-mode').value;
+        const nobleCount = parseInt(document.getElementById('tw-nt-noble-count').value, 10) || 4;
+        const leadNukesCount = parseInt(document.getElementById('tw-nt-lead-nukes').value, 10) || 0;
+        const antiWavesCount = parseInt(document.getElementById('tw-nt-anti-waves').value, 10) || 0;
+        const bunkerCount = parseInt(document.getElementById('tw-nt-bunker-count').value, 10) || 0;
+        const bunkerGapMs = parseInt(document.getElementById('tw-nt-bunker-gap').value, 10) || 200;
+        const bunkerStepMs = parseInt(document.getElementById('tw-nt-bunker-step').value, 10) || 50;
+        const msStep = parseInt(document.getElementById('tw-nt-ms-interval').value, 10) || 200;
+        const halfStep = Math.floor(msStep / 2);
+
+        const modelBunker1 = document.getElementById('tw-nt-model-bunker-1').value.trim() || 'BUNK';
+        const popBunker1 = parseInt(document.getElementById('tw-nt-pop-bunker-1').value, 10) || 12000;
+        const modelBunker2 = document.getElementById('tw-nt-model-bunker-2').value.trim() || 'BUNK';
+        const popBunker2 = parseInt(document.getElementById('tw-nt-pop-bunker-2').value, 10) || 4000;
+
+        const modelNuke = document.getElementById('tw-nt-model-nuke').value.trim() || 'Ataque Full';
+        const modelAnti = document.getElementById('tw-nt-model-anti').value.trim() || 'Ataque Full';
+        const modelSnob = document.getElementById('tw-nt-model-snob').value.trim() || 'NT 25%';
+        const catTargetBuilding = document.getElementById('tw-nt-cat-target-building').value;
+        const modelCats = document.getElementById('tw-nt-model-cats') ? document.getElementById('tw-nt-model-cats').value.trim() || 'Cats' : 'Cats';
+
+        const excludeCommitted = document.getElementById('tw-nt-exclude-committed').checked;
+        const committedMap = getCommittedSchedules();
+
+        const now = Date.now();
+        const minLaunchMs = now + 60000;
+
+        // Pools de aldeias disponíveis
+        const nobleUsage = {};
+        allVillages.forEach(v => {
+            if (v.snobsAvailable > 0 && (!excludeCommitted || !committedMap[v.id])) {
+                nobleUsage[v.id] = v.snobsAvailable;
+            }
+        });
+
+        const usedOffVillages = new Set();
+        const usedDefVillages = new Set();
+        const allCampaignCommands = [];
+
+        // 1. Atribuição de Nobres por Alvo (Heurística de Menor Distância)
+        const targetAssignments = [];
+        for (const tCoord of targets) {
+            let assignedNobleVillages = [];
+
+            if (attackMode !== 'nuke_sweep' && attackMode !== 'cat_demolish') {
+                const candidates = Object.keys(nobleUsage).map(vId => {
+                    const v = villagesById[vId];
+                    const dist = calcDistance(v.coords, tCoord);
+                    const sec = dist * unitSpeedMinutes.snob * 60;
+                    const launchMs = baseLandTime - (sec * 1000);
+                    return { village: v, dist, sec, launchMs, remaining: nobleUsage[vId] };
+                }).filter(c => c.remaining >= nobleCount && c.launchMs >= minLaunchMs)
+                  .sort((a, b) => a.dist - b.dist);
+
+                if (candidates.length === 0) {
+                    alert(`❌ Não há aldeias com ${nobleCount} nobres livres a tempo de atingir o alvo ${tCoord}!\n\nDica: Alarga a hora de impacto ou reduz a quantidade de nobres.`);
+                    return;
+                }
+
+                const chosen = candidates[0];
+                nobleUsage[chosen.village.id] -= nobleCount;
+                assignedNobleVillages.push({
+                    village: chosen.village,
+                    dist: chosen.dist,
+                    sec: chosen.sec,
+                    launchMs: chosen.launchMs,
+                    nobles: nobleCount
+                });
+            }
+
+            targetAssignments.push({
+                target: tCoord,
+                nobles: assignedNobleVillages
+            });
+        }
+
+        // 2. Alocação de Nukes, Escoltas e Bunkers para cada alvo
+        const offPool = allVillages.filter(v => v.rowClass === 'tw-row-off' && (!excludeCommitted || !committedMap[v.id]));
+        const defPool = allVillages.filter(v => v.rowClass === 'tw-row-def' && (!excludeCommitted || !committedMap[v.id]));
+
+        for (const assignment of targetAssignments) {
+            const tCoord = assignment.target;
+
+            // Catapultas preliminares
+            if (attackMode === 'full_storm') {
+                const wallOff = findClosestAvailable(offPool, usedOffVillages, tCoord, baseLandTime - (20 * 60 * 1000), minLaunchMs);
+                if (wallOff) {
+                    usedOffVillages.add(wallOff.village.id);
+                    allCampaignCommands.push(makeCmd('Muralha (-20m)', 'tw-badge-muralha', 'Attack', wallOff.village, tCoord, wallOff.dist, wallOff.sec, wallOff.launchTime, new Date(baseLandTime - (20 * 60 * 1000)), modelCats, 'wall', 'Catapultas'));
+                }
+                const pracaOff = findClosestAvailable(offPool, usedOffVillages, tCoord, baseLandTime - (10 * 60 * 1000), minLaunchMs);
+                if (pracaOff) {
+                    usedOffVillages.add(pracaOff.village.id);
+                    allCampaignCommands.push(makeCmd('Praça (-10m)', 'tw-badge-praca', 'Attack', pracaOff.village, tCoord, pracaOff.dist, pracaOff.sec, pracaOff.launchTime, new Date(baseLandTime - (10 * 60 * 1000)), modelCats, 'place', 'Catapultas'));
+                }
+            } else if (attackMode === 'cat_demolish') {
+                const bld = catTargetBuilding !== 'none' ? catTargetBuilding : 'place';
+                const catOff = findClosestAvailable(offPool, usedOffVillages, tCoord, baseLandTime - (10 * 60 * 1000), minLaunchMs);
+                if (catOff) {
+                    usedOffVillages.add(catOff.village.id);
+                    allCampaignCommands.push(makeCmd('Demolição (-10m)', 'tw-badge-praca', 'Attack', catOff.village, tCoord, catOff.dist, catOff.sec, catOff.launchTime, new Date(baseLandTime - (10 * 60 * 1000)), modelCats, bld, 'Catapultas'));
+                }
+            }
+
+            // Nukes de Limpeza
+            for (let i = 0; i < leadNukesCount; i++) {
+                const landMs = baseLandTime - ((leadNukesCount - i) * 100);
+                const nukeOff = findClosestAvailable(offPool, usedOffVillages, tCoord, landMs, minLaunchMs);
+                if (nukeOff) {
+                    usedOffVillages.add(nukeOff.village.id);
+                    allCampaignCommands.push(makeCmd(`Limpeza #${i+1}`, 'tw-badge-nuke', 'Attack', nukeOff.village, tCoord, nukeOff.dist, nukeOff.sec, nukeOff.launchTime, new Date(landMs), modelNuke, catTargetBuilding !== 'none' ? catTargetBuilding : '', 'Full Off'));
+                }
+            }
+
+            // Nobres
+            assignment.nobles.forEach(nItem => {
+                allCampaignCommands.push(makeCmd(`Combo NT (${nItem.nobles}N)`, 'tw-badge-snob', 'Attack', nItem.village, tCoord, nItem.dist.toFixed(2), nItem.sec, new Date(nItem.launchMs), new Date(baseLandTime), modelSnob, '', `${nItem.nobles} Nobres`));
+            });
+
+            // Escoltas Anti-Snipe
+            if (antiWavesCount > 0) {
+                const antiOffsets = [halfStep, msStep + halfStep, (2 * msStep) + halfStep].slice(0, antiWavesCount);
+                antiOffsets.forEach((offset, idx) => {
+                    const landMs = baseLandTime + offset;
+                    const antiOff = findClosestAvailable(offPool, usedOffVillages, tCoord, landMs, minLaunchMs);
+                    if (antiOff) {
+                        usedOffVillages.add(antiOff.village.id);
+                        allCampaignCommands.push(makeCmd(`Anti-Snipe #${idx+1}`, 'tw-badge-anti', 'Attack', antiOff.village, tCoord, antiOff.dist, antiOff.sec, antiOff.launchTime, new Date(landMs), modelAnti, '', 'Escolta Anti-Snipe'));
+                    }
+                });
+            }
+
+            // Bunkers de Conquista
+            const finalNobleImpactMs = baseLandTime + (Math.max(1, nobleCount - 1) * msStep);
+            for (let b = 1; b <= bunkerCount; b++) {
+                const bunkerLandMs = finalNobleImpactMs + bunkerGapMs + ((b - 1) * bunkerStepMs);
+                const bunkDef = findClosestDefBunker(defPool, usedDefVillages, tCoord, bunkerLandMs, minLaunchMs, popBunker2, popBunker1, modelBunker1, modelBunker2);
+                if (bunkDef) {
+                    usedDefVillages.add(bunkDef.village.id);
+                    allCampaignCommands.push(makeCmd(`Bunker Apoio #${b}`, bunkDef.hasKnight ? 'tw-badge-paladino' : 'tw-badge-bunker', 'Support', bunkDef.village, tCoord, bunkDef.dist, bunkDef.sec, bunkDef.launchTime, new Date(bunkerLandMs), bunkDef.model, '', bunkDef.info));
+                }
+            }
+        }
+
+        allCampaignCommands.sort((a, b) => a.launchTime - b.launchTime);
+        lastGeneratedCommands = allCampaignCommands;
+        lastGeneratedTarget = targets.join(' ');
+
+        let rows = '', output = '';
+        allCampaignCommands.forEach((cmd, i) => {
+            rows += `<tr data-vid="${cmd.originId}">
+                <td style="color:#94a3b8;">${i+1}</td>
+                <td><span class="${cmd.badge}">${cmd.type}</span></td>
+                <td style="text-align:left; padding-left:10px; font-weight:bold; color:#38bdf8;">${cmd.originName}</td>
+                <td style="font-weight:bold; color:#fbbf24;">${cmd.targetCoords}</td>
+                <td>${cmd.dist}c</td>
+                <td><b style="color:#f8fafc;">${cmd.launchTime.toLocaleTimeString('pt-PT')}:${String(cmd.launchTime.getMilliseconds()).padStart(3,'0')}</b></td>
+                <td><b style="color:#38bdf8;">${cmd.landTime.toLocaleTimeString('pt-PT')}:${String(cmd.landTime.getMilliseconds()).padStart(3,'0')}</b></td>
+                <td><b style="color:${cmd.actionType==='Support'?'#34d399':'#3fb950'};">${cmd.model}</b> <span style="font-size:10px; color:#94a3b8;">(${cmd.info})</span></td>
+            </tr>`;
+
+            let u = `https://${location.host}/game.php?village=${cmd.originId}&screen=place&target_coord=${cmd.targetCoords}`;
+            let bldStr = cmd.building ? `${cmd.building}[|]` : '';
+            output += `[*]${i+1}. ${formatRussianDateTime(cmd.launchTime)} --- ${cmd.model}[|]${formatRussianDateTime(cmd.landTime)}[|] ${cmd.originCoords} --> ${cmd.targetCoords} [|]${bldStr}[url=${u}]Link[/url]\n`;
+        });
+
+        document.getElementById('tw-nt-tbody').innerHTML = rows;
+        document.getElementById('tw-nt-preview').value = output.trim();
+        await navigator.clipboard.writeText(output.trim());
+        document.getElementById('tw-nt-status').innerHTML = `<span style="color:#34d399;">✅ Campanha de ${targets.length} alvos (${allCampaignCommands.length} comandos) copiada para o Clipboard!</span>`;
+        showToast(`⚡ Campanha com ${targets.length} alvos copiada com sucesso!`);
+    }
+
+    function findClosestAvailable(pool, usedSet, targetCoord, targetLandMs, minLaunchMs) {
+        let best = null;
+        let bestDist = Infinity;
+        pool.forEach(v => {
+            if (usedSet.has(v.id)) return;
+            const dist = calcDistance(v.coords, targetCoord);
+            const sec = dist * unitSpeedMinutes.ram * 60;
+            const launchMs = targetLandMs - (sec * 1000);
+            if (launchMs >= minLaunchMs && dist < bestDist) {
+                bestDist = dist;
+                best = { village: v, dist: dist.toFixed(2), sec, launchTime: new Date(launchMs) };
+            }
+        });
+        return best;
+    }
+
+    function findClosestDefBunker(pool, usedSet, targetCoord, targetLandMs, minLaunchMs, minPop2, minPop1, model1, model2) {
+        let best = null;
+        let bestDist = Infinity;
+        pool.forEach(v => {
+            if (usedSet.has(v.id)) return;
+            const d = v.homeTroopsDict || v.troopsDict;
+            const defPop = (d.spear||0)*1 + (d.sword||0)*1 + (d.archer||0)*1 + (d.heavy||0)*6;
+            if (defPop < minPop2) return;
+
+            const hasKnight = (v.knightAvailable || d.knight || 0) >= 1;
+            const speedMin = hasKnight ? unitSpeedMinutes.knight : unitSpeedMinutes.sword;
+            const dist = calcDistance(v.coords, targetCoord);
+            const sec = dist * speedMin * 60;
+            const launchMs = targetLandMs - (sec * 1000);
+
+            if (launchMs >= minLaunchMs && dist < bestDist) {
+                bestDist = dist;
+                const chosenModel = defPop >= minPop1 ? model1 : model2;
+                const infoStr = hasKnight ? `Paladino (${formatDuration(sec)}) • ${(defPop/1000).toFixed(1)}k` : `Espada (${formatDuration(sec)}) • ${(defPop/1000).toFixed(1)}k`;
+                best = { village: v, dist: dist.toFixed(2), sec, launchTime: new Date(launchMs), model: chosenModel, hasKnight, info: infoStr };
+            }
+        });
+        return best;
+    }
+
+    function makeCmd(type, badge, actionType, v, targetCoords, dist, sec, launchTime, landTime, model, building = '', info = '') {
+        return {
+            type, badge, actionType,
+            originId: v.id,
+            originName: v.name,
+            originCoords: v.coords,
+            targetCoords,
+            dist, sec, launchTime, landTime, model, building, info
+        };
+    }
+
+    // ==========================================
+    // MOTOR DE CALENDÁRIO & SINCRONIZAÇÃO (ALVO ÚNICO)
     // ==========================================
     async function buildMasterOPPlan() {
         const target = document.getElementById('tw-nt-target').value.trim();
@@ -2372,14 +2687,14 @@
         document.getElementById('tw-nt-tbody').innerHTML = rows;
         document.getElementById('tw-nt-preview').value = output.trim();
         await navigator.clipboard.writeText(output.trim());
-        document.getElementById('tw-nt-status').innerHTML = `<span style="color:#34d399;">✅ ${sequence.length} comandos sincronizados e copiados para PSEvolution!</span>`;
+        document.getElementById('tw-nt-status').innerHTML = `<span style="color:#34d399;">✅ ${sequence.length} comandos sincronizados e copiados para o Clipboard!</span>`;
         showToast(`⚡ Plano copiado para a Área de Transferência!`);
     }
 
     // ==========================================
     // JANELA DO MAPA (SEM RELOAD)
     // ==========================================
-    function openMapIframeModal() {
+    function openMapIframeModal(caller = 'fakes') {
         if (document.getElementById('tw-map-iframe-modal')) return;
 
         const mapModal = document.createElement('div');
@@ -2446,10 +2761,16 @@
                                 else grabbedTargets.add(coord);
                                 
                                 document.getElementById('tw-hud-count').innerText = grabbedTargets.size;
-                                const tb = document.getElementById('tw-f-targets');
-                                if (tb) {
-                                    tb.value = Array.from(grabbedTargets).join(' ');
-                                    tb.dispatchEvent(new Event('input'));
+                                
+                                const tbFakes = document.getElementById('tw-f-targets');
+                                if (tbFakes) {
+                                    tbFakes.value = Array.from(grabbedTargets).join(' ');
+                                    tbFakes.dispatchEvent(new Event('input'));
+                                }
+                                const tbMulti = document.getElementById('tw-nt-targets-multi');
+                                if (tbMulti) {
+                                    tbMulti.value = Array.from(grabbedTargets).join(' ');
+                                    tbMulti.dispatchEvent(new Event('input'));
                                 }
                                 
                                 renderShadowsInIframe(iWin, iDoc);
@@ -2469,10 +2790,15 @@
         document.getElementById('tw-hud-clear').onclick = () => {
             grabbedTargets.clear();
             document.getElementById('tw-hud-count').innerText = '0';
-            const tb = document.getElementById('tw-f-targets');
-            if (tb) {
-                tb.value = '';
-                tb.dispatchEvent(new Event('input'));
+            const tbFakes = document.getElementById('tw-f-targets');
+            if (tbFakes) {
+                tbFakes.value = '';
+                tbFakes.dispatchEvent(new Event('input'));
+            }
+            const tbMulti = document.getElementById('tw-nt-targets-multi');
+            if (tbMulti) {
+                tbMulti.value = '';
+                tbMulti.dispatchEvent(new Event('input'));
             }
             const iframe = document.getElementById('tw-map-frame');
             if (iframe && iframe.contentWindow) renderShadowsInIframe(iframe.contentWindow, iframe.contentDocument);
