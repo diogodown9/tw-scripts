@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW Tactical Command Suite
 // @namespace    https://tribalwars.com.pt/
-// @version      2.5.5
+// @version      2.5.6
 // @description  Suite militar avançada para Tribal Wars PT: Visão Geral com regra 22k, Contador Tático, Gerador de Fakes dinâmico, Planeador NT + Anti-Snipe + Bunker com Paladino, Re-Nobre em Bate e Volta (4 viagens consecutivas), Campanha Multialvo com IA de Atribuição e exportação BBCode.
 // @author       Diogo & Antigravity
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -10,7 +10,7 @@
 // ==/UserScript==
 
 (async function () {
-    const SCRIPT_VERSION = '2.5.5';
+    const SCRIPT_VERSION = '2.5.6';
     const modalId = 'tw-master-suite';
     
     // Limpeza de instâncias anteriores
@@ -1527,7 +1527,7 @@
                                 <option value="snob_single">🎯 1 Nobre Solitário (Re-Nobre Rápido / 1 Ataque)</option>
                                 <option value="nuke_sweep">💥 Apenas Limpeza / Nuke Sweep (Sem Nobres)</option>
                                 <option value="cat_demolish">🏚️ Demolição Tática (Catapultas em Edifício)</option>
-                                <option value="full_storm">🌪️ Full Storm OP (Muralha + Praça + NT + Bunkers)</option>
+                                <option value="full_storm">🌪️ Full Storm OP (Anti-Desvio Praça + NT + Bunkers)</option>
                             </select>
                         </div>
 
@@ -2464,18 +2464,16 @@
         for (const assignment of targetAssignments) {
             const tCoord = assignment.target;
 
-            // Catapultas preliminares
+            // Catapultas preliminares (Anti-Desvio na Praça de Reunião)
             if (attackMode === 'full_storm') {
-                const wallOff = findClosestAvailable(offPool, usedOffVillages, tCoord, baseLandTime - (20 * 60 * 1000), minLaunchMs);
-                if (wallOff) {
-                    usedOffVillages.add(wallOff.village.id);
-                    allCampaignCommands.push(makeCmd('Muralha (-20m)', 'tw-badge-muralha', 'Attack', wallOff.village, tCoord, wallOff.dist, wallOff.sec, wallOff.launchTime, new Date(baseLandTime - (20 * 60 * 1000)), modelCats, 'wall', 'Catapultas'));
-                }
-                const pracaOff = findClosestAvailable(offPool, usedOffVillages, tCoord, baseLandTime - (10 * 60 * 1000), minLaunchMs);
-                if (pracaOff) {
-                    usedOffVillages.add(pracaOff.village.id);
-                    allCampaignCommands.push(makeCmd('Praça (-10m)', 'tw-badge-praca', 'Attack', pracaOff.village, tCoord, pracaOff.dist, pracaOff.sec, pracaOff.launchTime, new Date(baseLandTime - (10 * 60 * 1000)), modelCats, 'place', 'Catapultas'));
-                }
+                const pracaOffsetsMin = [10, 3];
+                pracaOffsetsMin.forEach(minBefore => {
+                    const pracaOff = findClosestAvailable(offPool, usedOffVillages, tCoord, baseLandTime - (minBefore * 60 * 1000), minLaunchMs);
+                    if (pracaOff) {
+                        usedOffVillages.add(pracaOff.village.id);
+                        allCampaignCommands.push(makeCmd(`Praça (-${minBefore}m)`, 'tw-badge-praca', 'Attack', pracaOff.village, tCoord, pracaOff.dist, pracaOff.sec, pracaOff.launchTime, new Date(baseLandTime - (minBefore * 60 * 1000)), modelCats, 'place', 'Anti-Desvio'));
+                    }
+                });
             } else if (attackMode === 'cat_demolish') {
                 const bld = catTargetBuilding !== 'none' ? catTargetBuilding : 'place';
                 const catOff = findClosestAvailable(offPool, usedOffVillages, tCoord, baseLandTime - (10 * 60 * 1000), minLaunchMs);
@@ -2954,10 +2952,9 @@
             return false;
         }
 
-        // 1. Catapultas preliminares
+        // 1. Catapultas preliminares (Anti-Desvio na Praça de Reunião)
         const modelCats = document.getElementById('tw-nt-model-cats') ? document.getElementById('tw-nt-model-cats').value.trim() || 'Cats' : 'Cats';
         if (attackMode === 'full_storm') {
-            assignOffNuke(trip1AnchorLandMs - (20 * 60 * 1000), 'Muralha (-20m)', 'tw-badge-muralha', modelCats, false, 'wall');
             const pracaOffsetsMin = [14, 10, 6, 2];
             pracaOffsetsMin.forEach(minBefore => {
                 assignOffNuke(trip1AnchorLandMs - (minBefore * 60 * 1000), `Praça (-${minBefore}m)`, 'tw-badge-praca', modelCats, false, 'place');
