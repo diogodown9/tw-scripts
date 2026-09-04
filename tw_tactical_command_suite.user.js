@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW Tactical Command Suite
 // @namespace    https://tribalwars.com.pt/
-// @version      2.1.0
+// @version      2.2.0
 // @description  Suite militar avançada para Tribal Wars PT: Visão Geral com regra 22k, Contador Tático, Gerador de Fakes dinâmico, Planeador NT + Anti-Snipe + Bunker com Paladino, Campanha Multialvo com IA de Atribuição e Memória Inteligente de Aldeias Reservadas.
 // @author       DeepMind / Antigravity
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -623,7 +623,7 @@
             counterSummaryData = summary;
             updateMemoryHUD();
             document.getElementById('tw-tabs-container').style.display = 'flex';
-            document.getElementById('tw-title-text').innerHTML = `⚡ TW Tactical Command Suite (${allVillages.length} Aldeias Conectadas)`;
+            document.getElementById('tw-title-text').innerHTML = `⚡ TW Tactical Command Suite <span style="font-size:10px; font-weight:600; background:rgba(56,189,248,0.15); color:#38bdf8; padding:2px 7px; border-radius:4px; border:1px solid rgba(56,189,248,0.25); margin-left:6px; vertical-align:middle;">v2.2.0</span> <span style="font-size:11px; font-weight:normal; color:#94a3b8; margin-left:6px; vertical-align:middle;">(${allVillages.length} Aldeias Conectadas)</span>`;
             
             document.getElementById('tab-btn-overview').onclick = () => switchTab('overview');
             document.getElementById('tab-btn-counter').onclick = () => switchTab('counter');
