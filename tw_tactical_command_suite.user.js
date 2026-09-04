@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TW Tactical Command Suite
 // @namespace    https://tribalwars.com.pt/
-// @version      2.7.2
-// @description  Suite militar avançada para Tribal Wars PT: Fakes Inteligentes (Auto Fake Limit 1% Dinâmico por Pontos), Arsenal Tático de Fakes (Raio Livre, Fake NT 4x, Saturação do Alvo Real & Modo Campanha), UI Intuitiva de Limpezas/Nobres/Demolição, Seleção Independente de Alvo de Catapulta com Auto-Seleção na Praça, Deteção de Tropas Fora (⚠️), Seletor Inteligente de Full Nuke, e Planeador Tático.
+// @version      2.7.3
+// @description  Suite militar avançada para Tribal Wars PT: Fakes Inteligentes (Auto Fake Limit 1% Dinâmico por Pontos), Arsenal Tático de Fakes (Raio Livre, Fake NT 4x, Saturação do Alvo Real & Modo Campanha), UI Intuitiva de Limpezas/Nobres/Demolição, Seleção Independente de Alvo de Catapulta com Auto-Seleção na Praça, Deteção e Alerta de Nobres em Comandos/Trânsito (⚠️), Deteção de Tropas Fora (⚠️), Seletor Inteligente de Full Nuke, e Planeador Tático.
 // @author       Diogo & Antigravity
 // @match        https://*.tribalwars.com.pt/game.php*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=tribalwars.com.pt
@@ -10,7 +10,7 @@
 // ==/UserScript==
 
 (async function () {
-    const SCRIPT_VERSION = '2.7.2';
+    const SCRIPT_VERSION = '2.7.3';
 
     // Auto-selecionar alvo de catapulta na confirmação de ataque na Praça de Reunião se especificado no URL
     try {
@@ -512,10 +512,10 @@
     const defaultUnitPop = { spear: 1, sword: 1, axe: 1, archer: 1, spy: 2, light: 4, marcher: 5, heavy: 6, ram: 5, catapult: 8, knight: 10, snob: 100, militia: 0 };
 
     const outputCategories = {
-        'Full Train (4N ≥22k)': { group: 'Nobres', desc: '👑 Full Train (4N + Faz. ≥22k)', test: (v) => v.snobsAvailable >= 4 && v.farm.used >= 22000 },
-        'Train 4N (Recrut. <22k)': { group: 'Nobres', desc: '👑 Train 4N (Faz. <22k)', test: (v) => v.snobsAvailable >= 4 && v.farm.used < 22000 },
-        'Split Train (2-3 Nobres)': { group: 'Nobres', desc: '👑 Split Train (2-3 Nobres)', test: (v) => v.snobsAvailable >= 2 && v.snobsAvailable < 4 },
-        'Nobre Solitário': { group: 'Nobres', desc: '👑 1 Nobre Solitário', test: (v) => v.snobsAvailable === 1 },
+        'Full Train (4N ≥22k)': { group: 'Nobres', desc: '👑 Full Train (4N + Faz. ≥22k)', test: (v) => (v.snobsTotal >= 4 || v.snobsHome >= 4) && v.farm.used >= 22000 },
+        'Train 4N (Recrut. <22k)': { group: 'Nobres', desc: '👑 Train 4N (Faz. <22k)', test: (v) => (v.snobsTotal >= 4 || v.snobsHome >= 4) && v.farm.used < 22000 },
+        'Split Train (2-3 Nobres)': { group: 'Nobres', desc: '👑 Split Train (2-3 Nobres)', test: (v) => { const n = Math.max(v.snobsTotal || 0, v.snobsHome || 0); return n >= 2 && n < 4; } },
+        'Nobre Solitário': { group: 'Nobres', desc: '👑 1 Nobre Solitário', test: (v) => Math.max(v.snobsTotal || 0, v.snobsHome || 0) === 1 },
         'Full Nuke (OFF ≥22k)': { group: 'Ataque', desc: '⚔️ Full Nukes (Faz. ≥22k)', test: (v) => v.rowClass === 'tw-row-off' && v.farm.used >= 22000 },
         'Semi Nuke (OFF <22k)': { group: 'Ataque', desc: '⚔️ Semi Nukes (Faz. <22k)', test: (v) => v.rowClass === 'tw-row-off' && v.farm.used < 22000 },
         'Full Bunker (DEF ≥22k)': { group: 'Defesa', desc: '🛡️ Full Bunkers (Faz. ≥22k)', test: (v) => v.rowClass === 'tw-row-def' && v.farm.used >= 22000 },
@@ -694,32 +694,30 @@
                 const coords = (vName.match(/(\d{3}\|\d{3})/)||[])[1]||'';
 
                 const rows = Array.from(tb.querySelectorAll('tr'));
-                let ownHomeRow = rows.find(tr => {
-                    const firstTd = tr.querySelector('td');
-                    if (!firstTd) return false;
-                    const txt = firstTd.textContent.trim().toLowerCase();
-                    return txt.includes('próprias') || txt.includes('own') || txt.includes('suas');
+                let ownHomeRow = rows.find((tr, idx) => {
+                    if (rows.length > 1 && idx === rows.length - 1) return false;
+                    const txt = tr.textContent.trim().toLowerCase();
+                    return txt.includes('próprias') || txt.includes('own') || txt.includes('suas') || txt.includes('na aldeia') || txt.includes('da aldeia');
                 }) || rows[0];
 
-                let totalRow = rows.find(tr => {
-                    const firstTd = tr.querySelector('td');
-                    if (!firstTd) return false;
-                    const txt = firstTd.textContent.trim().toLowerCase();
-                    return txt === 'total' || txt.includes('total');
-                }) || rows[rows.length-1];
+                let totalRow = rows.find((tr, idx) => {
+                    if (rows.length > 1 && idx === 0) return false;
+                    const firstCellText = (tr.querySelector('td, th')?.textContent || '').trim().toLowerCase();
+                    return firstCellText.includes('total') || tr.textContent.trim().toLowerCase().startsWith('total');
+                }) || rows[rows.length - 1];
+
+                if (rows.length > 1 && ownHomeRow === totalRow) {
+                    ownHomeRow = rows[0];
+                }
 
                 let movingRow = rows.find(tr => {
-                    const firstTd = tr.querySelector('td');
-                    if (!firstTd) return false;
-                    const txt = firstTd.textContent.trim().toLowerCase();
-                    return txt.includes('trânsito') || txt.includes('transito') || txt.includes('transit');
+                    const txt = tr.textContent.trim().toLowerCase();
+                    return txt.includes('trânsito') || txt.includes('transito') || txt.includes('transit') || txt.includes('a caminho') || txt.includes('em viagem');
                 });
 
                 let awayRow = rows.find(tr => {
-                    const firstTd = tr.querySelector('td');
-                    if (!firstTd) return false;
-                    const txt = firstTd.textContent.trim().toLowerCase();
-                    return txt.includes('exterior') || txt.includes('away') || txt.includes('fora');
+                    const txt = tr.textContent.trim().toLowerCase();
+                    return txt.includes('exterior') || txt.includes('away') || txt.includes('fora') || txt.includes('outras aldeias');
                 });
                 
                 const ownCells = Array.from(ownHomeRow.querySelectorAll('td.unit-item'));
@@ -732,6 +730,7 @@
                 let homePopTotal = 0, totalPopTotal = 0, movingPopTotal = 0, awayPopTotal = 0;
                 let homeOffPop = 0, totalOffPop = 0;
                 const vTot = { defense: 0, offense: 0, spy: 0, snob: 0, catapult: 0, ram: 0, knight: 0 };
+                const isSingleRowTable = (rows.length === 1);
 
                 headers.forEach((th, i) => {
                     const u = unitConfigs[i];
@@ -741,7 +740,7 @@
                     const tc = (totCell && !totCell.classList.contains('hidden')) ? parseInt(totCell.textContent.replace(/\./g,''),10)||0 : 0;
 
                     const ownCell = ownCells[i];
-                    const hc = (ownCell && !ownCell.classList.contains('hidden')) ? parseInt(ownCell.textContent.replace(/\./g,''),10)||0 : tc;
+                    const hc = (ownCell && !ownCell.classList.contains('hidden')) ? parseInt(ownCell.textContent.replace(/\./g,''),10)||0 : (isSingleRowTable ? tc : 0);
 
                     const movCell = movingCells[i];
                     const mc = (movCell && !movCell.classList.contains('hidden')) ? parseInt(movCell.textContent.replace(/\./g,''),10)||0 : 0;
@@ -812,21 +811,28 @@
                 const troopsAwayPop = outsidePop;
 
                 const is22kFull = farmInfo.used >= 22000;
-                const snobCount = dict.snob || 0;
+                const snobTotal = dict.snob || 0;
+                const snobHome = homeDict.snob || 0;
+                const snobMoving = movingDict.snob || 0;
+                const snobAway = awayDict.snob || 0;
+                const snobOutside = Math.max(snobMoving + snobAway, Math.max(0, snobTotal - snobHome));
 
                 let roleTag = { label: 'Em Recrutamento', css: 'tw-tag-growth' };
-                if (snobCount >= 4) {
+                if (snobTotal >= 4) {
+                    const awayBadge = snobOutside > 0 ? ` ⚠️ ${snobHome}/${snobTotal}` : ` (${snobTotal}N)`;
                     if (is22kFull) {
-                        roleTag = { label: `👑 Full Train (${snobCount}N)`, css: 'tw-tag-train4' };
+                        roleTag = { label: `👑 Full Train${awayBadge}`, css: 'tw-tag-train4' };
                         summary.fullTrain22kCount++;
                     } else {
-                        roleTag = { label: `👑 Train (${snobCount}N) <22k`, css: 'tw-tag-train4-rec' };
+                        roleTag = { label: `👑 Train${awayBadge} <22k`, css: 'tw-tag-train4-rec' };
                     }
-                } else if (snobCount >= 2) {
-                    roleTag = { label: `👑 Train (${snobCount}N)`, css: 'tw-tag-train2' };
+                } else if (snobTotal >= 2) {
+                    const awayBadge = snobOutside > 0 ? ` ⚠️ ${snobHome}/${snobTotal}` : ` (${snobTotal}N)`;
+                    roleTag = { label: `👑 Train${awayBadge}`, css: 'tw-tag-train2' };
                     summary.semiTrainCount++;
-                } else if (snobCount === 1) {
-                    roleTag = { label: `👑 Nobre (1N)`, css: 'tw-tag-snob1' };
+                } else if (snobTotal === 1) {
+                    const awayBadge = snobOutside > 0 ? ` ⚠️ 0/1` : ` (1N)`;
+                    roleTag = { label: `👑 Nobre${awayBadge}`, css: 'tw-tag-snob1' };
                 } else if (rowClass === 'tw-row-off') {
                     if (is22kFull) {
                         roleTag = { label: '⚔️ Full Nuke', css: 'tw-tag-nuke-full' };
@@ -856,7 +862,11 @@
                     movingTroopsDict: movingDict, awayTroopsDict: awayDict,
                     knightAvailable, rowClass, roleTag,
                     farm: farmInfo,
-                    snobsAvailable: snobCount,
+                    snobsAvailable: snobHome,
+                    snobsHome,
+                    snobsTotal,
+                    snobsOutside,
+                    hasSnobsAway: snobOutside > 0,
                     totalOffPop: vTot.offense,
                     totalDefPop: vTot.defense,
                     homeOffPop,
@@ -925,7 +935,7 @@
         }
         if (overviewFilter === 'off22k') filtered = filtered.filter(v => v.rowClass === 'tw-row-off' && v.farm.used >= 22000);
         else if (overviewFilter === 'def22k') filtered = filtered.filter(v => v.rowClass === 'tw-row-def' && v.farm.used >= 22000);
-        else if (overviewFilter === 'snob') filtered = filtered.filter(v => v.snobsAvailable > 0);
+        else if (overviewFilter === 'snob') filtered = filtered.filter(v => (v.snobsTotal > 0 || v.snobsHome > 0));
         else if (overviewFilter === 'knight') filtered = filtered.filter(v => (v.knightAvailable || (v.homeTroopsDict && v.homeTroopsDict.knight) || (v.paladin && v.paladin.isHome) || 0) > 0);
         else if (overviewFilter === 'farm22k') filtered = filtered.filter(v => v.farm.used >= 22000);
         else if (overviewFilter === 'committed') filtered = filtered.filter(v => !!committedMap[v.id]);
@@ -936,7 +946,7 @@
                 if (sortColumn === 'name') { valA = a.name; valB = b.name; }
                 else if (sortColumn === 'farm') { valA = a.farm.used; valB = b.farm.used; }
                 else if (sortColumn === 'role') { valA = a.roleTag.label; valB = b.roleTag.label; }
-                else if (sortColumn === 'snob') { valA = a.snobsAvailable; valB = b.snobsAvailable; }
+                else if (sortColumn === 'snob') { valA = (a.snobsHome * 100) + a.snobsTotal; valB = (b.snobsHome * 100) + b.snobsTotal; }
                 else { valA = a.troopsDict[sortColumn] || 0; valB = b.troopsDict[sortColumn] || 0; }
                 
                 if (typeof valA === 'string') return sortAsc ? valA.localeCompare(valB) : valB.localeCompare(valA);
@@ -968,9 +978,16 @@
                     const isPaladin = u.name === 'knight';
                     let col = q > 0 ? '#f8fafc' : '#334155';
                     let bgBadge = '';
-                    if (isNoble && q > 0) { col = '#fbbf24'; bgBadge = 'background:rgba(245, 158, 11, 0.2); border-radius:4px; padding:1px 4px; font-weight:bold;'; }
+                    let cellDisplay = q.toLocaleString('pt-PT');
+                    if (isNoble && q > 0) { 
+                        col = '#fbbf24'; 
+                        bgBadge = 'background:rgba(245, 158, 11, 0.2); border-radius:4px; padding:1px 4px; font-weight:bold;'; 
+                        if (v.snobsOutside > 0) {
+                            cellDisplay = `${v.snobsHome}/${q} <span title="${v.snobsOutside} nobre(s) fora / em comandos" style="color:#ef4444; font-size:9.5px; font-weight:bold;">⚠️</span>`;
+                        }
+                    }
                     if (isPaladin && q > 0) { col = '#34d399'; bgBadge = 'background:rgba(16, 185, 129, 0.2); border-radius:4px; padding:1px 4px; font-weight:bold;'; }
-                    tds += `<td><span style="${bgBadge} color:${col}; font-weight:${q>0?'600':'normal'};">${q.toLocaleString('pt-PT')}</span></td>`;
+                    tds += `<td><span style="${bgBadge} color:${col}; font-weight:${q>0?'600':'normal'};">${cellDisplay}</span></td>`;
                 }
             });
 
@@ -1037,7 +1054,7 @@
                         <div class="tw-pill ${overviewFilter==='all'?'active':''}" data-f="all">🌍 Todas (${allVillages.length})</div>
                         <div class="tw-pill ${overviewFilter==='off22k'?'active':''}" data-f="off22k">⚔️ Full Nukes ≥22k (${s.fullNuke22kCount})</div>
                         <div class="tw-pill ${overviewFilter==='def22k'?'active':''}" data-f="def22k">🛡️ Full Bunkers ≥22k (${s.fullBunk22kCount})</div>
-                        <div class="tw-pill ${overviewFilter==='snob'?'active':''}" data-f="snob">👑 Com Nobres (${allVillages.filter(v=>v.snobsAvailable>0).length})</div>
+                        <div class="tw-pill ${overviewFilter==='snob'?'active':''}" data-f="snob">👑 Com Nobres (${allVillages.filter(v=>(v.snobsTotal||0)>0 || (v.snobsHome||0)>0).length})</div>
                         <div class="tw-pill ${overviewFilter==='knight'?'active':''}" data-f="knight">🛡️ Paladino em Casa (${allVillages.filter(v=>v.knightAvailable>0 || (v.paladin && v.paladin.isHome)).length})</div>
                         <div class="tw-pill ${overviewFilter==='committed'?'active':''}" data-f="committed">🔒 Reservadas (${committedCount})</div>
                         <div class="tw-pill ${overviewFilter==='farm22k'?'active':''}" data-f="farm22k">🌾 Fazenda ≥22.000</div>
@@ -1695,12 +1712,15 @@
         const committedMap = getCommittedSchedules();
         const committedCount = Object.keys(committedMap).length;
 
-        const nobleVillages = allVillages.filter(v => v.snobsAvailable > 0);
+        const nobleVillages = allVillages.filter(v => (v.snobsHome > 0 || v.snobsTotal > 0));
         let nobleOptions = nobleVillages.map(v => {
             const isComm = !!committedMap[v.id];
             const pal = (v.paladin && v.paladin.isHome) ? v.paladin : null;
             const palTag = pal ? ` [${pal.name}${pal.name === 'QuimConquista' ? ' ⚔️ Persuasão' : ''}]` : '';
-            return `<option value="${v.id}">${cleanVillageDisplayName(v)} • ${v.snobsAvailable} Nobres${palTag}${isComm ? ' [🔒 Reservada]' : ''}</option>`;
+            const nobleStatus = (v.snobsOutside > 0)
+                ? `${v.snobsHome} na aldeia (⚠️ ${v.snobsOutside} fora)`
+                : `${v.snobsHome} Nobres`;
+            return `<option value="${v.id}">${cleanVillageDisplayName(v)} • ${nobleStatus}${palTag}${isComm ? ' [🔒 Reservada]' : ''}</option>`;
         }).join('');
         if (!nobleOptions) nobleOptions = `<option value="">❌ Nenhuma aldeia com nobres</option>`;
 
@@ -2825,7 +2845,7 @@
             const prevSelectedPrimary = preferredPrimaryId || selPrimary.value;
             const prevSelectedSecondary = selSecondary ? selSecondary.value : null;
 
-            const nobleVillages = allVillages.filter(v => v.snobsAvailable > 0);
+            const nobleVillages = allVillages.filter(v => (v.snobsHome > 0 || v.snobsTotal > 0));
             if (nobleVillages.length === 0) {
                 if (hintBox) {
                     hintBox.innerHTML = '❌ <b style="color:#ef4444;">Nenhuma aldeia tem nobres disponíveis.</b>';
@@ -2851,7 +2871,10 @@
                     const isComm = !!committedMap[v.id];
                     const pal = (v.paladin && v.paladin.isHome) ? v.paladin : null;
                     const palTag = pal ? ` [${pal.name}${pal.name === 'QuimConquista' ? ' ⚔️ Persuasão' : ''}]` : '';
-                    return `<option value="${v.id}">${cleanVillageDisplayName(v)} • ${v.snobsAvailable} Nobres${palTag}${isComm ? ' [🔒 Reservada]' : ''}</option>`;
+                    const nobleStatus = (v.snobsOutside > 0)
+                        ? `${v.snobsHome} na aldeia (⚠️ ${v.snobsOutside} fora)`
+                        : `${v.snobsHome} Nobres`;
+                    return `<option value="${v.id}">${cleanVillageDisplayName(v)} • ${nobleStatus}${palTag}${isComm ? ' [🔒 Reservada]' : ''}</option>`;
                 }).join('');
                 selPrimary.innerHTML = defaultOptions;
                 if (selSecondary) selSecondary.innerHTML = defaultOptions;
@@ -2870,25 +2893,34 @@
                 const dist = calcDistance(v.coords, target);
                 const sec = dist * snobSpeedMin * 60;
                 const isComm = !!committedMap[v.id];
-                const hasReqNobles = v.snobsAvailable >= reqNobles;
+                const hasReqNobles = (v.snobsHome >= reqNobles);
+                const hasTotalNobles = (v.snobsTotal >= reqNobles);
                 return {
                     village: v,
                     dist,
                     sec,
                     timeStr: formatDuration(sec),
                     isComm,
-                    hasReqNobles
+                    hasReqNobles,
+                    hasTotalNobles,
+                    snobsOutside: v.snobsOutside || 0
                 };
             }).sort((a, b) => {
                 if (excludeCommitted) {
                     if (a.isComm && !b.isComm) return 1;
                     if (!a.isComm && b.isComm) return -1;
                 }
+                // Priorizar aldeias com nobres PRONTOS EM CASA
+                if (a.hasReqNobles && !b.hasReqNobles) return -1;
+                if (!a.hasReqNobles && b.hasReqNobles) return 1;
                 return a.dist - b.dist;
             });
 
             const closest = listWithDist[0];
-            const closestWithEnough = listWithDist.find(i => i.hasReqNobles && (!excludeCommitted || !i.isComm)) || listWithDist.find(i => i.hasReqNobles) || closest;
+            const closestWithEnough = listWithDist.find(i => i.hasReqNobles && (!excludeCommitted || !i.isComm))
+                || listWithDist.find(i => i.hasReqNobles)
+                || listWithDist.find(i => i.hasTotalNobles && (!excludeCommitted || !i.isComm))
+                || closest;
 
             // Renderizar opções para Aldeia Nobres Principal
             selPrimary.innerHTML = listWithDist.map((item, idx) => {
@@ -2897,10 +2929,29 @@
                 const palTag = pal ? ` [${pal.name}${pal.name === 'QuimConquista' ? ' ⚔️ Persuasão' : ''}]` : '';
                 const isClosest = (v.id === closest.village.id);
                 const isBestWithEnough = (v.id === closestWithEnough.village.id);
-                const prefix = isClosest 
-                    ? '⭐ [1º MAIS PERTO] ' 
-                    : (isBestWithEnough && !isClosest ? '⭐ [MAIS PERTO C/ NOBRES] ' : `[#${idx + 1}] `);
-                const nobleStatus = item.hasReqNobles ? `${v.snobsAvailable} Nobres` : `⚠️ ${v.snobsAvailable}/${reqNobles} Nobres`;
+                
+                let prefix = `[#${idx + 1}] `;
+                if (isBestWithEnough) {
+                    prefix = item.hasReqNobles ? '⭐ [MAIS PERTO PRONTA] ' : '⚠️ [MAIS PERTO] ';
+                } else if (isClosest && !isBestWithEnough) {
+                    prefix = '⭐ [1º MAIS PERTO] ';
+                }
+
+                let nobleStatus = '';
+                if (item.hasReqNobles) {
+                    if (item.snobsOutside > 0) {
+                        nobleStatus = `${v.snobsHome} na aldeia (⚠️ ${item.snobsOutside} fora)`;
+                    } else {
+                        nobleStatus = `${v.snobsHome} Nobres`;
+                    }
+                } else {
+                    if (item.snobsOutside > 0) {
+                        nobleStatus = `⚠️ ${v.snobsHome}/${reqNobles} na aldeia (${item.snobsOutside} fora em comandos!)`;
+                    } else {
+                        nobleStatus = `⚠️ ${v.snobsHome}/${reqNobles} Nobres`;
+                    }
+                }
+
                 const commTag = item.isComm ? ' [🔒 Reservada]' : '';
                 return `<option value="${v.id}" data-dist="${item.dist.toFixed(2)}" data-time="${item.timeStr}">${prefix}${cleanVillageDisplayName(v)} • ${item.dist.toFixed(1)}c • ⏳ ${item.timeStr} • ${nobleStatus}${palTag}${commTag}</option>`;
             }).join('');
@@ -2913,7 +2964,22 @@
                     const palTag = pal ? ` [${pal.name}${pal.name === 'QuimConquista' ? ' ⚔️ Persuasão' : ''}]` : '';
                     const is2ndClosest = (idx === 1);
                     const prefix = is2ndClosest ? '⭐ [2º MAIS PERTO] ' : `[#${idx + 1}] `;
-                    const nobleStatus = item.hasReqNobles ? `${v.snobsAvailable} Nobres` : `⚠️ ${v.snobsAvailable}/${reqNobles} Nobres`;
+                    
+                    let nobleStatus = '';
+                    if (item.hasReqNobles) {
+                        if (item.snobsOutside > 0) {
+                            nobleStatus = `${v.snobsHome} na aldeia (⚠️ ${item.snobsOutside} fora)`;
+                        } else {
+                            nobleStatus = `${v.snobsHome} Nobres`;
+                        }
+                    } else {
+                        if (item.snobsOutside > 0) {
+                            nobleStatus = `⚠️ ${v.snobsHome}/${reqNobles} na aldeia (${item.snobsOutside} fora em comandos!)`;
+                        } else {
+                            nobleStatus = `⚠️ ${v.snobsHome}/${reqNobles} Nobres`;
+                        }
+                    }
+
                     const commTag = item.isComm ? ' [🔒 Reservada]' : '';
                     return `<option value="${v.id}" data-dist="${item.dist.toFixed(2)}" data-time="${item.timeStr}">${prefix}${cleanVillageDisplayName(v)} • ${item.dist.toFixed(1)}c • ⏳ ${item.timeStr} • ${nobleStatus}${palTag}${commTag}</option>`;
                 }).join('');
@@ -2943,48 +3009,105 @@
             if (hintBox) {
                 const currentPrimaryId = selPrimary.value;
                 const currentPrimaryItem = listWithDist.find(i => i.village.id === currentPrimaryId) || closestWithEnough;
+                const selV = currentPrimaryItem.village;
                 const isCurrentClosest = (currentPrimaryItem.village.id === closestWithEnough.village.id);
                 const bestV = closestWithEnough.village;
                 const bestPal = (bestV.paladin && bestV.paladin.isHome) ? bestV.paladin : null;
                 const bestPalTag = bestPal ? ` • <span style="color:#c084fc;">[${bestPal.name}${bestPal.name === 'QuimConquista' ? ' ⚔️ Persuasão' : ''}]</span>` : '';
 
-                hintBox.style.background = 'rgba(245, 158, 11, 0.12)';
-                hintBox.style.borderColor = '#f59e0b';
-                hintBox.style.color = '#fef3c7';
+                if (selV.snobsHome < reqNobles) {
+                    // ALERTA VERMELHO: Faltam nobres prontos na aldeia selecionada!
+                    hintBox.style.background = 'rgba(239, 68, 68, 0.2)';
+                    hintBox.style.borderColor = '#ef4444';
+                    hintBox.style.color = '#fecaca';
 
-                if (isCurrentClosest) {
+                    const canSwitchToBest = (bestV.id !== selV.id && bestV.snobsHome >= reqNobles);
+
                     hintBox.innerHTML = `
-                        <div style="display:flex; justify-content:space-between; align-items:center; width:100%; gap:6px;">
-                            <span style="line-height:1.2;">
-                                ⭐ <b>Mais Perto do Alvo:</b> <span style="color:#fbbf24; font-weight:bold;">${cleanVillageDisplayName(bestV)}</span> 
-                                • <b style="color:#38bdf8;">${closestWithEnough.dist.toFixed(1)} campos</b> 
-                                • <span style="color:#4ade80;">⏳ ${closestWithEnough.timeStr}</span> 
-                                • <b>${bestV.snobsAvailable} Nobres</b>${bestPalTag}
-                                <span style="color:#86efac; font-size:9px; font-weight:bold; margin-left:4px;">(Selecionada ✅)</span>
+                        <div style="display:flex; justify-content:space-between; align-items:center; width:100%; gap:8px;">
+                            <span style="line-height:1.3;">
+                                ⚠️ <b style="color:#f87171;">ALERTA: NOBRES EM COMANDOS / INDISPONÍVEIS!</b><br>
+                                A aldeia <b>${cleanVillageDisplayName(selV)}</b> tem apenas <b style="color:#fde047;">${selV.snobsHome}/${reqNobles}</b> nobres na aldeia (<b style="color:#f87171;">${selV.snobsOutside} fora em comandos</b>). Os ataques não podem ser enviados de imediato!
+                                ${canSwitchToBest ? `<br><span style="color:#86efac;">💡 Aldeia pronta mais próxima: <b>${cleanVillageDisplayName(bestV)}</b> (${closestWithEnough.dist.toFixed(1)}c • ⏳ ${closestWithEnough.timeStr} • ${bestV.snobsHome}N na aldeia).</span>` : ''}
                             </span>
+                            ${canSwitchToBest ? `
+                                <button type="button" class="tw-btn tw-btn-gold" id="tw-btn-pick-closest-noble" style="padding:4px 9px; font-size:9.5px; font-weight:bold; white-space:nowrap; flex-shrink:0;">
+                                    🎯 Escolher Pronta (${bestV.snobsHome}N)
+                                </button>
+                            ` : ''}
                         </div>
                     `;
-                } else {
-                    const selV = currentPrimaryItem.village;
-                    hintBox.innerHTML = `
-                        <div style="display:flex; justify-content:space-between; align-items:center; width:100%; gap:6px;">
-                            <span style="line-height:1.2;">
-                                📍 <b>Selecionada:</b> <span style="color:#e2e8f0; font-weight:bold;">${cleanVillageDisplayName(selV)}</span> (${currentPrimaryItem.dist.toFixed(1)}c • ⏳ ${currentPrimaryItem.timeStr}) 
-                                <br>⭐ <b>Mais Perto:</b> <span style="color:#fbbf24; font-weight:bold;">${cleanVillageDisplayName(bestV)}</span> (${closestWithEnough.dist.toFixed(1)}c • ⏳ ${closestWithEnough.timeStr} • ${bestV.snobsAvailable}N)${bestPalTag}
-                            </span>
-                            <button type="button" class="tw-btn tw-btn-gold" id="tw-btn-pick-closest-noble" style="padding:2px 8px; font-size:9.5px; font-weight:bold; white-space:nowrap; flex-shrink:0;">
-                                🎯 Escolher Mais Perto
-                            </button>
-                        </div>
-                    `;
-                    const btnPick = document.getElementById('tw-btn-pick-closest-noble');
-                    if (btnPick) {
-                        btnPick.onclick = (e) => {
-                            e.preventDefault();
-                            selPrimary.value = bestV.id;
-                            updateNobleProximityHUD(bestV.id, false);
-                        };
+                } else if (selV.snobsOutside > 0) {
+                    // AVISO ÂMBAR: Tem nobres suficientes para este ataque, mas há outros fora
+                    hintBox.style.background = 'rgba(245, 158, 11, 0.15)';
+                    hintBox.style.borderColor = '#f59e0b';
+                    hintBox.style.color = '#fef3c7';
+
+                    if (isCurrentClosest) {
+                        hintBox.innerHTML = `
+                            <div style="display:flex; justify-content:space-between; align-items:center; width:100%; gap:6px;">
+                                <span style="line-height:1.2;">
+                                    ⭐ <b>Mais Perto Pronta:</b> <span style="color:#fbbf24; font-weight:bold;">${cleanVillageDisplayName(bestV)}</span> 
+                                    • <b style="color:#38bdf8;">${closestWithEnough.dist.toFixed(1)}c</b> 
+                                    • <span style="color:#4ade80;">⏳ ${closestWithEnough.timeStr}</span> 
+                                    • <b>${bestV.snobsHome} Nobres na aldeia</b> <span style="color:#fbbf24; font-size:9.5px;">(⚠️ ${selV.snobsOutside} fora em viagem)</span>${bestPalTag}
+                                    <span style="color:#86efac; font-size:9px; font-weight:bold; margin-left:4px;">(Selecionada ✅)</span>
+                                </span>
+                            </div>
+                        `;
+                    } else {
+                        hintBox.innerHTML = `
+                            <div style="display:flex; justify-content:space-between; align-items:center; width:100%; gap:6px;">
+                                <span style="line-height:1.2;">
+                                    📍 <b>Selecionada:</b> <span style="color:#e2e8f0; font-weight:bold;">${cleanVillageDisplayName(selV)}</span> (${currentPrimaryItem.dist.toFixed(1)}c • ⏳ ${currentPrimaryItem.timeStr} • ${selV.snobsHome}N na aldeia, ${selV.snobsOutside} fora) 
+                                    <br>⭐ <b>Mais Perto Pronta:</b> <span style="color:#fbbf24; font-weight:bold;">${cleanVillageDisplayName(bestV)}</span> (${closestWithEnough.dist.toFixed(1)}c • ⏳ ${closestWithEnough.timeStr} • ${bestV.snobsHome}N)${bestPalTag}
+                                </span>
+                                <button type="button" class="tw-btn tw-btn-gold" id="tw-btn-pick-closest-noble" style="padding:2px 8px; font-size:9.5px; font-weight:bold; white-space:nowrap; flex-shrink:0;">
+                                    🎯 Escolher Mais Perto
+                                </button>
+                            </div>
+                        `;
                     }
+                } else {
+                    // NORMAL: Todos os nobres estão em casa
+                    hintBox.style.background = 'rgba(245, 158, 11, 0.12)';
+                    hintBox.style.borderColor = '#f59e0b';
+                    hintBox.style.color = '#fef3c7';
+
+                    if (isCurrentClosest) {
+                        hintBox.innerHTML = `
+                            <div style="display:flex; justify-content:space-between; align-items:center; width:100%; gap:6px;">
+                                <span style="line-height:1.2;">
+                                    ⭐ <b>Mais Perto do Alvo:</b> <span style="color:#fbbf24; font-weight:bold;">${cleanVillageDisplayName(bestV)}</span> 
+                                    • <b style="color:#38bdf8;">${closestWithEnough.dist.toFixed(1)} campos</b> 
+                                    • <span style="color:#4ade80;">⏳ ${closestWithEnough.timeStr}</span> 
+                                    • <b>${bestV.snobsHome} Nobres</b>${bestPalTag}
+                                    <span style="color:#86efac; font-size:9px; font-weight:bold; margin-left:4px;">(Selecionada ✅)</span>
+                                </span>
+                            </div>
+                        `;
+                    } else {
+                        hintBox.innerHTML = `
+                            <div style="display:flex; justify-content:space-between; align-items:center; width:100%; gap:6px;">
+                                <span style="line-height:1.2;">
+                                    📍 <b>Selecionada:</b> <span style="color:#e2e8f0; font-weight:bold;">${cleanVillageDisplayName(selV)}</span> (${currentPrimaryItem.dist.toFixed(1)}c • ⏳ ${currentPrimaryItem.timeStr}) 
+                                    <br>⭐ <b>Mais Perto:</b> <span style="color:#fbbf24; font-weight:bold;">${cleanVillageDisplayName(bestV)}</span> (${closestWithEnough.dist.toFixed(1)}c • ⏳ ${closestWithEnough.timeStr} • ${bestV.snobsHome}N)${bestPalTag}
+                                </span>
+                                <button type="button" class="tw-btn tw-btn-gold" id="tw-btn-pick-closest-noble" style="padding:2px 8px; font-size:9.5px; font-weight:bold; white-space:nowrap; flex-shrink:0;">
+                                    🎯 Escolher Mais Perto
+                                </button>
+                            </div>
+                        `;
+                    }
+                }
+
+                const btnPick = document.getElementById('tw-btn-pick-closest-noble');
+                if (btnPick) {
+                    btnPick.onclick = (e) => {
+                        e.preventDefault();
+                        selPrimary.value = bestV.id;
+                        updateNobleProximityHUD(bestV.id, false);
+                    };
                 }
             }
         }
@@ -3456,8 +3579,9 @@
             // Pools de aldeias disponíveis
             const nobleUsage = {};
             allVillages.forEach(v => {
-                if (v.snobsAvailable > 0 && (!excludeCommitted || !committedMap[v.id])) {
-                    nobleUsage[v.id] = v.snobsAvailable;
+                const ready = v.snobsHome || 0;
+                if (ready > 0 && (!excludeCommitted || !committedMap[v.id])) {
+                    nobleUsage[v.id] = ready;
                 }
             });
 
@@ -4025,12 +4149,28 @@
                     return;
                 }
 
+                const needed1 = (architecture === 'split_2x2' && attackMode === 'split_2x2') ? 2 : (attackMode === 'snob_solo' ? 1 : nobleCount);
+                if (nobleVillage1.snobsHome < needed1) {
+                    const diff = needed1 - nobleVillage1.snobsHome;
+                    const confirmMsg = `⚠️ ALERTA DE NOBRES INDISPONÍVEIS:\n\nA aldeia "${cleanVillageDisplayName(nobleVillage1)}" tem apenas ${nobleVillage1.snobsHome} nobre(s) na aldeia neste momento (${nobleVillage1.snobsOutside} estão fora em comandos / em viagem).\n\nPara esta operação precisas de ${needed1} nobre(s) (faltam ${diff}). Se gerares o plano agora, estes ataques de nobre NÃO poderão ser lançados de imediato.\n\nDesejas avançar e gerar o plano mesmo assim?`;
+                    if (!confirm(confirmMsg)) {
+                        return;
+                    }
+                }
+
                 if (architecture === 'split_2x2' && attackMode === 'split_2x2') {
                     const nobleVillageId2 = document.getElementById('tw-nt-noble-village-2').value;
                     nobleVillage2 = villagesById[nobleVillageId2];
                     if (!nobleVillage2 || nobleVillage2.id === nobleVillage1.id) {
                         alert('Para a divisão 2x2, seleciona duas aldeias de nobres distintas.');
                         return;
+                    }
+                    if (nobleVillage2.snobsHome < 2) {
+                        const diff2 = 2 - nobleVillage2.snobsHome;
+                        const confirmMsg2 = `⚠️ ALERTA DE NOBRES INDISPONÍVEIS (2ª Aldeia):\n\nA 2ª aldeia "${cleanVillageDisplayName(nobleVillage2)}" tem apenas ${nobleVillage2.snobsHome} nobre(s) na aldeia (${nobleVillage2.snobsOutside} fora em comandos).\n\nPrecisas de 2 nobres (faltam ${diff2}).\n\nDesejas avançar e gerar o plano mesmo assim?`;
+                        if (!confirm(confirmMsg2)) {
+                            return;
+                        }
                     }
                 }
             }
