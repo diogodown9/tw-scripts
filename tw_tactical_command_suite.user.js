@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW Tactical Command Suite
 // @namespace    https://tribalwars.com.pt/
-// @version      2.5.1
+// @version      2.5.2
 // @description  Suite militar avançada para Tribal Wars PT: Visão Geral com regra 22k, Contador Tático, Gerador de Fakes dinâmico, Planeador NT + Anti-Snipe + Bunker com Paladino, Re-Nobre em Bate e Volta (4 viagens consecutivas), Campanha Multialvo com IA de Atribuição e Memória Inteligente de Aldeias Reservadas.
 // @author       DeepMind / Antigravity
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -95,8 +95,15 @@
 
         /* TABLE & PANEL */
         .tw-panel { overflow-y: auto; flex-grow: 1; border: 1px solid #1e293b; border-radius: 8px; background: #020617; }
-        .tw-panel::-webkit-scrollbar { width: 6px; height: 6px; }
-        .tw-panel::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+        .tw-panel::-webkit-scrollbar { width: 8px; height: 8px; }
+        .tw-panel::-webkit-scrollbar-track { background: #0f172a; border-radius: 4px; }
+        .tw-panel::-webkit-scrollbar-thumb { background: #0284c7; border-radius: 4px; }
+        .tw-panel::-webkit-scrollbar-thumb:hover { background: #38bdf8; }
+
+        .tw-pane::-webkit-scrollbar { width: 8px; }
+        .tw-pane::-webkit-scrollbar-track { background: #0f172a; border-radius: 4px; }
+        .tw-pane::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+        .tw-pane::-webkit-scrollbar-thumb:hover { background: #38bdf8; }
 
         .tw-table { width: 100%; border-collapse: collapse; font-size: 12px; }
         .tw-table th, .tw-table td { padding: 6px 8px; border-bottom: 1px solid #1e293b; text-align: center; white-space: nowrap; }
@@ -1443,7 +1450,7 @@
         if (!nobleOptions) nobleOptions = `<option value="">❌ Nenhuma aldeia com nobres</option>`;
 
         document.getElementById('tw-main-body').innerHTML = `
-            <div class="tw-pane active" style="padding: 4px; gap:8px; display:flex; flex-direction:column; flex-grow:1; overflow:hidden;">
+            <div class="tw-pane active" id="tw-pane-planner" style="padding: 4px 6px 24px 4px; gap:8px; display:flex; flex-direction:column; flex-grow:1; min-height:0; overflow-y:auto; overflow-x:hidden;">
                 <div style="display:grid; grid-template-columns: repeat(4, 1fr); gap:8px; flex-shrink:0;">
                     
                     <!-- CARD 1: ALVO, MODO DE OPERAÇÃO & NOBRES -->
@@ -1734,12 +1741,18 @@
                     <span id="tw-nt-status" style="font-size:12px; font-weight:bold;"></span>
                 </div>
 
-                <!-- PREVIEW COMPACTO & VISUALIZAÇÃO RESUMIDA (OTIMIZADO PARA COPY-PASTE RÁPIDO) -->
-                <div style="display:flex; flex-direction:column; gap:4px; flex-shrink:0;">
-                    <textarea id="tw-nt-preview" class="tw-textarea" style="height:38px; min-height:38px; max-height:48px; font-size:10.5px; padding:4px 8px;" placeholder="Configura os parâmetros e clica em Gerar... O BBCode é copiado automaticamente para o clipboard para colares no PS!"></textarea>
+                <!-- PREVIEW & VISUALIZAÇÃO DE COMANDOS (FLEXÍVEL E EXPANDÍVEL) -->
+                <div style="display:flex; flex-direction:column; gap:4px; flex-grow:1; min-height:220px; margin-top:2px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                        <span style="font-size:10px; font-weight:bold; color:#94a3b8; text-transform:uppercase; letter-spacing:0.05em;">Visualização de Comandos & Links:</span>
+                        <button class="tw-btn" id="tw-btn-toggle-table-size" style="padding:2px 10px; font-size:10px; font-weight:bold; background:#0f172a; border-color:#0284c7; color:#38bdf8; box-shadow:0 0 6px rgba(56,189,248,0.2);" title="Alterna entre visualização normal e expandida de todos os comandos">
+                            ↕️ Expandir / Ver Lista Completa
+                        </button>
+                    </div>
+                    <textarea id="tw-nt-preview" class="tw-textarea" style="height:36px; min-height:36px; max-height:44px; font-size:10.5px; padding:4px 8px;" placeholder="Configura os parâmetros e clica em Gerar... O BBCode é copiado automaticamente para o clipboard para colares no PS!"></textarea>
                     
-                    <div class="tw-panel" style="height:150px; min-height:120px; max-height:170px; overflow-y:auto; flex-grow:0; flex-shrink:0;">
-                        <table class="tw-table" style="font-size:11px;">
+                    <div class="tw-panel" id="tw-nt-table-panel" style="min-height:200px; max-height:380px; overflow-y:auto; border:1px solid #1e293b; border-radius:8px; background:#020617; transition:max-height 0.2s ease;">
+                        <table class="tw-table" id="tw-nt-table" style="font-size:11px;">
                             <thead>
                                 <tr>
                                     <th style="width:28px; padding:4px 6px;">#</th>
@@ -1770,6 +1783,28 @@
             plannerMode = 'multi';
             renderAttackPlanner();
         };
+
+        // Alternância de Tamanho da Tabela de Comandos
+        const btnToggleTable = document.getElementById('tw-btn-toggle-table-size');
+        const tablePanel = document.getElementById('tw-nt-table-panel');
+        let isTableExpanded = false;
+        if (btnToggleTable && tablePanel) {
+            btnToggleTable.onclick = () => {
+                isTableExpanded = !isTableExpanded;
+                if (isTableExpanded) {
+                    tablePanel.style.maxHeight = 'none';
+                    btnToggleTable.innerHTML = '🔼 Reduzir / Vista Compacta';
+                    btnToggleTable.style.borderColor = '#d97706';
+                    btnToggleTable.style.color = '#fbbf24';
+                    tablePanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                } else {
+                    tablePanel.style.maxHeight = '380px';
+                    btnToggleTable.innerHTML = '↕️ Expandir / Ver Lista Completa';
+                    btnToggleTable.style.borderColor = '#0284c7';
+                    btnToggleTable.style.color = '#38bdf8';
+                }
+            };
+        }
 
         if (document.getElementById('tw-btn-open-map-planner')) {
             document.getElementById('tw-btn-open-map-planner').onclick = () => openMapIframeModal('planner');
@@ -2373,14 +2408,14 @@
         let rows = '', output = '';
         allCampaignCommands.forEach((cmd, i) => {
             rows += `<tr data-vid="${cmd.originId}">
-                <td style="color:#94a3b8;">${i+1}</td>
-                <td><span class="${cmd.badge}">${cmd.type}</span></td>
-                <td style="text-align:left; padding-left:10px; font-weight:bold; color:#38bdf8;">${cmd.originName}</td>
-                <td style="font-weight:bold; color:#fbbf24;">${cmd.targetCoords}</td>
-                <td>${cmd.dist}c</td>
-                <td><b style="color:#f8fafc;">${cmd.launchTime.toLocaleTimeString('pt-PT')}:${String(cmd.launchTime.getMilliseconds()).padStart(3,'0')}</b> <span style="font-size:9.5px; color:#64748b; font-weight:normal;">(${String(cmd.launchTime.getDate()).padStart(2,'0')}/${String(cmd.launchTime.getMonth()+1).padStart(2,'0')})</span></td>
-                <td><b style="color:#38bdf8;">${cmd.landTime.toLocaleTimeString('pt-PT')}:${String(cmd.landTime.getMilliseconds()).padStart(3,'0')}</b> <span style="font-size:9.5px; color:#64748b; font-weight:normal;">(${String(cmd.landTime.getDate()).padStart(2,'0')}/${String(cmd.landTime.getMonth()+1).padStart(2,'0')})</span></td>
-                <td><b style="color:${cmd.actionType==='Support'?'#34d399':'#3fb950'};">${cmd.model}</b> <span style="font-size:10px; color:#94a3b8;">(${cmd.info})</span></td>
+                <td style="color:#94a3b8; padding:3px 6px;">${i+1}</td>
+                <td style="padding:3px 6px;"><span class="${cmd.badge}">${cmd.type}</span></td>
+                <td style="text-align:left; padding:3px 6px 3px 10px; font-weight:bold; color:#38bdf8;">${cmd.originName}</td>
+                <td style="font-weight:bold; color:#fbbf24; padding:3px 6px;">${cmd.targetCoords}</td>
+                <td style="padding:3px 6px;">${cmd.dist}c</td>
+                <td style="padding:3px 6px;"><b style="color:#f8fafc;">${cmd.launchTime.toLocaleTimeString('pt-PT')}:${String(cmd.launchTime.getMilliseconds()).padStart(3,'0')}</b> <span style="font-size:9.5px; color:#64748b; font-weight:normal;">(${String(cmd.launchTime.getDate()).padStart(2,'0')}/${String(cmd.launchTime.getMonth()+1).padStart(2,'0')})</span></td>
+                <td style="padding:3px 6px;"><b style="color:#38bdf8;">${cmd.landTime.toLocaleTimeString('pt-PT')}:${String(cmd.landTime.getMilliseconds()).padStart(3,'0')}</b> <span style="font-size:9.5px; color:#64748b; font-weight:normal;">(${String(cmd.landTime.getDate()).padStart(2,'0')}/${String(cmd.landTime.getMonth()+1).padStart(2,'0')})</span></td>
+                <td style="padding:3px 6px;"><b style="color:${cmd.actionType==='Support'?'#34d399':'#3fb950'};">${cmd.model}</b> <span style="font-size:10px; color:#94a3b8;">(${cmd.info})</span></td>
             </tr>`;
 
             let u = `https://${location.host}/game.php?village=${cmd.originId}&screen=place&target_coord=${cmd.targetCoords}`;
@@ -2391,6 +2426,10 @@
         document.getElementById('tw-nt-tbody').innerHTML = rows;
         document.getElementById('tw-nt-preview').value = output.trim();
         await navigator.clipboard.writeText(output.trim());
+        const tPanel = document.getElementById('tw-nt-table-panel');
+        if (tPanel) {
+            tPanel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
         if (attackMode === 'nuke_sweep' || attackMode === 'cat_demolish') {
             document.getElementById('tw-nt-status').innerHTML = `<span style="color:#34d399;">✅ Campanha de Limpeza: ${targets.length} alvos (${allCampaignCommands.length} nukes) copiada para o Clipboard!</span>`;
             showToast(`⚡ Campanha de Limpeza copiada para o Clipboard!`);
@@ -2998,14 +3037,14 @@
         let rows = '', output = '';
         sequence.forEach((cmd, i) => {
             rows += `<tr data-vid="${cmd.originId}">
-                <td style="color:#94a3b8;">${i+1}</td>
-                <td><span class="${cmd.badge}">${cmd.type}</span></td>
-                <td style="text-align:left; padding-left:10px; font-weight:bold; color:#38bdf8;">${cmd.originName}</td>
-                <td style="font-weight:bold; color:#fbbf24;">${cmd.targetCoords}</td>
-                <td>${cmd.dist}c</td>
-                <td><b style="color:#f8fafc;">${cmd.launchTime.toLocaleTimeString('pt-PT')}:${String(cmd.launchTime.getMilliseconds()).padStart(3,'0')}</b> <span style="font-size:9.5px; color:#64748b; font-weight:normal;">(${String(cmd.launchTime.getDate()).padStart(2,'0')}/${String(cmd.launchTime.getMonth()+1).padStart(2,'0')})</span></td>
-                <td><b style="color:#38bdf8;">${cmd.landTime.toLocaleTimeString('pt-PT')}:${String(cmd.landTime.getMilliseconds()).padStart(3,'0')}</b> <span style="font-size:9.5px; color:#64748b; font-weight:normal;">(${String(cmd.landTime.getDate()).padStart(2,'0')}/${String(cmd.landTime.getMonth()+1).padStart(2,'0')})</span></td>
-                <td><b style="color:${cmd.actionType==='Support'?'#34d399':'#3fb950'};">${cmd.model}</b> <span style="font-size:10px; color:#94a3b8;">(${cmd.info})</span></td>
+                <td style="color:#94a3b8; padding:3px 6px;">${i+1}</td>
+                <td style="padding:3px 6px;"><span class="${cmd.badge}">${cmd.type}</span></td>
+                <td style="text-align:left; padding:3px 6px 3px 10px; font-weight:bold; color:#38bdf8;">${cmd.originName}</td>
+                <td style="font-weight:bold; color:#fbbf24; padding:3px 6px;">${cmd.targetCoords}</td>
+                <td style="padding:3px 6px;">${cmd.dist}c</td>
+                <td style="padding:3px 6px;"><b style="color:#f8fafc;">${cmd.launchTime.toLocaleTimeString('pt-PT')}:${String(cmd.launchTime.getMilliseconds()).padStart(3,'0')}</b> <span style="font-size:9.5px; color:#64748b; font-weight:normal;">(${String(cmd.launchTime.getDate()).padStart(2,'0')}/${String(cmd.launchTime.getMonth()+1).padStart(2,'0')})</span></td>
+                <td style="padding:3px 6px;"><b style="color:#38bdf8;">${cmd.landTime.toLocaleTimeString('pt-PT')}:${String(cmd.landTime.getMilliseconds()).padStart(3,'0')}</b> <span style="font-size:9.5px; color:#64748b; font-weight:normal;">(${String(cmd.landTime.getDate()).padStart(2,'0')}/${String(cmd.landTime.getMonth()+1).padStart(2,'0')})</span></td>
+                <td style="padding:3px 6px;"><b style="color:${cmd.actionType==='Support'?'#34d399':'#3fb950'};">${cmd.model}</b> <span style="font-size:10px; color:#94a3b8;">(${cmd.info})</span></td>
             </tr>`;
 
             let u = `https://${location.host}/game.php?village=${cmd.originId}&screen=place&target_coord=${cmd.targetCoords}`;
@@ -3016,6 +3055,10 @@
         document.getElementById('tw-nt-tbody').innerHTML = rows;
         document.getElementById('tw-nt-preview').value = output.trim();
         await navigator.clipboard.writeText(output.trim());
+        const tPanel = document.getElementById('tw-nt-table-panel');
+        if (tPanel) {
+            tPanel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
         if (attackMode === 'nuke_sweep' || attackMode === 'cat_demolish') {
             document.getElementById('tw-nt-status').innerHTML = `<span style="color:#34d399;">✅ Limpeza (${sequence.length} ataques) copiada para o Clipboard!</span>`;
             showToast(`⚡ Limpeza copiada para o Clipboard!`);
