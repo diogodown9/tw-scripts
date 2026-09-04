@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TW Tactical Command Suite
 // @namespace    https://tribalwars.com.pt/
-// @version      2.7.0
-// @description  Suite militar avançada para Tribal Wars PT: Arsenal Tático de Fakes (Raio Livre, Fake NT 4x, Saturação do Alvo Real, Balanceamento de Origens & Modo Campanha), Seleção Independente de Alvo de Catapulta com Auto-Seleção na Praça, Deteção de Tropas Fora (⚠️), Seletor Inteligente de Full Nuke, e Planeador Tático.
+// @version      2.7.1
+// @description  Suite militar avançada para Tribal Wars PT: Fakes Inteligentes (Auto Fake Limit 1% Dinâmico por Pontos), Arsenal Tático de Fakes (Raio Livre, Fake NT 4x, Saturação do Alvo Real & Modo Campanha), Seleção Independente de Alvo de Catapulta com Auto-Seleção na Praça, Deteção de Tropas Fora (⚠️), Seletor Inteligente de Full Nuke, e Planeador Tático.
 // @author       Diogo & Antigravity
 // @match        https://*.tribalwars.com.pt/game.php*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=tribalwars.com.pt
@@ -10,7 +10,7 @@
 // ==/UserScript==
 
 (async function () {
-    const SCRIPT_VERSION = '2.7.0';
+    const SCRIPT_VERSION = '2.7.1';
 
     // Auto-selecionar alvo de catapulta na confirmação de ataque na Praça de Reunião se especificado no URL
     try {
@@ -543,6 +543,32 @@
         return coords ? `${name} (${coords})` : name;
     }
 
+    // Resolução inteligente de modelos de fakes por escalões de 1%
+    function resolveFakeModel(village, baseModelName, isSmartEnabled) {
+        const base = (baseModelName || 'Fake').trim() || 'Fake';
+        if (!isSmartEnabled) {
+            return { model: base, tier: '', pts: (village && village.points) ? village.points : 0 };
+        }
+        let pts = (village && village.points) ? village.points : 0;
+        if (!pts && village && worldVillages.length > 0) {
+            const wv = worldVillages.find(v => v.id === village.id || v.coord === village.coords);
+            if (wv && wv.points) pts = wv.points;
+        }
+        pts = pts || 10000;
+
+        let tierSuffix = '115';
+        if (pts <= 6000) tierSuffix = '60';
+        else if (pts <= 9000) tierSuffix = '90';
+        else if (pts <= 11500) tierSuffix = '115';
+        else tierSuffix = '135';
+
+        return {
+            model: `${base}_${tierSuffix}`,
+            tier: tierSuffix,
+            pts
+        };
+    }
+
     let worldVillages = [];
     let worldVillagesLoaded = false;
 
@@ -555,13 +581,24 @@
                 const lines = text.trim().split('\n');
                 worldVillages = lines.map(line => {
                     const parts = line.split(',');
-                    if (parts.length >= 4) {
+                    if (parts.length >= 6) {
                         return {
                             id: parts[0],
                             name: decodeURIComponent(parts[1] || '').replace(/\+/g, ' '),
                             x: parseInt(parts[2], 10),
                             y: parseInt(parts[3], 10),
                             playerId: parts[4] || '0',
+                            points: parseInt(parts[5], 10) || 0,
+                            coord: `${parts[2]}|${parts[3]}`
+                        };
+                    } else if (parts.length >= 4) {
+                        return {
+                            id: parts[0],
+                            name: decodeURIComponent(parts[1] || '').replace(/\+/g, ' '),
+                            x: parseInt(parts[2], 10),
+                            y: parseInt(parts[3], 10),
+                            playerId: parts[4] || '0',
+                            points: 0,
                             coord: `${parts[2]}|${parts[3]}`
                         };
                     }
@@ -604,17 +641,33 @@
             const dP = parser.parseFromString(rP, 'text/html');
 
             const farmMap = {};
+            const villagePointsMap = {};
+            const prodThs = Array.from(dP.querySelectorAll('#production_table thead th'));
+            const ptsHeaderIndex = prodThs.findIndex(th => /ponto|point|punkt/i.test(th.textContent.trim()));
+
             dP.querySelectorAll('#production_table tbody tr').forEach(tr => {
                 const a = tr.querySelector('a[href*="village="]');
                 if (!a) return;
                 const vId = (a.href.match(/village=(\d+)/) || [])[1];
                 if (!vId) return;
-                tr.querySelectorAll('td').forEach(td => {
+
+                const tds = Array.from(tr.querySelectorAll('td'));
+                if (ptsHeaderIndex !== -1 && tds[ptsHeaderIndex]) {
+                    const pts = parseInt(tds[ptsHeaderIndex].textContent.replace(/\./g, '').trim(), 10);
+                    if (!isNaN(pts) && pts > 0) villagePointsMap[vId] = pts;
+                }
+
+                tds.forEach(td => {
                     const txt = td.textContent.trim();
                     if (/^\d+\/\d+$/.test(txt) && !td.querySelector('a')) {
                         const [p, m] = txt.split('/').map(Number);
                         const perc = parseFloat(((p / m) * 100).toFixed(1));
                         farmMap[vId] = { txt, used: p, max: m, perc, lvl: Math.ceil(m/800), color: p >= 22000 ? '#f43f5e' : p >= 18000 ? '#f59e0b' : '#10b981' };
+                    } else if (!villagePointsMap[vId] && /^\d{1,2}\.?\d{3}$/.test(txt) && !td.querySelector('a') && !td.querySelector('span')) {
+                        const pts = parseInt(txt.replace(/\./g, ''), 10);
+                        if (!isNaN(pts) && pts > 100 && pts < 20000) {
+                            villagePointsMap[vId] = pts;
+                        }
                     }
                 });
             });
@@ -793,8 +846,13 @@
                 const paladinInfo = paladinByVillage[vId] || null;
                 const knightAvailable = paladinInfo ? (paladinInfo.isHome ? 1 : 0) : (homeDict.knight || 0);
 
+                const vPoints = villagePointsMap[vId]
+                    || (worldVillages.find(wv => wv.id === vId || wv.coord === coords)?.points)
+                    || (typeof game_data !== 'undefined' && game_data.village && game_data.village.id == vId ? (game_data.village.points || 0) : 0)
+                    || 0;
+
                 const vObj = {
-                    id: vId, name: vName, coords, troops: vTroops, troopsDict: dict, homeTroopsDict: homeDict,
+                    id: vId, name: vName, coords, points: vPoints, troops: vTroops, troopsDict: dict, homeTroopsDict: homeDict,
                     movingTroopsDict: movingDict, awayTroopsDict: awayDict,
                     knightAvailable, rowClass, roleTag,
                     farm: farmInfo,
@@ -2003,6 +2061,15 @@
                                     </div>
                                 </div>
 
+                                <!-- Linha 4: Fakes Inteligentes (1% Dinâmico por Pontos) -->
+                                <div style="display:flex; align-items:center; justify-content:space-between; background:rgba(88, 28, 135, 0.25); border:1px solid rgba(192, 132, 252, 0.3); border-radius:4px; padding:3px 6px;">
+                                    <label style="display:flex; align-items:center; gap:5px; font-size:9px; color:#f3e8ff; cursor:pointer; font-weight:bold; white-space:nowrap;" title="Ativa a seleção automática de modelos escalonados (Fake_60, Fake_90, Fake_115, Fake_135) por pontos da aldeia para nunca violar a regra de 1% fake limit">
+                                        <input type="checkbox" id="tw-nt-fake-smart-limit" style="cursor:pointer; width:12px; height:12px;">
+                                        🧠 Fakes Inteligentes (1% Dinâmico)
+                                    </label>
+                                    <span style="font-size:8px; color:#c084fc; font-weight:600;" title="Escalões: _60 (≤6k), _90 (≤9k), _115 (≤11.5k), _135 (>11.5k)">_60/_90/_115/_135</span>
+                                </div>
+
                                 <div id="tw-nt-fake-info" style="padding:3px 5px; background:rgba(2, 6, 23, 0.7); border:1px solid #4c1d95; border-radius:4px; font-size:8.5px; color:#d8b4fe; line-height:1.2;">
                                     🎯 Insere o alvo para filtrar as aldeias do defensor.
                                 </div>
@@ -2650,7 +2717,9 @@
 
                 const totalTargetVillages = neighborCount + (includeTarget ? 1 : 0);
                 const totalCommands = totalTargetVillages * fakesPerTarget * multiplier;
-                const styleDesc = (fakeStyle === 'fake_nt') ? ' • 4x combo NT' : (fakeStyle === 'snob' ? ' • 35m/c Nobre' : (fakeStyle === 'spy' ? ' • 9m/c Espião' : ' • 30m/c'));
+                const isSmartFake = document.getElementById('tw-nt-fake-smart-limit') && document.getElementById('tw-nt-fake-smart-limit').checked;
+                const smartDesc = isSmartFake ? ' • 🧠 1% Dinâmico' : '';
+                const styleDesc = (fakeStyle === 'fake_nt') ? ` • 4x combo NT${smartDesc}` : (fakeStyle === 'snob' ? ` • 35m/c Nobre${smartDesc}` : (fakeStyle === 'spy' ? ` • 9m/c Espião${smartDesc}` : ` • 30m/c${smartDesc}`));
 
                 infoBox.innerHTML = `🎯 <b>${neighborCount}</b> vizinhas ${includeTarget ? '+ <b>1 Alvo Real</b>' : ''} (raio <b>${radius}c</b>)<br>🚀 Total: <b style="color:#34d399;">${totalCommands} fakes</b> (${fakesPerTarget}x/aldeia${styleDesc})`;
             } else {
@@ -2689,7 +2758,9 @@
 
                 const totalTargetVillages = seenTargets.size || (neighborCount + (includeTarget ? multiTargets.length : 0));
                 const totalCommands = totalTargetVillages * fakesPerTarget * multiplier;
-                const styleDesc = (fakeStyle === 'fake_nt') ? ' • 4x combo NT' : (fakeStyle === 'snob' ? ' • 35m/c Nobre' : (fakeStyle === 'spy' ? ' • 9m/c Espião' : ' • 30m/c'));
+                const isSmartFake = document.getElementById('tw-nt-fake-smart-limit') && document.getElementById('tw-nt-fake-smart-limit').checked;
+                const smartDesc = isSmartFake ? ' • 🧠 1% Dinâmico' : '';
+                const styleDesc = (fakeStyle === 'fake_nt') ? ` • 4x combo NT${smartDesc}` : (fakeStyle === 'snob' ? ` • 35m/c Nobre${smartDesc}` : (fakeStyle === 'spy' ? ` • 9m/c Espião${smartDesc}` : ` • 30m/c${smartDesc}`));
 
                 infoBox.innerHTML = `🎯 <b>${totalTargetVillages}</b> alvos fakes na Campanha (raio <b>${radius}c</b>)<br>🚀 Total: <b style="color:#34d399;">${totalCommands} fakes</b> (${fakesPerTarget}x/alvo${styleDesc})`;
             }
@@ -3134,6 +3205,7 @@
         const savedFakeStyle = getPref('tw_nt_fake_style', 'single');
         const savedFakeMaxOrigin = getPref('tw_nt_fake_max_origin', '2');
         const savedFakeIncTarget = getPref('tw_nt_fake_include_target', 'true');
+        const savedFakeSmartLimit = getPref('tw_nt_fake_smart_limit', 'false');
         const savedNukeCat = getPref('tw_nt_nuke_cat_target', 'place');
         const savedAntiCat = getPref('tw_nt_anti_cat_target', 'none');
 
@@ -3149,6 +3221,7 @@
         if (document.getElementById('tw-nt-fake-style')) document.getElementById('tw-nt-fake-style').value = savedFakeStyle;
         if (document.getElementById('tw-nt-fake-max-origin')) document.getElementById('tw-nt-fake-max-origin').value = savedFakeMaxOrigin;
         if (document.getElementById('tw-nt-fake-include-target')) document.getElementById('tw-nt-fake-include-target').checked = (savedFakeIncTarget === 'true');
+        if (document.getElementById('tw-nt-fake-smart-limit')) document.getElementById('tw-nt-fake-smart-limit').checked = (savedFakeSmartLimit === 'true');
         if (document.getElementById('tw-nt-nuke-cat-target')) document.getElementById('tw-nt-nuke-cat-target').value = savedNukeCat;
         if (document.getElementById('tw-nt-anti-cat-target')) document.getElementById('tw-nt-anti-cat-target').value = savedAntiCat;
 
@@ -3185,6 +3258,12 @@
         if (document.getElementById('tw-nt-fake-include-target')) {
             document.getElementById('tw-nt-fake-include-target').onchange = (e) => {
                 savePrefs('tw_nt_fake_include_target', String(e.target.checked));
+                updateRadiusFakesHUD();
+            };
+        }
+        if (document.getElementById('tw-nt-fake-smart-limit')) {
+            document.getElementById('tw-nt-fake-smart-limit').onchange = (e) => {
+                savePrefs('tw_nt_fake_smart_limit', String(e.target.checked));
                 updateRadiusFakesHUD();
             };
         }
@@ -3526,6 +3605,7 @@
             const fakeMaxPerOrigin = parseInt(document.getElementById('tw-nt-fake-max-origin') ? document.getElementById('tw-nt-fake-max-origin').value : '2', 10) || 2;
             const fakeIncludeTarget = document.getElementById('tw-nt-fake-include-target') ? document.getElementById('tw-nt-fake-include-target').checked : true;
             const fakeModelName = document.getElementById('tw-nt-fake-model') ? document.getElementById('tw-nt-fake-model').value.trim() || 'Fake' : 'Fake';
+            const fakeSmartLimit = document.getElementById('tw-nt-fake-smart-limit') ? document.getElementById('tw-nt-fake-smart-limit').checked : false;
 
             let fakeSpeedMin = unitSpeedMinutes.ram; // 30 min/campo padrão
             if (fakeStyle === 'snob') fakeSpeedMin = unitSpeedMinutes.snob; // 35 min/campo
@@ -3579,20 +3659,24 @@
                     const usedCount = originUsageCount[cand.village.id] || 0;
                     if (usedCount >= fakeMaxPerOrigin) continue;
 
+                    const fakeModelRes = resolveFakeModel(cand.village, fakeModelName, fakeSmartLimit);
+                    const chosenFakeModel = fakeModelRes.model;
+                    const ptsInfo = fakeSmartLimit ? ` • ${fakeModelRes.pts.toLocaleString('pt-PT')} pts` : '';
+
                     if (fakeStyle === 'fake_nt') {
                         for (let wave = 0; wave < 4; wave++) {
                             const waveOffset = wave * 100;
                             const landMs = baseLandTime + waveOffset;
                             const launchMs = landMs - (cand.travelSec * 1000);
-                            allCampaignCommands.push(makeCmd(`🎭 Fake NT #${fakesAssigned + 1} (${wave + 1}/4)`, 'tw-badge-praca', 'Attack', cand.village, nTarget.coord, cand.dist, cand.travelSec, new Date(launchMs), new Date(landMs), fakeModelName, '', nTarget.isRealTarget ? `Fake NT Alvo Real (${fakeSpeedMin}m/c)` : `Fake NT (${fakeSpeedMin}m/c)`));
+                            allCampaignCommands.push(makeCmd(`🎭 Fake NT #${fakesAssigned + 1} (${wave + 1}/4)`, 'tw-badge-praca', 'Attack', cand.village, nTarget.coord, cand.dist, cand.travelSec, new Date(launchMs), new Date(landMs), chosenFakeModel, '', nTarget.isRealTarget ? `Fake NT Alvo Real (${fakeSpeedMin}m/c${ptsInfo})` : `Fake NT (${fakeSpeedMin}m/c${ptsInfo})`));
                         }
                         originUsageCount[cand.village.id] = usedCount + 1;
                         fakesAssigned++;
                     } else {
                         const launchMs = baseLandTime - (cand.travelSec * 1000);
                         const typeLabel = nTarget.isRealTarget ? '🎭 Fake Saturação' : '🎭 Fake Cortina';
-                        const infoLabel = nTarget.isRealTarget ? `Saturação Alvo (${fakeSpeedMin}m/c)` : `Cortina (${fakeSpeedMin}m/c)`;
-                        allCampaignCommands.push(makeCmd(typeLabel, 'tw-badge-praca', 'Attack', cand.village, nTarget.coord, cand.dist, cand.travelSec, new Date(launchMs), new Date(baseLandTime), fakeModelName, '', infoLabel));
+                        const infoLabel = nTarget.isRealTarget ? `Saturação Alvo (${fakeSpeedMin}m/c${ptsInfo})` : `Cortina (${fakeSpeedMin}m/c${ptsInfo})`;
+                        allCampaignCommands.push(makeCmd(typeLabel, 'tw-badge-praca', 'Attack', cand.village, nTarget.coord, cand.dist, cand.travelSec, new Date(launchMs), new Date(baseLandTime), chosenFakeModel, '', infoLabel));
                         originUsageCount[cand.village.id] = usedCount + 1;
                         fakesAssigned++;
                     }
@@ -4463,6 +4547,7 @@
             const fakeMaxPerOrigin = parseInt(document.getElementById('tw-nt-fake-max-origin') ? document.getElementById('tw-nt-fake-max-origin').value : '2', 10) || 2;
             const fakeIncludeTarget = document.getElementById('tw-nt-fake-include-target') ? document.getElementById('tw-nt-fake-include-target').checked : true;
             const fakeModelName = document.getElementById('tw-nt-fake-model') ? document.getElementById('tw-nt-fake-model').value.trim() || 'Fake' : 'Fake';
+            const fakeSmartLimit = document.getElementById('tw-nt-fake-smart-limit') ? document.getElementById('tw-nt-fake-smart-limit').checked : false;
 
             let fakeSpeedMin = unitSpeedMinutes.ram; // 30 min/campo padrão
             if (fakeStyle === 'snob') fakeSpeedMin = unitSpeedMinutes.snob; // 35 min/campo
@@ -4527,6 +4612,10 @@
                     const usedCount = originUsageCount[cand.village.id] || 0;
                     if (usedCount >= fakeMaxPerOrigin) continue;
 
+                    const fakeModelRes = resolveFakeModel(cand.village, fakeModelName, fakeSmartLimit);
+                    const chosenFakeModel = fakeModelRes.model;
+                    const ptsInfo = fakeSmartLimit ? ` • ${fakeModelRes.pts.toLocaleString('pt-PT')} pts` : '';
+
                     if (fakeStyle === 'fake_nt') {
                         // Combo Fake NT (4 ataques da mesma aldeia espaçados por 100ms)
                         for (let wave = 0; wave < 4; wave++) {
@@ -4545,9 +4634,9 @@
                                 sec: cand.travelSec,
                                 launchTime: new Date(launchMs),
                                 landTime: new Date(landMs),
-                                model: fakeModelName,
+                                model: chosenFakeModel,
                                 building: '',
-                                info: nTarget.isRealTarget ? `Fake NT Alvo Real (${fakeSpeedMin}m/c)` : `Fake NT (${fakeSpeedMin}m/c)`,
+                                info: nTarget.isRealTarget ? `Fake NT Alvo Real (${fakeSpeedMin}m/c${ptsInfo})` : `Fake NT (${fakeSpeedMin}m/c${ptsInfo})`,
                                 isFake: true
                             });
                         }
@@ -4557,7 +4646,7 @@
                         // Ataques Simples individuais
                         const launchMs = baseLandTime - (cand.travelSec * 1000);
                         const typeLabel = nTarget.isRealTarget ? '🎭 Fake Saturação' : '🎭 Fake Cortina';
-                        const infoLabel = nTarget.isRealTarget ? `Saturação Alvo (${fakeSpeedMin}m/c)` : `Cortina (${fakeSpeedMin}m/c)`;
+                        const infoLabel = nTarget.isRealTarget ? `Saturação Alvo (${fakeSpeedMin}m/c${ptsInfo})` : `Cortina (${fakeSpeedMin}m/c${ptsInfo})`;
 
                         sequence.push({
                             type: typeLabel,
@@ -4571,7 +4660,7 @@
                             sec: cand.travelSec,
                             launchTime: new Date(launchMs),
                             landTime: new Date(baseLandTime),
-                            model: fakeModelName,
+                            model: chosenFakeModel,
                             building: '',
                             info: infoLabel,
                             isFake: true
