@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TW Tactical Command Suite
 // @namespace    https://tribalwars.com.pt/
-// @version      2.5.8
-// @description  Suite militar avançada para Tribal Wars PT: Visão Geral com regra 22k, Reconhecimento Real de Todos os Paladinos (Ofensivos vs Defensivos) c/ Atalho Direto na Estátua, Contador Tático, Gerador de Fakes dinâmico, Planeador NT + Anti-Snipe + Bunker, Re-Nobre em Bate e Volta (4 viagens consecutivas), Campanha Multialvo com IA de Atribuição e exportação BBCode.
+// @version      2.5.9
+// @description  Suite militar avançada para Tribal Wars PT: Visão Geral com regra 22k, Seleção Personalizada de Paladino para Ataque / Realocação (Preservação de QuimConquista p/ Nobres c/ Persuasão), Reconhecimento Real de Todos os Paladinos c/ Atalho Direto na Estátua, Contador Tático, Gerador de Fakes dinâmico, Planeador NT + Anti-Snipe + Bunker, Re-Nobre em Bate e Volta e Campanha Multialvo.
 // @author       Diogo & Antigravity
 // @match        https://*.tribalwars.com.pt/game.php*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=tribalwars.com.pt
@@ -10,7 +10,7 @@
 // ==/UserScript==
 
 (async function () {
-    const SCRIPT_VERSION = '2.5.8';
+    const SCRIPT_VERSION = '2.5.9';
     const modalId = 'tw-master-suite';
     
     // Limpeza de instâncias anteriores
@@ -1521,6 +1521,12 @@
         }).join('');
         if (!nobleOptions) nobleOptions = `<option value="">❌ Nenhuma aldeia com nobres</option>`;
 
+        const paladinOptionsHtml = allAccountPaladins.map(p => {
+            const roleIcon = p.isOffense ? '⚔️' : '🛡️';
+            const note = p.name === 'QuimConquista' ? ' • Persuasão 4 / Arrebentar' : (p.name === 'Antoniooo' ? ' • Destruição 4 / Arrebentar' : (p.isOffense ? ' • Ataque' : ' • Defesa'));
+            return `<option value="${p.id}">${roleIcon} ${p.name} (Lvl ${p.level}${note})</option>`;
+        }).join('');
+
         document.getElementById('tw-main-body').innerHTML = `
             <div class="tw-pane active" id="tw-pane-planner" style="padding: 4px 6px 24px 4px; gap:8px; display:flex; flex-direction:column; flex-grow:1; min-height:0; overflow-y:auto; overflow-x:hidden;">
                 <div style="display:grid; grid-template-columns: repeat(4, 1fr); gap:8px; flex-shrink:0;">
@@ -1695,12 +1701,22 @@
                             </div>
                         </div>
 
-                        <!-- TICKBOX DE PALADINO NO NUKE (Dimmed se 0 Nukes) -->
-                        <div id="tw-box-paladin-nuke" style="display:flex; align-items:center; gap:5px; margin:1px 0; padding:2px 5px; background:rgba(239, 68, 68, 0.1); border:1px solid rgba(239, 68, 68, 0.3); border-radius:4px; transition:0.2s;">
-                            <input type="checkbox" id="tw-nt-req-paladin-nuke" checked style="cursor:pointer; width:13px; height:13px;">
-                            <label for="tw-nt-req-paladin-nuke" style="cursor:pointer; font-size:9px; color:#fca5a5; font-weight:bold;">
-                                🛡️ Priorizar Paladino no Nuke (Aviso 3h31m)
-                            </label>
+                        <!-- SELETOR E TICKBOX DE PALADINO NO NUKE (Dimmed se 0 Nukes) -->
+                        <div id="tw-box-paladin-nuke" style="display:flex; flex-direction:column; gap:4px; margin:1px 0; padding:4px 6px; background:rgba(239, 68, 68, 0.1); border:1px solid rgba(239, 68, 68, 0.3); border-radius:4px; transition:0.2s;">
+                            <div style="display:flex; align-items:center; justify-content:space-between; gap:5px;">
+                                <label style="display:flex; align-items:center; gap:5px; cursor:pointer; font-size:9.5px; color:#fca5a5; font-weight:bold; margin:0;">
+                                    <input type="checkbox" id="tw-nt-req-paladin-nuke" checked style="cursor:pointer; width:13px; height:13px;">
+                                    🛡️ Priorizar Paladino no Nuke
+                                </label>
+                                <span style="font-size:8.5px; color:#94a3b8;">(Aviso 3h31m)</span>
+                            </div>
+                            <div id="tw-box-paladin-select" style="display:flex; align-items:center; gap:4px;">
+                                <span style="font-size:9px; color:#cbd5e1; white-space:nowrap; font-weight:600;">🎯 Paladino:</span>
+                                <select id="tw-nt-paladin-choice" class="tw-select" style="font-size:9.5px; padding:1px 4px; background:#1e1b4b; border:1px solid #7c3aed; color:#e9d5ff; flex:1; text-overflow:ellipsis;" title="Escolhe qual Paladino usar na Limpeza (ex: poupar QuimConquista para Nobres/Persuasão)">
+                                    <option value="auto">⚡ Auto (Melhor Ofensivo)</option>
+                                    ${paladinOptionsHtml}
+                                </select>
+                            </div>
                         </div>
 
                         <div style="display:grid; grid-template-columns: 1fr 1fr; gap:4px;">
@@ -2134,14 +2150,20 @@
 
             const boxPaladin = document.getElementById('tw-box-paladin-nuke');
             const chkPaladin = document.getElementById('tw-nt-req-paladin-nuke');
+            const selPaladin = document.getElementById('tw-nt-paladin-choice');
             if (boxPaladin && chkPaladin) {
                 if (leadNukes === 0) {
                     boxPaladin.style.opacity = '0.35';
                     boxPaladin.style.pointerEvents = 'none';
                     chkPaladin.checked = false;
+                    if (selPaladin) selPaladin.disabled = true;
                 } else {
                     boxPaladin.style.opacity = '1';
                     boxPaladin.style.pointerEvents = 'auto';
+                    if (selPaladin) {
+                        selPaladin.disabled = !chkPaladin.checked;
+                        selPaladin.style.opacity = chkPaladin.checked ? '1' : '0.4';
+                    }
                 }
             }
 
@@ -2221,6 +2243,14 @@
         }
         if (bunkerCountSelect) {
             bunkerCountSelect.onchange = () => syncPlannerFormState();
+        }
+        const chkPaladinNuke = document.getElementById('tw-nt-req-paladin-nuke');
+        const selPaladinChoice = document.getElementById('tw-nt-paladin-choice');
+        if (chkPaladinNuke && selPaladinChoice) {
+            chkPaladinNuke.onchange = () => {
+                selPaladinChoice.disabled = !chkPaladinNuke.checked;
+                selPaladinChoice.style.opacity = chkPaladinNuke.checked ? '1' : '0.4';
+            };
         }
         if (nobleCountSelect) {
             nobleCountSelect.onchange = (e) => {
@@ -2459,6 +2489,9 @@
             const catTargetBuilding = document.getElementById('tw-nt-cat-target-building').value;
             const modelCats = document.getElementById('tw-nt-model-cats') ? document.getElementById('tw-nt-model-cats').value.trim() || 'Cats' : 'Cats';
 
+            const reqPaladinNuke = document.getElementById('tw-nt-req-paladin-nuke') ? document.getElementById('tw-nt-req-paladin-nuke').checked : true;
+            const paladinChoice = document.getElementById('tw-nt-paladin-choice') ? document.getElementById('tw-nt-paladin-choice').value : 'auto';
+
             const excludeCommitted = document.getElementById('tw-nt-exclude-committed').checked;
             const committedMap = getCommittedSchedules();
 
@@ -2526,7 +2559,7 @@
             for (let i = 0; i < leadNukesCount; i++) {
                 const landOffset = hasNobles ? ((leadNukesCount - i) * 100) : ((leadNukesCount - 1 - i) * 100);
                 const landMs = baseLandTime - landOffset;
-                const nukeOff = findClosestAvailable(offPool, usedOffVillages, tCoord, landMs, minLaunchMs, false, reqPaladinNuke);
+                const nukeOff = findClosestAvailable(offPool, usedOffVillages, tCoord, landMs, minLaunchMs, false, reqPaladinNuke, paladinChoice);
                 if (nukeOff) {
                     usedOffVillages.add(nukeOff.village.id);
                     const pal = nukeOff.village.paladin;
@@ -2546,10 +2579,16 @@
                 if (!hasPal && targetNukes.length > 0) {
                     const primaryNuke = targetNukes[0];
                     const timeUntilLaunch = primaryNuke.launchTime.getTime() - now;
-                    const idleOffPaladins = allAccountPaladins
-                        .filter(p => p.isOffense && p.isHome)
-                        .sort((a, b) => (b.offPoints || b.level) - (a.offPoints || a.level));
-                    const bestPal = idleOffPaladins[0] || allAccountPaladins.find(p => p.isHome) || null;
+                    let bestPal = null;
+                    if (paladinChoice !== 'auto') {
+                        bestPal = allAccountPaladins.find(p => String(p.id) === String(paladinChoice)) || null;
+                    }
+                    if (!bestPal) {
+                        const idleOffPaladins = allAccountPaladins
+                            .filter(p => p.isOffense && p.isHome)
+                            .sort((a, b) => (b.offPoints || b.level) - (a.offPoints || a.level));
+                        bestPal = idleOffPaladins[0] || allAccountPaladins.find(p => p.isHome) || null;
+                    }
                     if (timeUntilLaunch >= STANDARD_RELOCATE_MS) {
                         const marginMin = Math.floor((timeUntilLaunch - STANDARD_RELOCATE_MS) / 60000);
                         const palName = bestPal ? bestPal.name : 'Paladino';
@@ -2689,7 +2728,20 @@
                 const titleText = cmd.relocatePaladinName 
                     ? `Abre a Estátua da aldeia ${cmd.originName} (${cmd.originCoords}) focada no ${cmd.relocatePaladinName} para o puxares imediatamente` 
                     : `Abre a Estátua da aldeia ${cmd.originName} (${cmd.originCoords}) noutro separador para puxares o Paladino`;
-                actionShortcut = `<a href="game.php?village=${cmd.originId}&screen=statue${knightParam}" target="_blank" class="tw-btn" style="padding:2px 7px; font-size:9.5px; font-weight:bold; background:#7c3aed; border:1px solid #c084fc; color:#fff; border-radius:4px; text-decoration:none; margin-left:6px; display:inline-flex; align-items:center; gap:3px; vertical-align:middle; cursor:pointer;" title="${titleText}">${btnText}</a>`;
+
+                let palSelectOptions = '';
+                if (allAccountPaladins && allAccountPaladins.length > 0) {
+                    palSelectOptions = `
+                    <select class="tw-select tw-quick-reloc-select" data-cmd-idx="${i}" data-vid="${cmd.originId}" style="font-size:9.5px; padding:1px 4px; background:#0f172a; border:1px solid #c084fc; color:#e9d5ff; border-radius:4px; margin-left:4px; cursor:pointer;" title="Mudar qual Paladino queres puxar para esta aldeia">
+                        ${allAccountPaladins.map(p => `<option value="${p.id}" ${String(p.id) === String(cmd.relocatePaladinId) ? 'selected' : ''}>${p.isOffense ? '⚔️' : '🛡️'} ${p.name} (Lvl ${p.level}${p.name === 'QuimConquista' ? ' • Persuasão' : ''})</option>`).join('')}
+                    </select>`;
+                }
+
+                actionShortcut = `
+                <span style="display:inline-flex; align-items:center; vertical-align:middle; margin-left:6px;">
+                    <a href="game.php?village=${cmd.originId}&screen=statue${knightParam}" target="_blank" id="tw-btn-reloc-${i}" class="tw-btn" style="padding:2px 7px; font-size:9.5px; font-weight:bold; background:#7c3aed; border:1px solid #c084fc; color:#fff; border-radius:4px; text-decoration:none; display:inline-flex; align-items:center; gap:3px; cursor:pointer;" title="${titleText}">${btnText}</a>
+                    ${palSelectOptions}
+                </span>`;
             }
 
             rows += `<tr data-vid="${cmd.originId}">
@@ -2709,6 +2761,7 @@
         });
 
         document.getElementById('tw-nt-tbody').innerHTML = rows;
+        bindQuickRelocEvents();
         const previewEl = document.getElementById('tw-nt-preview');
         if (previewEl) {
             previewEl.value = output.trim();
@@ -2744,7 +2797,7 @@
     }
 }
 
-    function findClosestAvailable(pool, usedSet, targetCoord, targetLandMs, minLaunchMs, forbidPaladin = false, preferPaladin = false) {
+    function findClosestAvailable(pool, usedSet, targetCoord, targetLandMs, minLaunchMs, forbidPaladin = false, preferPaladin = false, paladinChoice = 'auto') {
         let bestPal = null, bestPalDist = Infinity;
         let best = null, bestDist = Infinity;
         let bestFallback = null, bestFallbackDist = Infinity;
@@ -2757,22 +2810,28 @@
             if (launchMs >= minLaunchMs) {
                 const pal = v.paladin;
                 const hasKnight = pal ? pal.isHome : ((v.knightAvailable || (v.homeTroopsDict && v.homeTroopsDict.knight) || 0) >= 1);
+                let hasMatchingPaladin = false;
+                if (paladinChoice === 'auto') {
+                    hasMatchingPaladin = pal ? (pal.isOffense && pal.isHome) : hasKnight;
+                } else {
+                    hasMatchingPaladin = pal ? (String(pal.id) === String(paladinChoice) && pal.isHome) : false;
+                }
                 const hasOffPaladin = pal ? (pal.isOffense && pal.isHome) : hasKnight;
                 if (!forbidPaladin || !hasKnight) {
-                    if (preferPaladin && hasOffPaladin) {
+                    if (preferPaladin && hasMatchingPaladin) {
                         if (dist < bestPalDist) {
                             bestPalDist = dist;
-                            bestPal = { village: v, dist: dist.toFixed(2), sec, launchTime: new Date(launchMs), hasKnight, hasOffPaladin };
+                            bestPal = { village: v, dist: dist.toFixed(2), sec, launchTime: new Date(launchMs), hasKnight, hasOffPaladin, hasMatchingPaladin };
                         }
                     }
                     if (dist < bestDist) {
                         bestDist = dist;
-                        best = { village: v, dist: dist.toFixed(2), sec, launchTime: new Date(launchMs), hasKnight, hasOffPaladin };
+                        best = { village: v, dist: dist.toFixed(2), sec, launchTime: new Date(launchMs), hasKnight, hasOffPaladin, hasMatchingPaladin };
                     }
                 } else {
                     if (dist < bestFallbackDist) {
                         bestFallbackDist = dist;
-                        bestFallback = { village: v, dist: dist.toFixed(2), sec, launchTime: new Date(launchMs), hasKnight, hasOffPaladin };
+                        bestFallback = { village: v, dist: dist.toFixed(2), sec, launchTime: new Date(launchMs), hasKnight, hasOffPaladin, hasMatchingPaladin };
                     }
                 }
             }
@@ -2820,6 +2879,42 @@
             relocatePaladinId: null,
             relocatePaladinName: null
         };
+    }
+
+    function bindQuickRelocEvents() {
+        document.querySelectorAll('.tw-quick-reloc-select').forEach(sel => {
+            sel.onchange = (e) => {
+                const newPalId = e.target.value;
+                const cmdIdx = parseInt(e.target.getAttribute('data-cmd-idx'), 10);
+                const vId = e.target.getAttribute('data-vid');
+                const palObj = allAccountPaladins.find(p => String(p.id) === String(newPalId));
+                if (!palObj) return;
+
+                if (lastGeneratedCommands && lastGeneratedCommands[cmdIdx]) {
+                    lastGeneratedCommands[cmdIdx].relocatePaladinId = palObj.id;
+                    lastGeneratedCommands[cmdIdx].relocatePaladinName = palObj.name;
+                    const marginMatch = (lastGeneratedCommands[cmdIdx].info || '').match(/\(\+(\d+m)\s+folga\)/);
+                    const folgaStr = marginMatch ? ` (+${marginMatch[1]} folga)` : '';
+                    lastGeneratedCommands[cmdIdx].info = `⚠️ Realocar ${palObj.name}!${folgaStr}`;
+                }
+
+                const btn = document.getElementById(`tw-btn-reloc-${cmdIdx}`);
+                if (btn) {
+                    btn.href = `game.php?village=${vId}&screen=statue&mode=knight&knight=${palObj.id}`;
+                    btn.innerHTML = `🏰 Puxar ${palObj.name}`;
+                    btn.title = `Abre a Estátua da aldeia focada no ${palObj.name} para o puxares imediatamente`;
+                }
+
+                const tr = e.target.closest('tr');
+                if (tr) {
+                    const infoSpan = tr.querySelector('span[style*="color:#94a3b8"]');
+                    if (infoSpan && lastGeneratedCommands && lastGeneratedCommands[cmdIdx]) {
+                        infoSpan.textContent = `(${lastGeneratedCommands[cmdIdx].info})`;
+                    }
+                }
+                showToast(`🏰 Alvo de realocação alterado para ${palObj.name}!`);
+            };
+        });
     }
 
     // ==========================================
@@ -2890,6 +2985,7 @@
             }
         
         const reqPaladinNuke = document.getElementById('tw-nt-req-paladin-nuke') ? document.getElementById('tw-nt-req-paladin-nuke').checked : true;
+        const paladinChoice = document.getElementById('tw-nt-paladin-choice') ? document.getElementById('tw-nt-paladin-choice').value : 'auto';
         const modelNuke = document.getElementById('tw-nt-model-nuke').value.trim() || 'Ataque Full';
         const modelAnti = document.getElementById('tw-nt-model-anti').value.trim() || 'Ataque Full';
         const modelSnob = document.getElementById('tw-nt-model-snob').value.trim() || 'NT 25%';
@@ -2953,12 +3049,18 @@
             const dist = calcDistance(v.coords, target);
             const pal = v.paladin;
             const hasKnight = pal ? pal.isHome : ((v.knightAvailable || (v.homeTroopsDict && v.homeTroopsDict.knight) || 0) >= 1);
+            let hasMatchingPaladin = false;
+            if (paladinChoice === 'auto') {
+                hasMatchingPaladin = pal ? (pal.isOffense && pal.isHome) : hasKnight;
+            } else {
+                hasMatchingPaladin = pal ? (String(pal.id) === String(paladinChoice) && pal.isHome) : false;
+            }
             const hasOffPaladin = pal ? (pal.isOffense && pal.isHome) : hasKnight;
-            return { village: v, dist, sec: dist * unitSpeedMinutes.ram * 60, hasKnight, hasOffPaladin, paladin: pal };
+            return { village: v, dist, sec: dist * unitSpeedMinutes.ram * 60, hasKnight, hasOffPaladin, hasMatchingPaladin, paladin: pal };
         }).sort((a,b) => {
             if (reqPaladinNuke) {
-                if (a.hasOffPaladin && !b.hasOffPaladin) return -1;
-                if (!a.hasOffPaladin && b.hasOffPaladin) return 1;
+                if (a.hasMatchingPaladin && !b.hasMatchingPaladin) return -1;
+                if (!a.hasMatchingPaladin && b.hasMatchingPaladin) return 1;
             }
             return a.dist - b.dist;
         });
@@ -3127,11 +3229,17 @@
             const primaryNuke = nukeCommands[0]; // Limpeza Principal #1
             const timeUntilLaunch = primaryNuke.launchTime.getTime() - now;
 
-            // Procurar o melhor paladino ofensivo que esteja livre na conta
-            const idleOffPaladins = allAccountPaladins
-                .filter(p => p.isOffense && p.isHome)
-                .sort((a, b) => (b.offPoints || b.level) - (a.offPoints || a.level));
-            const bestPal = idleOffPaladins[0] || allAccountPaladins.find(p => p.isHome) || null;
+            // Procurar o paladino a realocar baseado na escolha do utilizador
+            let bestPal = null;
+            if (paladinChoice !== 'auto') {
+                bestPal = allAccountPaladins.find(p => String(p.id) === String(paladinChoice)) || null;
+            }
+            if (!bestPal) {
+                const idleOffPaladins = allAccountPaladins
+                    .filter(p => p.isOffense && p.isHome)
+                    .sort((a, b) => (b.offPoints || b.level) - (a.offPoints || a.level));
+                bestPal = idleOffPaladins[0] || allAccountPaladins.find(p => p.isHome) || null;
+            }
 
             if (timeUntilLaunch >= STANDARD_RELOCATE_MS) {
                 const marginMin = Math.floor((timeUntilLaunch - STANDARD_RELOCATE_MS) / 60000);
@@ -3484,7 +3592,20 @@
                 const titleText = cmd.relocatePaladinName 
                     ? `Abre a Estátua da aldeia ${cmd.originName} (${cmd.originCoords}) focada no ${cmd.relocatePaladinName} para o puxares imediatamente` 
                     : `Abre a Estátua da aldeia ${cmd.originName} (${cmd.originCoords}) noutro separador para puxares o Paladino`;
-                actionShortcut = `<a href="game.php?village=${cmd.originId}&screen=statue${knightParam}" target="_blank" class="tw-btn" style="padding:2px 7px; font-size:9.5px; font-weight:bold; background:#7c3aed; border:1px solid #c084fc; color:#fff; border-radius:4px; text-decoration:none; margin-left:6px; display:inline-flex; align-items:center; gap:3px; vertical-align:middle; cursor:pointer;" title="${titleText}">${btnText}</a>`;
+
+                let palSelectOptions = '';
+                if (allAccountPaladins && allAccountPaladins.length > 0) {
+                    palSelectOptions = `
+                    <select class="tw-select tw-quick-reloc-select" data-cmd-idx="${i}" data-vid="${cmd.originId}" style="font-size:9.5px; padding:1px 4px; background:#0f172a; border:1px solid #c084fc; color:#e9d5ff; border-radius:4px; margin-left:4px; cursor:pointer;" title="Mudar qual Paladino queres puxar para esta aldeia">
+                        ${allAccountPaladins.map(p => `<option value="${p.id}" ${String(p.id) === String(cmd.relocatePaladinId) ? 'selected' : ''}>${p.isOffense ? '⚔️' : '🛡️'} ${p.name} (Lvl ${p.level}${p.name === 'QuimConquista' ? ' • Persuasão' : ''})</option>`).join('')}
+                    </select>`;
+                }
+
+                actionShortcut = `
+                <span style="display:inline-flex; align-items:center; vertical-align:middle; margin-left:6px;">
+                    <a href="game.php?village=${cmd.originId}&screen=statue${knightParam}" target="_blank" id="tw-btn-reloc-${i}" class="tw-btn" style="padding:2px 7px; font-size:9.5px; font-weight:bold; background:#7c3aed; border:1px solid #c084fc; color:#fff; border-radius:4px; text-decoration:none; display:inline-flex; align-items:center; gap:3px; cursor:pointer;" title="${titleText}">${btnText}</a>
+                    ${palSelectOptions}
+                </span>`;
             }
 
             rows += `<tr data-vid="${cmd.originId}">
@@ -3504,6 +3625,7 @@
         });
 
         document.getElementById('tw-nt-tbody').innerHTML = rows;
+        bindQuickRelocEvents();
         const previewEl = document.getElementById('tw-nt-preview');
         if (previewEl) {
             previewEl.value = output.trim();
