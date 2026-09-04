@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW Tactical Command Suite
 // @namespace    https://tribalwars.com.pt/
-// @version      2.5.2
+// @version      2.5.3
 // @description  Suite militar avançada para Tribal Wars PT: Visão Geral com regra 22k, Contador Tático, Gerador de Fakes dinâmico, Planeador NT + Anti-Snipe + Bunker com Paladino, Re-Nobre em Bate e Volta (4 viagens consecutivas), Campanha Multialvo com IA de Atribuição e Memória Inteligente de Aldeias Reservadas.
 // @author       DeepMind / Antigravity
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -9,6 +9,7 @@
 // ==/UserScript==
 
 (async function () {
+    const SCRIPT_VERSION = '2.5.3';
     const modalId = 'tw-master-suite';
     
     // Limpeza de instâncias anteriores
@@ -634,7 +635,7 @@
             counterSummaryData = summary;
             updateMemoryHUD();
             document.getElementById('tw-tabs-container').style.display = 'flex';
-            document.getElementById('tw-title-text').innerHTML = `⚡ TW Tactical Command Suite <span style="font-size:10px; font-weight:600; background:rgba(56,189,248,0.15); color:#38bdf8; padding:2px 7px; border-radius:4px; border:1px solid rgba(56,189,248,0.25); margin-left:6px; vertical-align:middle;">v2.5.0</span> <span style="font-size:11px; font-weight:normal; color:#94a3b8; margin-left:6px; vertical-align:middle;">(${allVillages.length} Aldeias Conectadas)</span>`;
+            document.getElementById('tw-title-text').innerHTML = `⚡ TW Tactical Command Suite <span style="font-size:10px; font-weight:600; background:rgba(56,189,248,0.15); color:#38bdf8; padding:2px 7px; border-radius:4px; border:1px solid rgba(56,189,248,0.25); margin-left:6px; vertical-align:middle;">v${SCRIPT_VERSION}</span> <span style="font-size:11px; font-weight:normal; color:#94a3b8; margin-left:6px; vertical-align:middle;">(${allVillages.length} Aldeias Conectadas)</span>`;
             
             document.getElementById('tab-btn-overview').onclick = () => switchTab('overview');
             document.getElementById('tab-btn-counter').onclick = () => switchTab('counter');
@@ -1810,15 +1811,6 @@
             document.getElementById('tw-btn-open-map-planner').onclick = () => openMapIframeModal('planner');
         }
 
-        function getAntiSnipeConfig() {
-            const mode = document.getElementById('tw-nt-anti-mode') ? document.getElementById('tw-nt-anti-mode').value : 'anti_50_2';
-            if (mode === 'anti_full_3') return { waves: 3, origins: 'dedicated', defaultModel: 'Ataque Full' };
-            if (mode === 'anti_50_2') return { waves: 2, origins: 'max2', defaultModel: 'Ataque 50%' };
-            if (mode === 'anti_full_1') return { waves: 1, origins: 'dedicated', defaultModel: 'Ataque Full' };
-            if (mode === 'anti_50_1') return { waves: 1, origins: 'max2', defaultModel: 'Ataque 50%' };
-            return { waves: 0, origins: 'dedicated', defaultModel: 'Ataque Full' };
-        }
-
         function updatePaladinNukeState() {
             const leadNukes = parseInt(document.getElementById('tw-nt-lead-nukes') ? document.getElementById('tw-nt-lead-nukes').value : '0', 10) || 0;
             const box = document.getElementById('tw-box-paladin-nuke');
@@ -2161,11 +2153,20 @@
         document.getElementById('tw-nt-fake-radius').onchange = updateRadiusFakesHUD;
         document.getElementById('tw-nt-fake-count').oninput = updateRadiusFakesHUD;
 
-        document.getElementById('tw-btn-gen-nt-russo').onclick = () => {
-            if (plannerMode === 'single') {
-                buildMasterOPPlan();
-            } else {
-                buildMultiTargetCampaignPlan();
+        document.getElementById('tw-btn-gen-nt-russo').onclick = async () => {
+            try {
+                if (plannerMode === 'single') {
+                    await buildMasterOPPlan();
+                } else {
+                    await buildMultiTargetCampaignPlan();
+                }
+            } catch (err) {
+                console.error('[TW Suite Error]', err);
+                const statusEl = document.getElementById('tw-nt-status');
+                if (statusEl) {
+                    statusEl.innerHTML = `<span style="color:#ef4444; font-weight:bold;">❌ Erro ao gerar plano: ${err.message}</span>`;
+                }
+                alert('❌ Erro ao gerar plano: ' + err.message);
             }
         };
 
@@ -2186,18 +2187,37 @@
     }
 
     // ==========================================
+    // CONFIGURAÇÃO CENTRALIZADA ANTI-SNIPE
+    // ==========================================
+    function getAntiSnipeConfig() {
+        const mode = document.getElementById('tw-nt-anti-mode') ? document.getElementById('tw-nt-anti-mode').value : 'anti_50_2';
+        if (mode === 'anti_full_3') return { waves: 3, origins: 'dedicated', defaultModel: 'Ataque Full' };
+        if (mode === 'anti_50_2') return { waves: 2, origins: 'max2', defaultModel: 'Ataque 50%' };
+        if (mode === 'anti_full_1') return { waves: 1, origins: 'dedicated', defaultModel: 'Ataque Full' };
+        if (mode === 'anti_50_1') return { waves: 1, origins: 'max2', defaultModel: 'Ataque 50%' };
+        return { waves: 0, origins: 'dedicated', defaultModel: 'Ataque Full' };
+    }
+
+    // ==========================================
     // MOTOR DE CAMPANHA MULTIALVO (IA DE ATRIBUIÇÃO)
     // ==========================================
     async function buildMultiTargetCampaignPlan() {
-        const raw = document.getElementById('tw-nt-targets-multi').value;
-        const targets = Array.from(new Set(raw.match(/\d{3}\|\d{3}/g) || []));
-        if (targets.length === 0) {
-            alert('Por favor insere pelo menos uma coordenada alvo válida (ex: 500|500 501|501).');
-            return;
-        }
+        try {
+            const raw = document.getElementById('tw-nt-targets-multi').value;
+            const targets = Array.from(new Set(raw.match(/\d{3}\|\d{3}/g) || []));
+            if (targets.length === 0) {
+                alert('Por favor insere pelo menos uma coordenada alvo válida (ex: 500|500 501|501).');
+                return;
+            }
 
-        const baseLandTime = new Date(document.getElementById('tw-nt-landtime-multi').value).getTime();
-        const attackMode = document.getElementById('tw-nt-attack-mode').value;
+            const rawLand = document.getElementById('tw-nt-landtime-multi').value;
+            const baseLandTime = new Date(rawLand).getTime();
+            if (isNaN(baseLandTime)) {
+                alert('Por favor insere uma data e hora de chegada válida.');
+                return;
+            }
+
+            const attackMode = document.getElementById('tw-nt-attack-mode').value;
         const nobleCount = parseInt(document.getElementById('tw-nt-noble-count').value, 10) || 4;
         const leadNukesCount = parseInt(document.getElementById('tw-nt-lead-nukes').value, 10) || 0;
         const { waves: antiWavesCount, origins: antiOrigins } = getAntiSnipeConfig();
@@ -2424,20 +2444,40 @@
         });
 
         document.getElementById('tw-nt-tbody').innerHTML = rows;
-        document.getElementById('tw-nt-preview').value = output.trim();
-        await navigator.clipboard.writeText(output.trim());
+        const previewEl = document.getElementById('tw-nt-preview');
+        if (previewEl) {
+            previewEl.value = output.trim();
+        }
+        let copied = false;
+        try {
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                await navigator.clipboard.writeText(output.trim());
+                copied = true;
+            }
+        } catch (clipErr) {
+            console.warn('[TW Suite] Falha ao copiar para clipboard automaticamente:', clipErr);
+        }
         const tPanel = document.getElementById('tw-nt-table-panel');
         if (tPanel) {
             tPanel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         }
+        const copyNotice = copied ? 'copiada para o Clipboard' : 'gerada (copia do campo de texto)';
         if (attackMode === 'nuke_sweep' || attackMode === 'cat_demolish') {
-            document.getElementById('tw-nt-status').innerHTML = `<span style="color:#34d399;">✅ Campanha de Limpeza: ${targets.length} alvos (${allCampaignCommands.length} nukes) copiada para o Clipboard!</span>`;
-            showToast(`⚡ Campanha de Limpeza copiada para o Clipboard!`);
+            document.getElementById('tw-nt-status').innerHTML = `<span style="color:#34d399;">✅ Campanha de Limpeza: ${targets.length} alvos (${allCampaignCommands.length} nukes) ${copyNotice}!</span>`;
+            showToast(copied ? `⚡ Campanha de Limpeza copiada para o Clipboard!` : `⚡ Campanha gerada com sucesso!`);
         } else {
-            document.getElementById('tw-nt-status').innerHTML = `<span style="color:#34d399;">✅ Campanha de ${targets.length} alvos (${allCampaignCommands.length} comandos) copiada para o Clipboard!</span>`;
-            showToast(`⚡ Campanha com ${targets.length} alvos copiada com sucesso!`);
+            document.getElementById('tw-nt-status').innerHTML = `<span style="color:#34d399;">✅ Campanha de ${targets.length} alvos (${allCampaignCommands.length} comandos) ${copyNotice}!</span>`;
+            showToast(copied ? `⚡ Campanha copiada para o Clipboard!` : `⚡ Campanha gerada com sucesso!`);
         }
+    } catch (err) {
+        console.error('[TW Suite Error] buildMultiTargetCampaignPlan:', err);
+        const statusEl = document.getElementById('tw-nt-status');
+        if (statusEl) {
+            statusEl.innerHTML = `<span style="color:#ef4444; font-weight:bold;">❌ Erro: ${err.message}</span>`;
+        }
+        alert('❌ Erro ao gerar plano de campanha: ' + err.message);
     }
+}
 
     function findClosestAvailable(pool, usedSet, targetCoord, targetLandMs, minLaunchMs) {
         let best = null;
@@ -2495,41 +2535,48 @@
     // MOTOR DE CALENDÁRIO & SINCRONIZAÇÃO (ALVO ÚNICO)
     // ==========================================
     async function buildMasterOPPlan() {
-        const target = document.getElementById('tw-nt-target').value.trim();
-        if (!/^\d{3}\|\d{3}$/.test(target)) {
-            alert('Por favor insere uma coordenada alvo válida (ex: 500|500).');
-            return;
-        }
-
-        const attackMode = document.getElementById('tw-nt-attack-mode').value;
-        const architecture = document.getElementById('tw-nt-architecture').value;
-        const nobleCount = parseInt(document.getElementById('tw-nt-noble-count').value, 10) || 4;
-        const excludeCommitted = document.getElementById('tw-nt-exclude-committed').checked;
-        const committedMap = getCommittedSchedules();
-
-        let nobleVillage1 = null, nobleVillage2 = null;
-        if (attackMode !== 'nuke_sweep' && attackMode !== 'cat_demolish') {
-            const nobleVillageId1 = document.getElementById('tw-nt-noble-village').value;
-            nobleVillage1 = villagesById[nobleVillageId1];
-            if (!nobleVillage1) {
-                alert('Por favor seleciona a aldeia de nobres.');
+        try {
+            const target = document.getElementById('tw-nt-target').value.trim();
+            if (!/^\d{3}\|\d{3}$/.test(target)) {
+                alert('Por favor insere uma coordenada alvo válida (ex: 500|500).');
                 return;
             }
 
-            if (architecture === 'split_2x2' && attackMode === 'split_2x2') {
-                const nobleVillageId2 = document.getElementById('tw-nt-noble-village-2').value;
-                nobleVillage2 = villagesById[nobleVillageId2];
-                if (!nobleVillage2 || nobleVillage2.id === nobleVillage1.id) {
-                    alert('Para a divisão 2x2, seleciona duas aldeias de nobres distintas.');
+            const rawLand = document.getElementById('tw-nt-landtime').value;
+            const baseLandTime = new Date(rawLand).getTime();
+            if (isNaN(baseLandTime)) {
+                alert('Por favor insere uma data e hora de chegada válida.');
+                return;
+            }
+
+            const attackMode = document.getElementById('tw-nt-attack-mode').value;
+            const architecture = document.getElementById('tw-nt-architecture').value;
+            const nobleCount = parseInt(document.getElementById('tw-nt-noble-count').value, 10) || 4;
+            const excludeCommitted = document.getElementById('tw-nt-exclude-committed').checked;
+            const committedMap = getCommittedSchedules();
+
+            let nobleVillage1 = null, nobleVillage2 = null;
+            if (attackMode !== 'nuke_sweep' && attackMode !== 'cat_demolish') {
+                const nobleVillageId1 = document.getElementById('tw-nt-noble-village').value;
+                nobleVillage1 = villagesById[nobleVillageId1];
+                if (!nobleVillage1) {
+                    alert('Por favor seleciona a aldeia de nobres.');
                     return;
                 }
-            }
-        }
 
-        const baseLandTime = new Date(document.getElementById('tw-nt-landtime').value).getTime();
-        const bunkerCount = parseInt(document.getElementById('tw-nt-bunker-count').value, 10) || 0;
-        const bunkerGapMs = parseInt(document.getElementById('tw-nt-bunker-gap').value, 10) || 200;
-        const bunkerStepMs = parseInt(document.getElementById('tw-nt-bunker-step').value, 10) || 50;
+                if (architecture === 'split_2x2' && attackMode === 'split_2x2') {
+                    const nobleVillageId2 = document.getElementById('tw-nt-noble-village-2').value;
+                    nobleVillage2 = villagesById[nobleVillageId2];
+                    if (!nobleVillage2 || nobleVillage2.id === nobleVillage1.id) {
+                        alert('Para a divisão 2x2, seleciona duas aldeias de nobres distintas.');
+                        return;
+                    }
+                }
+            }
+
+            const bunkerCount = parseInt(document.getElementById('tw-nt-bunker-count').value, 10) || 0;
+            const bunkerGapMs = parseInt(document.getElementById('tw-nt-bunker-gap').value, 10) || 200;
+            const bunkerStepMs = parseInt(document.getElementById('tw-nt-bunker-step').value, 10) || 50;
 
         const modelBunker1 = document.getElementById('tw-nt-model-bunker-1').value.trim() || 'BUNK';
         const popBunker1 = parseInt(document.getElementById('tw-nt-pop-bunker-1').value, 10) || 12000;
@@ -2752,6 +2799,7 @@
 
         // 3. Escoltas Anti-Snipe
         if (antiWavesCount > 0) {
+            const antiAnchorLandMs = (attackMode === 'snob_solo' && bvAnchor === 'final') ? baseLandTime : trip1AnchorLandMs;
             const antiSnipeOffsets = [halfStep, msStep + halfStep, (2 * msStep) + halfStep].slice(0, antiWavesCount);
             if (antiOrigins === 'max2') {
                 let antiCand1 = null;
@@ -2761,7 +2809,7 @@
                     const c = sortedOff[i];
                     if (usedOffVillages.has(c.village.id)) continue;
                     const travelSec = c.sec;
-                    if ((trip1AnchorLandMs + antiSnipeOffsets[0]) - (travelSec * 1000) >= minLaunchMs) {
+                    if ((antiAnchorLandMs + antiSnipeOffsets[0]) - (travelSec * 1000) >= minLaunchMs) {
                         antiCand1 = c;
                         usedOffVillages.add(c.village.id);
                         break;
@@ -2773,7 +2821,7 @@
                         const c = sortedOff[i];
                         if (usedOffVillages.has(c.village.id)) continue;
                         const travelSec = c.sec;
-                        if ((trip1AnchorLandMs + antiSnipeOffsets[antiSnipeOffsets.length - 1]) - (travelSec * 1000) >= minLaunchMs) {
+                        if ((antiAnchorLandMs + antiSnipeOffsets[antiSnipeOffsets.length - 1]) - (travelSec * 1000) >= minLaunchMs) {
                             antiCand2 = c;
                             usedOffVillages.add(c.village.id);
                             break;
@@ -2782,7 +2830,7 @@
                 }
 
                 antiSnipeOffsets.forEach((offset, idx) => {
-                    const targetLandMs = trip1AnchorLandMs + offset;
+                    const targetLandMs = antiAnchorLandMs + offset;
                     let cand = null;
                     if (antiWavesCount === 3) {
                         cand = (idx === 0 || idx === 1) ? antiCand1 : (antiCand2 || antiCand1);
@@ -2819,7 +2867,7 @@
                 });
             } else {
                 antiSnipeOffsets.forEach((offset, idx) => {
-                    assignOffNuke(trip1AnchorLandMs + offset, `Anti-Snipe #${idx+1}`, 'tw-badge-anti', modelAnti, false, '');
+                    assignOffNuke(antiAnchorLandMs + offset, `Anti-Snipe #${idx+1}`, 'tw-badge-anti', modelAnti, false, '');
                 });
             }
         }
@@ -3053,20 +3101,40 @@
         });
 
         document.getElementById('tw-nt-tbody').innerHTML = rows;
-        document.getElementById('tw-nt-preview').value = output.trim();
-        await navigator.clipboard.writeText(output.trim());
+        const previewEl = document.getElementById('tw-nt-preview');
+        if (previewEl) {
+            previewEl.value = output.trim();
+        }
+        let copied = false;
+        try {
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                await navigator.clipboard.writeText(output.trim());
+                copied = true;
+            }
+        } catch (clipErr) {
+            console.warn('[TW Suite] Falha ao copiar para clipboard automaticamente:', clipErr);
+        }
         const tPanel = document.getElementById('tw-nt-table-panel');
         if (tPanel) {
             tPanel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         }
+        const copyNotice = copied ? 'copiado para o Clipboard' : 'gerado (copia do campo de texto abaixo)';
         if (attackMode === 'nuke_sweep' || attackMode === 'cat_demolish') {
-            document.getElementById('tw-nt-status').innerHTML = `<span style="color:#34d399;">✅ Limpeza (${sequence.length} ataques) copiada para o Clipboard!</span>`;
-            showToast(`⚡ Limpeza copiada para o Clipboard!`);
+            document.getElementById('tw-nt-status').innerHTML = `<span style="color:#34d399;">✅ Limpeza (${sequence.length} ataques) ${copyNotice}!</span>`;
+            showToast(copied ? `⚡ Limpeza copiada para o Clipboard!` : `⚡ Limpeza gerada com sucesso!`);
         } else {
-            document.getElementById('tw-nt-status').innerHTML = `<span style="color:#34d399;">✅ ${sequence.length} comandos sincronizados e copiados para o Clipboard!</span>`;
-            showToast(`⚡ Plano copiado para o Clipboard!`);
+            document.getElementById('tw-nt-status').innerHTML = `<span style="color:#34d399;">✅ ${sequence.length} comandos sincronizados e ${copyNotice}!</span>`;
+            showToast(copied ? `⚡ Plano copiado para o Clipboard!` : `⚡ Plano gerado com sucesso!`);
         }
+    } catch (err) {
+        console.error('[TW Suite Error] buildMasterOPPlan:', err);
+        const statusEl = document.getElementById('tw-nt-status');
+        if (statusEl) {
+            statusEl.innerHTML = `<span style="color:#ef4444; font-weight:bold;">❌ Erro: ${err.message}</span>`;
+        }
+        alert('❌ Erro ao gerar plano: ' + err.message);
     }
+}
 
     // ==========================================
     // JANELA DO MAPA (SEM RELOAD)
