@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TW Tactical Command Suite
 // @namespace    https://tribalwars.com.pt/
-// @version      2.6.3
-// @description  Suite militar avançada para Tribal Wars PT: Deteção e Alerta de Tropas Fora/A Farmar (⚠️), Seletor Inteligente & Manual de Aldeia para Nuke de Limpeza, Filtro para Priorizar Full Nukes Reais (≥20k Fazenda com Tropas em Casa), Layout Otimizado em 3 Colunas, e Planeador Tático de Ataques e Campanhas.
+// @version      2.6.4
+// @description  Suite militar avançada para Tribal Wars PT: Seleção Independente de Alvo de Catapulta para Nukes e Escoltas Anti-Snipe (com auto-seleção na praça de reunião), Deteção de Tropas Fora/A Farmar (⚠️), Seletor Inteligente & Manual de Full Nuke, Layout Otimizado em 3 Colunas e Planeador Tático de Ataques e Campanhas.
 // @author       Diogo & Antigravity
 // @match        https://*.tribalwars.com.pt/game.php*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=tribalwars.com.pt
@@ -10,7 +10,46 @@
 // ==/UserScript==
 
 (async function () {
-    const SCRIPT_VERSION = '2.6.3';
+    const SCRIPT_VERSION = '2.6.4';
+
+    // Auto-selecionar alvo de catapulta na confirmação de ataque na Praça de Reunião se especificado no URL
+    try {
+        const urlParams = new URLSearchParams(window.location.search);
+        const targetBld = urlParams.get('target_building');
+        if (targetBld && targetBld !== 'none') {
+            const applyCatSelect = () => {
+                const sel = document.querySelector('select[name="building"]');
+                if (sel && sel.value !== targetBld) {
+                    sel.value = targetBld;
+                    sel.dispatchEvent(new Event('change', { bubbles: true }));
+                }
+            };
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', applyCatSelect);
+            } else {
+                applyCatSelect();
+            }
+            setTimeout(applyCatSelect, 250);
+        }
+    } catch (_) {}
+
+    function formatBuildingName(b) {
+        if (!b || b === 'none') return '';
+        const map = {
+            place: 'Praça',
+            wall: 'Muralha',
+            farm: 'Fazenda',
+            smith: 'Ferreiro',
+            main: 'Ed. Principal',
+            barracks: 'Quartel',
+            stable: 'Estábulo',
+            garage: 'Oficina',
+            snob: 'Academia',
+            storage: 'Armazém',
+            market: 'Mercado'
+        };
+        return map[b] || b;
+    }
     const modalId = 'tw-master-suite';
     
     // Limpeza de instâncias anteriores
@@ -1751,12 +1790,21 @@
                                 <input type="number" id="tw-nt-lead-nukes" class="tw-input" value="1" min="0" max="10" style="padding:4px 6px; font-size:11px; text-align:center; font-weight:bold; color:#f87171;">
                             </div>
                             <div style="display:flex; flex-direction:column; gap:1px;">
-                                <span style="font-size:9px; color:#94a3b8;">Intervalo (ms):</span>
-                                <input type="number" id="tw-nt-ms-interval" class="tw-input" value="200" min="50" max="1000" style="padding:4px 6px; font-size:11px; text-align:center;">
+                                <span style="font-size:9px; color:#f87171; font-weight:bold;">🎯 Alvo Cats (Nuke):</span>
+                                <select id="tw-nt-nuke-cat-target" class="tw-select" style="padding:4px 6px; font-size:10.5px; font-weight:bold; color:#f87171;">
+                                    <option value="place" selected>Praça (place)</option>
+                                    <option value="wall">Muralha (wall)</option>
+                                    <option value="farm">Fazenda (farm)</option>
+                                    <option value="smith">Ferreiro (smith)</option>
+                                    <option value="main">Ed. Principal (main)</option>
+                                    <option value="barracks">Quartel (barracks)</option>
+                                    <option value="storage">Armazém (storage)</option>
+                                    <option value="none">Nenhum</option>
+                                </select>
                             </div>
                         </div>
 
-                        <div style="display:grid; grid-template-columns: 1.15fr 0.85fr; gap:4px;">
+                        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:4px;">
                             <div style="display:flex; flex-direction:column; gap:1px;">
                                 <span style="font-size:9px; color:#94a3b8;">Escoltas Anti-Snipe:</span>
                                 <select id="tw-nt-anti-mode" class="tw-select" style="padding:4px 6px; font-size:10px; font-weight:bold; color:#38bdf8;">
@@ -1768,17 +1816,10 @@
                                 </select>
                             </div>
                             <div style="display:flex; flex-direction:column; gap:1px;">
-                                <span style="font-size:9px; color:#94a3b8;">Mod. Anti-Snipe:</span>
-                                <input type="text" id="tw-nt-model-anti" class="tw-input" value="Ataque 50%" style="font-weight:bold; color:#38bdf8; padding:4px 6px; font-size:11px;">
-                            </div>
-                        </div>
-
-                        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:4px;">
-                            <div style="display:flex; flex-direction:column; gap:1px;">
-                                <span style="font-size:9px; color:#94a3b8;">Alvo Catapulta:</span>
-                                <select id="tw-nt-cat-target-building" class="tw-select" style="padding:4px 6px; font-size:11px; font-weight:bold; color:#f43f5e;">
-                                    <option value="none">Nenhum</option>
-                                    <option value="place" selected>Praça (place)</option>
+                                <span style="font-size:9px; color:#38bdf8; font-weight:bold;">🎯 Alvo Cats (Anti-Snipe):</span>
+                                <select id="tw-nt-anti-cat-target" class="tw-select" style="padding:4px 6px; font-size:10.5px; font-weight:bold; color:#38bdf8;" title="Alvo caso as tropas do Anti-Snipe levem catapultas">
+                                    <option value="none" selected>Nenhum</option>
+                                    <option value="place">Praça (place)</option>
                                     <option value="wall">Muralha (wall)</option>
                                     <option value="farm">Fazenda (farm)</option>
                                     <option value="smith">Ferreiro (smith)</option>
@@ -1787,9 +1828,25 @@
                                     <option value="storage">Armazém (storage)</option>
                                 </select>
                             </div>
+                        </div>
+
+                        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:4px;">
                             <div style="display:flex; flex-direction:column; gap:1px;">
-                                <span style="font-size:9px; color:#94a3b8;">Mod. Catapultas:</span>
-                                <input type="text" id="tw-nt-model-cats" class="tw-input" value="Cats" style="font-weight:bold; color:#f43f5e; padding:4px 6px; font-size:11px;">
+                                <span style="font-size:9px; color:#94a3b8;">Intervalo (ms):</span>
+                                <input type="number" id="tw-nt-ms-interval" class="tw-input" value="200" min="50" max="1000" style="padding:4px 6px; font-size:11px; text-align:center;">
+                            </div>
+                            <div style="display:flex; flex-direction:column; gap:1px;">
+                                <span style="font-size:9px; color:#f43f5e;">Alvo Demolição:</span>
+                                <select id="tw-nt-cat-target-building" class="tw-select" style="padding:4px 6px; font-size:10.5px; font-weight:bold; color:#f43f5e;">
+                                    <option value="place" selected>Praça (place)</option>
+                                    <option value="wall">Muralha (wall)</option>
+                                    <option value="farm">Fazenda (farm)</option>
+                                    <option value="smith">Ferreiro (smith)</option>
+                                    <option value="main">Ed. Principal (main)</option>
+                                    <option value="barracks">Quartel (barracks)</option>
+                                    <option value="storage">Armazém (storage)</option>
+                                    <option value="none">Nenhum</option>
+                                </select>
                             </div>
                         </div>
 
@@ -1834,8 +1891,19 @@
                                 <input type="text" id="tw-nt-model-nuke" class="tw-input" value="Ataque Full" style="font-weight:bold; color:#f87171; padding:3px 5px; font-size:10.5px;">
                             </div>
                             <div style="display:flex; flex-direction:column; gap:1px;">
+                                <span style="font-size:8.5px; color:#94a3b8;">Mod. Anti-Snipe:</span>
+                                <input type="text" id="tw-nt-model-anti" class="tw-input" value="Ataque 50%" style="font-weight:bold; color:#38bdf8; padding:3px 5px; font-size:10.5px;">
+                            </div>
+                        </div>
+
+                        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:4px;">
+                            <div style="display:flex; flex-direction:column; gap:1px;">
                                 <span style="font-size:8.5px; color:#94a3b8;">Mod. NT:</span>
                                 <input type="text" id="tw-nt-model-snob" class="tw-input" value="NT 25%" style="font-weight:bold; color:#fbbf24; padding:3px 5px; font-size:10.5px;">
+                            </div>
+                            <div style="display:flex; flex-direction:column; gap:1px;">
+                                <span style="font-size:8.5px; color:#94a3b8;">Mod. Catapultas:</span>
+                                <input type="text" id="tw-nt-model-cats" class="tw-input" value="Cats" style="font-weight:bold; color:#f43f5e; padding:3px 5px; font-size:10.5px;">
                             </div>
                         </div>
                     </div>
@@ -2087,6 +2155,8 @@
         const antiModeSelect = document.getElementById('tw-nt-anti-mode');
         const bunkerCountSelect = document.getElementById('tw-nt-bunker-count');
         const catTargetSelect = document.getElementById('tw-nt-cat-target-building');
+        const nukeCatTargetSelect = document.getElementById('tw-nt-nuke-cat-target');
+        const antiCatTargetSelect = document.getElementById('tw-nt-anti-cat-target');
         const nobleCountSelect = document.getElementById('tw-nt-noble-count');
         const archSelect = document.getElementById('tw-nt-architecture');
 
@@ -2352,6 +2422,10 @@
                 modelNukeInput.disabled = (leadNukes === 0);
                 modelNukeInput.style.opacity = (leadNukes === 0) ? '0.4' : '1';
             }
+            if (nukeCatTargetSelect) {
+                nukeCatTargetSelect.disabled = (leadNukes === 0);
+                nukeCatTargetSelect.style.opacity = (leadNukes === 0) ? '0.4' : '1';
+            }
 
             if (antiModeSelect) {
                 if (!hasNobles) {
@@ -2370,6 +2444,12 @@
                 const isAntiActive = (hasNobles && antiCfg.waves > 0);
                 modelAntiInput.disabled = !isAntiActive;
                 modelAntiInput.style.opacity = isAntiActive ? '1' : '0.4';
+            }
+            if (antiCatTargetSelect) {
+                const antiCfg = getAntiSnipeConfig();
+                const isAntiActive = (hasNobles && antiCfg.waves > 0);
+                antiCatTargetSelect.disabled = !isAntiActive;
+                antiCatTargetSelect.style.opacity = isAntiActive ? '1' : '0.4';
             }
 
             const modelCatsInput = document.getElementById('tw-nt-model-cats');
@@ -2473,6 +2553,18 @@
         }
         if (catTargetSelect) {
             catTargetSelect.onchange = () => syncPlannerFormState();
+        }
+        if (nukeCatTargetSelect) {
+            nukeCatTargetSelect.onchange = (e) => {
+                savePrefs('tw_nt_nuke_cat_target', e.target.value);
+                syncPlannerFormState();
+            };
+        }
+        if (antiCatTargetSelect) {
+            antiCatTargetSelect.onchange = (e) => {
+                savePrefs('tw_nt_anti_cat_target', e.target.value);
+                syncPlannerFormState();
+            };
         }
         if (archSelect) {
             archSelect.onchange = () => syncPlannerFormState();
@@ -2967,6 +3059,8 @@
         const savedBunkModel1 = getPref('tw_nt_model_bunk1', 'BUNK');
         const savedBunkModel2 = getPref('tw_nt_model_bunk2', 'BUNK');
         const savedFakeModel = getPref('tw_nt_model_fake', 'Fake');
+        const savedNukeCat = getPref('tw_nt_nuke_cat_target', 'place');
+        const savedAntiCat = getPref('tw_nt_anti_cat_target', 'none');
 
         if (document.getElementById('tw-nt-model-nuke')) document.getElementById('tw-nt-model-nuke').value = savedNukeModel;
         if (document.getElementById('tw-nt-model-anti')) document.getElementById('tw-nt-model-anti').value = savedAntiModel;
@@ -2975,6 +3069,8 @@
         if (document.getElementById('tw-nt-model-bunker-1')) document.getElementById('tw-nt-model-bunker-1').value = savedBunkModel1;
         if (document.getElementById('tw-nt-model-bunker-2')) document.getElementById('tw-nt-model-bunker-2').value = savedBunkModel2;
         if (document.getElementById('tw-nt-fake-model')) document.getElementById('tw-nt-fake-model').value = savedFakeModel;
+        if (document.getElementById('tw-nt-nuke-cat-target')) document.getElementById('tw-nt-nuke-cat-target').value = savedNukeCat;
+        if (document.getElementById('tw-nt-anti-cat-target')) document.getElementById('tw-nt-anti-cat-target').value = savedAntiCat;
 
         document.getElementById('tw-nt-model-nuke').onchange = (e) => savePrefs('tw_nt_model_nuke', e.target.value);
         document.getElementById('tw-nt-model-anti').onchange = (e) => savePrefs('tw_nt_model_anti', e.target.value);
@@ -3083,6 +3179,8 @@
             const modelAnti = document.getElementById('tw-nt-model-anti').value.trim() || 'Ataque Full';
             const modelSnob = document.getElementById('tw-nt-model-snob').value.trim() || 'NT 25%';
             const catTargetBuilding = document.getElementById('tw-nt-cat-target-building').value;
+            const nukeCatTarget = document.getElementById('tw-nt-nuke-cat-target') ? document.getElementById('tw-nt-nuke-cat-target').value : 'place';
+            const antiCatTarget = document.getElementById('tw-nt-anti-cat-target') ? document.getElementById('tw-nt-anti-cat-target').value : 'none';
             const modelCats = document.getElementById('tw-nt-model-cats') ? document.getElementById('tw-nt-model-cats').value.trim() || 'Cats' : 'Cats';
 
             const reqPaladinNuke = document.getElementById('tw-nt-req-paladin-nuke') ? document.getElementById('tw-nt-req-paladin-nuke').checked : true;
@@ -3165,7 +3263,7 @@
                     const typeLabel = isPaladin ? `Limpeza #${i+1} (${palName} ⚔️)` : `Limpeza #${i+1}`;
                     const badge = isPaladin ? 'tw-badge-paladino' : 'tw-badge-nuke';
                     const infoLabel = isPaladin ? `Full Off (Buff ${palName} ⚔️${pal ? ' Lvl ' + pal.level : ''})` : 'Full Off';
-                    allCampaignCommands.push(makeCmd(typeLabel, badge, 'Attack', nukeOff.village, tCoord, nukeOff.dist, nukeOff.sec, nukeOff.launchTime, new Date(landMs), modelNuke, catTargetBuilding !== 'none' ? catTargetBuilding : '', infoLabel));
+                    allCampaignCommands.push(makeCmd(typeLabel, badge, 'Attack', nukeOff.village, tCoord, nukeOff.dist, nukeOff.sec, nukeOff.launchTime, new Date(landMs), modelNuke, nukeCatTarget !== 'none' ? nukeCatTarget : '', infoLabel));
                 }
             }
 
@@ -3283,7 +3381,7 @@
                         }
                         if (cand) {
                             const launchMs = landMs - (cand.sec * 1000);
-                            allCampaignCommands.push(makeCmd(`Anti-Snipe #${idx+1}`, 'tw-badge-anti', 'Attack', cand.village, tCoord, cand.dist, cand.sec, new Date(launchMs), new Date(landMs), modelAnti, '', `Escolta Anti-Snipe (${modelAnti})`));
+                            allCampaignCommands.push(makeCmd(`Anti-Snipe #${idx+1}`, 'tw-badge-anti', 'Attack', cand.village, tCoord, cand.dist, cand.sec, new Date(launchMs), new Date(landMs), modelAnti, antiCatTarget !== 'none' ? antiCatTarget : '', `Escolta Anti-Snipe (${modelAnti})`));
                         }
                     });
                 } else {
@@ -3292,7 +3390,7 @@
                         const antiOff = findClosestAvailable(offPool, usedOffVillages, tCoord, landMs, minLaunchMs, true);
                         if (antiOff) {
                             usedOffVillages.add(antiOff.village.id);
-                            allCampaignCommands.push(makeCmd(`Anti-Snipe #${idx+1}`, 'tw-badge-anti', 'Attack', antiOff.village, tCoord, antiOff.dist, antiOff.sec, antiOff.launchTime, new Date(landMs), modelAnti, '', 'Escolta Anti-Snipe'));
+                            allCampaignCommands.push(makeCmd(`Anti-Snipe #${idx+1}`, 'tw-badge-anti', 'Attack', antiOff.village, tCoord, antiOff.dist, antiOff.sec, antiOff.launchTime, new Date(landMs), modelAnti, antiCatTarget !== 'none' ? antiCatTarget : '', 'Escolta Anti-Snipe'));
                         }
                     });
                 }
@@ -3341,6 +3439,8 @@
                 </span>`;
             }
 
+            const bldBadge = cmd.building ? `<span style="display:inline-block; margin-left:4px; padding:1px 5px; font-size:9px; font-weight:bold; background:rgba(244,63,94,0.15); border:1px solid rgba(244,63,94,0.4); color:#fda4af; border-radius:3px;">🎯 ${formatBuildingName(cmd.building)}</span>` : '';
+
             rows += `<tr data-vid="${cmd.originId}">
                 <td style="color:#94a3b8; padding:3px 6px;">${i+1}</td>
                 <td style="padding:3px 6px;"><span class="${cmd.badge}">${cmd.type}</span></td>
@@ -3349,10 +3449,10 @@
                 <td style="padding:3px 6px;">${cmd.dist}c</td>
                 <td style="padding:3px 6px;"><b style="color:#f8fafc;">${cmd.launchTime.toLocaleTimeString('pt-PT')}:${String(cmd.launchTime.getMilliseconds()).padStart(3,'0')}</b> <span style="font-size:9.5px; color:#64748b; font-weight:normal;">(${String(cmd.launchTime.getDate()).padStart(2,'0')}/${String(cmd.launchTime.getMonth()+1).padStart(2,'0')})</span></td>
                 <td style="padding:3px 6px;"><b style="color:#38bdf8;">${cmd.landTime.toLocaleTimeString('pt-PT')}:${String(cmd.landTime.getMilliseconds()).padStart(3,'0')}</b> <span style="font-size:9.5px; color:#64748b; font-weight:normal;">(${String(cmd.landTime.getDate()).padStart(2,'0')}/${String(cmd.landTime.getMonth()+1).padStart(2,'0')})</span></td>
-                <td style="padding:3px 6px;"><b style="color:${cmd.actionType==='Support'?'#34d399':'#3fb950'};">${cmd.model}</b> <span style="font-size:10px; color:#94a3b8;">(${cmd.info})</span>${actionShortcut}</td>
+                <td style="padding:3px 6px;"><b style="color:${cmd.actionType==='Support'?'#34d399':'#3fb950'};">${cmd.model}</b>${bldBadge} <span style="font-size:10px; color:#94a3b8;">(${cmd.info})</span>${actionShortcut}</td>
             </tr>`;
 
-            let u = `https://${location.host}/game.php?village=${cmd.originId}&screen=place&target_coord=${cmd.targetCoords}`;
+            let u = `https://${location.host}/game.php?village=${cmd.originId}&screen=place&target_coord=${cmd.targetCoords}${cmd.building ? `&target_building=${cmd.building}` : ''}`;
             let bldStr = cmd.building ? `${cmd.building}[|]` : '';
             output += `[*]${i+1}. ${formatRussianDateTime(cmd.launchTime)} --- ${cmd.model}[|]${formatRussianDateTime(cmd.landTime)}[|] ${cmd.originCoords} --> ${cmd.targetCoords} [|]${bldStr}[url=${u}]Link[/url]\n`;
         });
@@ -3608,6 +3708,8 @@
         const modelAnti = document.getElementById('tw-nt-model-anti').value.trim() || 'Ataque Full';
         const modelSnob = document.getElementById('tw-nt-model-snob').value.trim() || 'NT 25%';
         const catTargetBuilding = document.getElementById('tw-nt-cat-target-building').value;
+        const nukeCatTarget = document.getElementById('tw-nt-nuke-cat-target') ? document.getElementById('tw-nt-nuke-cat-target').value : 'place';
+        const antiCatTarget = document.getElementById('tw-nt-anti-cat-target') ? document.getElementById('tw-nt-anti-cat-target').value : 'none';
 
         const now = Date.now();
         const minLaunchMs = now + 60000;
@@ -3883,7 +3985,7 @@
         for (let i = 0; i < leadNukesCount; i++) {
             const landOffset = hasNobles ? ((leadNukesCount - i) * 100) : ((leadNukesCount - 1 - i) * 100);
             const forceId = (i === 0 && preferredLeadNukeId !== 'auto') ? preferredLeadNukeId : null;
-            const cmd = assignOffNuke(trip1AnchorLandMs - landOffset, `Limpeza Principal #${i+1}`, 'tw-badge-nuke', modelNuke, true, catTargetBuilding, true, forceId);
+            const cmd = assignOffNuke(trip1AnchorLandMs - landOffset, `Limpeza Principal #${i+1}`, 'tw-badge-nuke', modelNuke, true, nukeCatTarget !== 'none' ? nukeCatTarget : '', true, forceId);
             if (cmd) {
                 if (cmd.hasPaladin) paladinInNukes = true;
                 nukeCommands.push(cmd);
@@ -4026,14 +4128,14 @@
                             launchTime: new Date(launchMs),
                             landTime: new Date(targetLandMs),
                             model: modelAnti,
-                            building: '',
+                            building: (antiCatTarget !== 'none' ? antiCatTarget : ''),
                             info: extraInfo
                         });
                     }
                 });
             } else {
                 antiSnipeOffsets.forEach((offset, idx) => {
-                    assignOffNuke(antiAnchorLandMs + offset, `Anti-Snipe #${idx+1}`, 'tw-badge-anti', modelAnti, false, '', false);
+                    assignOffNuke(antiAnchorLandMs + offset, `Anti-Snipe #${idx+1}`, 'tw-badge-anti', modelAnti, false, (antiCatTarget !== 'none' ? antiCatTarget : ''), false);
                 });
             }
         }
@@ -4275,6 +4377,8 @@
                 </span>`;
             }
 
+            const bldBadge = cmd.building ? `<span style="display:inline-block; margin-left:4px; padding:1px 5px; font-size:9px; font-weight:bold; background:rgba(244,63,94,0.15); border:1px solid rgba(244,63,94,0.4); color:#fda4af; border-radius:3px;">🎯 ${formatBuildingName(cmd.building)}</span>` : '';
+
             rows += `<tr data-vid="${cmd.originId}">
                 <td style="color:#94a3b8; padding:3px 6px;">${i+1}</td>
                 <td style="padding:3px 6px;"><span class="${cmd.badge}">${cmd.type}</span></td>
@@ -4283,10 +4387,10 @@
                 <td style="padding:3px 6px;">${cmd.dist}c</td>
                 <td style="padding:3px 6px;"><b style="color:#f8fafc;">${cmd.launchTime.toLocaleTimeString('pt-PT')}:${String(cmd.launchTime.getMilliseconds()).padStart(3,'0')}</b> <span style="font-size:9.5px; color:#64748b; font-weight:normal;">(${String(cmd.launchTime.getDate()).padStart(2,'0')}/${String(cmd.launchTime.getMonth()+1).padStart(2,'0')})</span></td>
                 <td style="padding:3px 6px;"><b style="color:#38bdf8;">${cmd.landTime.toLocaleTimeString('pt-PT')}:${String(cmd.landTime.getMilliseconds()).padStart(3,'0')}</b> <span style="font-size:9.5px; color:#64748b; font-weight:normal;">(${String(cmd.landTime.getDate()).padStart(2,'0')}/${String(cmd.landTime.getMonth()+1).padStart(2,'0')})</span></td>
-                <td style="padding:3px 6px;"><b style="color:${cmd.actionType==='Support'?'#34d399':'#3fb950'};">${cmd.model}</b> <span style="font-size:10px; color:#94a3b8;">(${cmd.info})</span>${actionShortcut}</td>
+                <td style="padding:3px 6px;"><b style="color:${cmd.actionType==='Support'?'#34d399':'#3fb950'};">${cmd.model}</b>${bldBadge} <span style="font-size:10px; color:#94a3b8;">(${cmd.info})</span>${actionShortcut}</td>
             </tr>`;
 
-            let u = `https://${location.host}/game.php?village=${cmd.originId}&screen=place&target_coord=${cmd.targetCoords}`;
+            let u = `https://${location.host}/game.php?village=${cmd.originId}&screen=place&target_coord=${cmd.targetCoords}${cmd.building ? `&target_building=${cmd.building}` : ''}`;
             let bldStr = cmd.building ? `${cmd.building}[|]` : '';
             output += `[*]${i+1}. ${formatRussianDateTime(cmd.launchTime)} --- ${cmd.model}[|]${formatRussianDateTime(cmd.landTime)}[|] ${cmd.originCoords} --> ${cmd.targetCoords} [|]${bldStr}[url=${u}]Link[/url]\n`;
         });
