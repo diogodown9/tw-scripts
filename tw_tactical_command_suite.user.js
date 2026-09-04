@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TW Tactical Command Suite
 // @namespace    https://tribalwars.com.pt/
-// @version      2.6.4
-// @description  Suite militar avançada para Tribal Wars PT: Seleção Independente de Alvo de Catapulta para Nukes e Escoltas Anti-Snipe (com auto-seleção na praça de reunião), Deteção de Tropas Fora/A Farmar (⚠️), Seletor Inteligente & Manual de Full Nuke, Layout Otimizado em 3 Colunas e Planeador Tático de Ataques e Campanhas.
+// @version      2.7.0
+// @description  Suite militar avançada para Tribal Wars PT: Arsenal Tático de Fakes (Raio Livre, Fake NT 4x, Saturação do Alvo Real, Balanceamento de Origens & Modo Campanha), Seleção Independente de Alvo de Catapulta com Auto-Seleção na Praça, Deteção de Tropas Fora (⚠️), Seletor Inteligente de Full Nuke, e Planeador Tático.
 // @author       Diogo & Antigravity
 // @match        https://*.tribalwars.com.pt/game.php*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=tribalwars.com.pt
@@ -10,7 +10,7 @@
 // ==/UserScript==
 
 (async function () {
-    const SCRIPT_VERSION = '2.6.4';
+    const SCRIPT_VERSION = '2.7.0';
 
     // Auto-selecionar alvo de catapulta na confirmação de ataque na Praça de Reunião se especificado no URL
     try {
@@ -1949,41 +1949,61 @@
                             </div>
                         </div>
 
-                        <!-- CARD 4: CORTINA DE FAKES EM RAIO -->
+                        <!-- CARD 4: CORTINA DE FAKES & SATURAÇÃO -->
                         <div class="tw-card" id="tw-card-fakes" style="border-color:#a855f7; background:rgba(88, 28, 135, 0.2); padding:8px 10px; gap:4px;">
                             <div class="tw-card-title" style="color:#c084fc; font-size:11px;">
                                 <div style="display:flex; align-items:center; gap:4px;">
                                     <input type="checkbox" id="tw-nt-fake-enable" style="cursor:pointer; width:13px; height:13px;">
-                                    <label for="tw-nt-fake-enable" style="cursor:pointer;">🎭 Fakes em Raio</label>
+                                    <label for="tw-nt-fake-enable" style="cursor:pointer;">🎭 Fakes & Saturação</label>
                                 </div>
-                                <span style="font-size:8.5px; color:#a855f7;">Auto-Mascarar</span>
+                                <span style="font-size:8.5px; color:#a855f7;">Arsenal Tático</span>
                             </div>
                             
                             <div id="tw-box-fakes-inputs" style="display:flex; flex-direction:column; gap:4px; opacity:0.4; pointer-events:none; transition:opacity 0.2s ease;">
-                                <div style="display:grid; grid-template-columns: 1.1fr 1fr; gap:4px;">
+                                <!-- Linha 1: Raio livre e Fakes por Aldeia -->
+                                <div style="display:grid; grid-template-columns: 1fr 1fr; gap:4px;">
                                     <div style="display:flex; flex-direction:column; gap:1px;">
-                                        <span style="font-size:9px; color:#e9d5ff;">Raio de Busca:</span>
-                                        <select id="tw-nt-fake-radius" class="tw-select" style="font-weight:bold; color:#c084fc; padding:3px 5px; font-size:10.5px;">
-                                            <option value="4">4 campos</option>
-                                            <option value="6">6 campos</option>
-                                            <option value="8" selected>8 campos</option>
-                                            <option value="10">10 campos</option>
-                                            <option value="12">12 campos</option>
-                                            <option value="15">15 campos</option>
+                                        <span style="font-size:8.5px; color:#e9d5ff;">Raio (campos):</span>
+                                        <input type="number" id="tw-nt-fake-radius" class="tw-input" value="8" min="1" max="50" style="text-align:center; font-weight:bold; color:#c084fc; padding:3px 5px; font-size:10.5px;" title="Raio de proximidade em torno do alvo (ex: 3, 5, 8, 12, 15 campos)">
+                                    </div>
+                                    <div style="display:flex; flex-direction:column; gap:1px;">
+                                        <span style="font-size:8.5px; color:#e9d5ff;">Fakes / Aldeia:</span>
+                                        <input type="number" id="tw-nt-fake-count" class="tw-input" value="3" min="1" max="50" style="text-align:center; font-weight:bold; color:#c084fc; padding:3px 5px; font-size:10.5px;" title="Quantos fakes enviar para cada aldeia inimiga encontrada no raio">
+                                    </div>
+                                </div>
+
+                                <!-- Linha 2: Estilo e Modelo -->
+                                <div style="display:grid; grid-template-columns: 1.2fr 0.8fr; gap:4px;">
+                                    <div style="display:flex; flex-direction:column; gap:1px;">
+                                        <span style="font-size:8.5px; color:#e9d5ff;">Estilo de Envio:</span>
+                                        <select id="tw-nt-fake-style" class="tw-select" style="font-weight:bold; color:#c084fc; padding:3px 4px; font-size:10px;">
+                                            <option value="single" selected>🎯 Simples (30m/c)</option>
+                                            <option value="fake_nt">🚂 Fake NT (4x 100ms)</option>
+                                            <option value="snob">👑 Nobre (35m/c)</option>
+                                            <option value="spy">🕵️ Espião (9m/c)</option>
                                         </select>
                                     </div>
                                     <div style="display:flex; flex-direction:column; gap:1px;">
-                                        <span style="font-size:9px; color:#e9d5ff;">Fakes / Aldeia:</span>
-                                        <input type="number" id="tw-nt-fake-count" class="tw-input" value="4" min="1" max="20" style="text-align:center; font-weight:bold; color:#c084fc; padding:3px 5px; font-size:10.5px;">
+                                        <span style="font-size:8.5px; color:#e9d5ff;">Mod. Tropas:</span>
+                                        <input type="text" id="tw-nt-fake-model" class="tw-input" value="Fake" style="font-weight:bold; color:#c084fc; padding:3px 4px; font-size:10px;">
                                     </div>
                                 </div>
 
-                                <div style="display:flex; flex-direction:column; gap:1px;">
-                                    <span style="font-size:9px; color:#e9d5ff;">Modelo de Tropas:</span>
-                                    <input type="text" id="tw-nt-fake-model" class="tw-input" value="Fake" style="font-weight:bold; color:#c084fc; padding:3px 5px; font-size:10.5px;">
+                                <!-- Linha 3: Máx Fakes / Aldeia Própria e Incluir Alvo Real -->
+                                <div style="display:grid; grid-template-columns: 1fr 1fr; gap:4px; align-items:center;">
+                                    <div style="display:flex; flex-direction:column; gap:1px;">
+                                        <span style="font-size:8.5px; color:#e9d5ff;">Máx/Aldeia Tua:</span>
+                                        <input type="number" id="tw-nt-fake-max-origin" class="tw-input" value="2" min="1" max="20" style="text-align:center; font-weight:bold; color:#c084fc; padding:3px 5px; font-size:10px;" title="Limite máximo de fakes que cada uma das tuas aldeias pode enviar para poupar aríetes">
+                                    </div>
+                                    <div style="display:flex; align-items:center; margin-top:10px;">
+                                        <label style="display:flex; align-items:center; gap:3px; font-size:9px; color:#e9d5ff; cursor:pointer; font-weight:600; white-space:nowrap;" title="Envia também fakes para o alvo real para camuflar os nobres e nukes">
+                                            <input type="checkbox" id="tw-nt-fake-include-target" checked style="cursor:pointer; width:12px; height:12px;">
+                                            🎯 Alvo Real
+                                        </label>
+                                    </div>
                                 </div>
 
-                                <div id="tw-nt-fake-info" style="padding:3px 5px; background:rgba(2, 6, 23, 0.7); border:1px solid #4c1d95; border-radius:4px; font-size:9px; color:#d8b4fe; line-height:1.2;">
+                                <div id="tw-nt-fake-info" style="padding:3px 5px; background:rgba(2, 6, 23, 0.7); border:1px solid #4c1d95; border-radius:4px; font-size:8.5px; color:#d8b4fe; line-height:1.2;">
                                     🎯 Insere o alvo para filtrar as aldeias do defensor.
                                 </div>
                             </div>
@@ -2579,50 +2599,100 @@
         const targetInput = document.getElementById('tw-nt-target');
 
         const updateRadiusFakesHUD = async () => {
-            const target = targetInput ? targetInput.value.trim() : '';
-            const radius = parseFloat(document.getElementById('tw-nt-fake-radius').value) || 8;
-            const fakesPerTarget = parseInt(document.getElementById('tw-nt-fake-count').value, 10) || 4;
+            const radius = parseFloat(document.getElementById('tw-nt-fake-radius') ? document.getElementById('tw-nt-fake-radius').value : '8') || 8;
+            const fakesPerTarget = parseInt(document.getElementById('tw-nt-fake-count') ? document.getElementById('tw-nt-fake-count').value : '3', 10) || 3;
+            const fakeStyle = document.getElementById('tw-nt-fake-style') ? document.getElementById('tw-nt-fake-style').value : 'single';
+            const includeTarget = document.getElementById('tw-nt-fake-include-target') ? document.getElementById('tw-nt-fake-include-target').checked : true;
             const infoBox = document.getElementById('tw-nt-fake-info');
+            if (!infoBox) return;
 
-            if (!/^\d{3}\|\d{3}$/.test(target)) {
-                infoBox.innerHTML = 'Insere o alvo para calcular vizinhança.';
-                return;
-            }
-
-            const [tx, ty] = target.split('|').map(Number);
-            let neighborCount = 0;
+            const multiplier = (fakeStyle === 'fake_nt') ? 4 : 1;
             const myCoords = new Set(allVillages.map(v => v.coords));
 
-            if (!worldVillagesLoaded) {
-                await fetchWorldVillages();
-            }
-
-            if (worldVillages.length > 0) {
-                const targetObj = worldVillages.find(v => v.coord === target);
-                const targetPlayerId = targetObj ? targetObj.playerId : null;
-
-                worldVillages.forEach(v => {
-                    if (v.coord === target || myCoords.has(v.coord)) return;
-                    if (targetPlayerId && targetPlayerId !== '0' && v.playerId !== targetPlayerId) return;
-                    const dist = Math.hypot(v.x - tx, v.y - ty);
-                    if (dist <= radius) neighborCount++;
-                });
-            } else if (typeof TWMap !== 'undefined' && TWMap.villages) {
-                for (let key in TWMap.villages) {
-                    const v = TWMap.villages[key];
-                    if (v && v.xy) {
-                        const vx = Math.floor(v.xy / 1000), vy = v.xy % 1000;
-                        const coord = `${vx}|${vy}`;
-                        if (coord === target || myCoords.has(coord)) continue;
-                        const dist = Math.hypot(vx - tx, vy - ty);
-                        if (dist <= radius) neighborCount++;
-                    }
+            if (plannerMode === 'single') {
+                const target = targetInput ? targetInput.value.trim() : '';
+                if (!/^\d{3}\|\d{3}$/.test(target)) {
+                    infoBox.innerHTML = '🎯 Insere o alvo para calcular vizinhança.';
+                    return;
                 }
-            } else {
-                neighborCount = Math.max(Math.floor(radius * 0.8), 3);
-            }
 
-            infoBox.innerHTML = `🎯 <b>${neighborCount}</b> aldeias do defensor no raio de <b>${radius}c</b><br>🚀 Total: <b style="color:#34d399;">${neighborCount * fakesPerTarget} fakes</b>`;
+                const [tx, ty] = target.split('|').map(Number);
+                let neighborCount = 0;
+
+                if (!worldVillagesLoaded) {
+                    await fetchWorldVillages();
+                }
+
+                if (worldVillages.length > 0) {
+                    const targetObj = worldVillages.find(v => v.coord === target);
+                    const targetPlayerId = targetObj ? targetObj.playerId : null;
+
+                    worldVillages.forEach(v => {
+                        if (v.coord === target || myCoords.has(v.coord)) return;
+                        if (targetPlayerId && targetPlayerId !== '0' && v.playerId !== targetPlayerId) return;
+                        const dist = Math.hypot(v.x - tx, v.y - ty);
+                        if (dist <= radius) neighborCount++;
+                    });
+                } else if (typeof TWMap !== 'undefined' && TWMap.villages) {
+                    for (let key in TWMap.villages) {
+                        const v = TWMap.villages[key];
+                        if (v && v.xy) {
+                            const vx = Math.floor(v.xy / 1000), vy = v.xy % 1000;
+                            const coord = `${vx}|${vy}`;
+                            if (coord === target || myCoords.has(coord)) continue;
+                            const dist = Math.hypot(vx - tx, vy - ty);
+                            if (dist <= radius) neighborCount++;
+                        }
+                    }
+                } else {
+                    neighborCount = Math.max(Math.floor(radius * 0.8), 3);
+                }
+
+                const totalTargetVillages = neighborCount + (includeTarget ? 1 : 0);
+                const totalCommands = totalTargetVillages * fakesPerTarget * multiplier;
+                const styleDesc = (fakeStyle === 'fake_nt') ? ' • 4x combo NT' : (fakeStyle === 'snob' ? ' • 35m/c Nobre' : (fakeStyle === 'spy' ? ' • 9m/c Espião' : ' • 30m/c'));
+
+                infoBox.innerHTML = `🎯 <b>${neighborCount}</b> vizinhas ${includeTarget ? '+ <b>1 Alvo Real</b>' : ''} (raio <b>${radius}c</b>)<br>🚀 Total: <b style="color:#34d399;">${totalCommands} fakes</b> (${fakesPerTarget}x/aldeia${styleDesc})`;
+            } else {
+                // Modo Campanha Multialvo
+                const raw = document.getElementById('tw-nt-targets-multi') ? document.getElementById('tw-nt-targets-multi').value : '';
+                const multiTargets = Array.from(new Set(raw.match(/\d{3}\|\d{3}/g) || []));
+                if (multiTargets.length === 0) {
+                    infoBox.innerHTML = '🎯 Insere coordenadas na Campanha para calcular fakes.';
+                    return;
+                }
+
+                if (!worldVillagesLoaded) {
+                    await fetchWorldVillages();
+                }
+
+                const seenTargets = new Set();
+                let neighborCount = 0;
+
+                multiTargets.forEach(tCoord => {
+                    if (includeTarget) seenTargets.add(tCoord);
+                    const [tx, ty] = tCoord.split('|').map(Number);
+                    if (worldVillages.length > 0) {
+                        const targetObj = worldVillages.find(v => v.coord === tCoord);
+                        const targetPlayerId = targetObj ? targetObj.playerId : null;
+                        worldVillages.forEach(v => {
+                            if (seenTargets.has(v.coord) || myCoords.has(v.coord)) return;
+                            if (targetPlayerId && targetPlayerId !== '0' && v.playerId !== targetPlayerId) return;
+                            const dist = Math.hypot(v.x - tx, v.y - ty);
+                            if (dist <= radius) {
+                                seenTargets.add(v.coord);
+                                neighborCount++;
+                            }
+                        });
+                    }
+                });
+
+                const totalTargetVillages = seenTargets.size || (neighborCount + (includeTarget ? multiTargets.length : 0));
+                const totalCommands = totalTargetVillages * fakesPerTarget * multiplier;
+                const styleDesc = (fakeStyle === 'fake_nt') ? ' • 4x combo NT' : (fakeStyle === 'snob' ? ' • 35m/c Nobre' : (fakeStyle === 'spy' ? ' • 9m/c Espião' : ' • 30m/c'));
+
+                infoBox.innerHTML = `🎯 <b>${totalTargetVillages}</b> alvos fakes na Campanha (raio <b>${radius}c</b>)<br>🚀 Total: <b style="color:#34d399;">${totalCommands} fakes</b> (${fakesPerTarget}x/alvo${styleDesc})`;
+            }
         };
 
         function updateNobleProximityHUD(preferredPrimaryId = null, isUserManualChange = false) {
@@ -3059,6 +3129,11 @@
         const savedBunkModel1 = getPref('tw_nt_model_bunk1', 'BUNK');
         const savedBunkModel2 = getPref('tw_nt_model_bunk2', 'BUNK');
         const savedFakeModel = getPref('tw_nt_model_fake', 'Fake');
+        const savedFakeRadius = getPref('tw_nt_fake_radius', '8');
+        const savedFakeCount = getPref('tw_nt_fake_count', '3');
+        const savedFakeStyle = getPref('tw_nt_fake_style', 'single');
+        const savedFakeMaxOrigin = getPref('tw_nt_fake_max_origin', '2');
+        const savedFakeIncTarget = getPref('tw_nt_fake_include_target', 'true');
         const savedNukeCat = getPref('tw_nt_nuke_cat_target', 'place');
         const savedAntiCat = getPref('tw_nt_anti_cat_target', 'none');
 
@@ -3069,6 +3144,11 @@
         if (document.getElementById('tw-nt-model-bunker-1')) document.getElementById('tw-nt-model-bunker-1').value = savedBunkModel1;
         if (document.getElementById('tw-nt-model-bunker-2')) document.getElementById('tw-nt-model-bunker-2').value = savedBunkModel2;
         if (document.getElementById('tw-nt-fake-model')) document.getElementById('tw-nt-fake-model').value = savedFakeModel;
+        if (document.getElementById('tw-nt-fake-radius')) document.getElementById('tw-nt-fake-radius').value = savedFakeRadius;
+        if (document.getElementById('tw-nt-fake-count')) document.getElementById('tw-nt-fake-count').value = savedFakeCount;
+        if (document.getElementById('tw-nt-fake-style')) document.getElementById('tw-nt-fake-style').value = savedFakeStyle;
+        if (document.getElementById('tw-nt-fake-max-origin')) document.getElementById('tw-nt-fake-max-origin').value = savedFakeMaxOrigin;
+        if (document.getElementById('tw-nt-fake-include-target')) document.getElementById('tw-nt-fake-include-target').checked = (savedFakeIncTarget === 'true');
         if (document.getElementById('tw-nt-nuke-cat-target')) document.getElementById('tw-nt-nuke-cat-target').value = savedNukeCat;
         if (document.getElementById('tw-nt-anti-cat-target')) document.getElementById('tw-nt-anti-cat-target').value = savedAntiCat;
 
@@ -3077,10 +3157,37 @@
         if (document.getElementById('tw-nt-model-cats')) document.getElementById('tw-nt-model-cats').onchange = (e) => savePrefs('tw_nt_model_cats', e.target.value);
         document.getElementById('tw-nt-model-bunker-1').onchange = (e) => savePrefs('tw_nt_model_bunk1', e.target.value);
         document.getElementById('tw-nt-model-bunker-2').onchange = (e) => savePrefs('tw_nt_model_bunk2', e.target.value);
-        document.getElementById('tw-nt-fake-model').onchange = (e) => savePrefs('tw_nt_model_fake', e.target.value);
+        if (document.getElementById('tw-nt-fake-model')) document.getElementById('tw-nt-fake-model').onchange = (e) => savePrefs('tw_nt_model_fake', e.target.value);
 
-        document.getElementById('tw-nt-fake-radius').onchange = updateRadiusFakesHUD;
-        document.getElementById('tw-nt-fake-count').oninput = updateRadiusFakesHUD;
+        if (document.getElementById('tw-nt-fake-radius')) {
+            document.getElementById('tw-nt-fake-radius').oninput = (e) => {
+                savePrefs('tw_nt_fake_radius', e.target.value);
+                updateRadiusFakesHUD();
+            };
+        }
+        if (document.getElementById('tw-nt-fake-count')) {
+            document.getElementById('tw-nt-fake-count').oninput = (e) => {
+                savePrefs('tw_nt_fake_count', e.target.value);
+                updateRadiusFakesHUD();
+            };
+        }
+        if (document.getElementById('tw-nt-fake-style')) {
+            document.getElementById('tw-nt-fake-style').onchange = (e) => {
+                savePrefs('tw_nt_fake_style', e.target.value);
+                updateRadiusFakesHUD();
+            };
+        }
+        if (document.getElementById('tw-nt-fake-max-origin')) {
+            document.getElementById('tw-nt-fake-max-origin').oninput = (e) => {
+                savePrefs('tw_nt_fake_max_origin', e.target.value);
+            };
+        }
+        if (document.getElementById('tw-nt-fake-include-target')) {
+            document.getElementById('tw-nt-fake-include-target').onchange = (e) => {
+                savePrefs('tw_nt_fake_include_target', String(e.target.checked));
+                updateRadiusFakesHUD();
+            };
+        }
 
         document.getElementById('tw-btn-gen-nt-russo').onclick = async () => {
             try {
@@ -3410,7 +3517,95 @@
             }
         }
 
-        allCampaignCommands.sort((a, b) => a.launchTime - b.launchTime);
+        // 3. Cortina de Fakes & Saturação na Campanha
+        const isCampaignFakeEnabled = document.getElementById('tw-nt-fake-enable') && document.getElementById('tw-nt-fake-enable').checked;
+        if (isCampaignFakeEnabled) {
+            const fakeRadius = parseFloat(document.getElementById('tw-nt-fake-radius') ? document.getElementById('tw-nt-fake-radius').value : '8') || 8;
+            const fakesPerNeighbor = parseInt(document.getElementById('tw-nt-fake-count') ? document.getElementById('tw-nt-fake-count').value : '3', 10) || 3;
+            const fakeStyle = document.getElementById('tw-nt-fake-style') ? document.getElementById('tw-nt-fake-style').value : 'single';
+            const fakeMaxPerOrigin = parseInt(document.getElementById('tw-nt-fake-max-origin') ? document.getElementById('tw-nt-fake-max-origin').value : '2', 10) || 2;
+            const fakeIncludeTarget = document.getElementById('tw-nt-fake-include-target') ? document.getElementById('tw-nt-fake-include-target').checked : true;
+            const fakeModelName = document.getElementById('tw-nt-fake-model') ? document.getElementById('tw-nt-fake-model').value.trim() || 'Fake' : 'Fake';
+
+            let fakeSpeedMin = unitSpeedMinutes.ram; // 30 min/campo padrão
+            if (fakeStyle === 'snob') fakeSpeedMin = unitSpeedMinutes.snob; // 35 min/campo
+            else if (fakeStyle === 'spy') fakeSpeedMin = unitSpeedMinutes.spy; // 9 min/campo
+
+            const myCoords = new Set(allVillages.map(v => v.coords));
+            const seenTargets = new Set();
+            const campaignNeighborTargets = [];
+
+            if (!worldVillagesLoaded) {
+                await fetchWorldVillages();
+            }
+
+            for (const tCoord of targets) {
+                if (fakeIncludeTarget && !seenTargets.has(tCoord)) {
+                    seenTargets.add(tCoord);
+                    campaignNeighborTargets.push({ coord: tCoord, dist: 0, isRealTarget: true });
+                }
+                const [tx, ty] = tCoord.split('|').map(Number);
+                if (worldVillages.length > 0) {
+                    const targetObj = worldVillages.find(v => v.coord === tCoord);
+                    const targetPlayerId = targetObj ? targetObj.playerId : null;
+                    worldVillages.forEach(v => {
+                        if (seenTargets.has(v.coord) || myCoords.has(v.coord)) return;
+                        if (targetPlayerId && targetPlayerId !== '0' && v.playerId !== targetPlayerId) return;
+                        const dist = Math.hypot(v.x - tx, v.y - ty);
+                        if (dist <= fakeRadius) {
+                            seenTargets.add(v.coord);
+                            campaignNeighborTargets.push({ coord: v.coord, dist, isRealTarget: false });
+                        }
+                    });
+                }
+            }
+
+            const fakePool = allVillages.filter(v => !excludeCommitted || !committedMap[v.id]);
+            const originUsageCount = {};
+
+            campaignNeighborTargets.forEach(nTarget => {
+                let fakesAssigned = 0;
+                const validOrigins = fakePool.map(v => {
+                    const dist = calcDistance(v.coords, nTarget.coord);
+                    const travelSec = dist * fakeSpeedMin * 60;
+                    return { village: v, dist, travelSec };
+                }).filter(item => {
+                    const launchMs = baseLandTime - (item.travelSec * 1000);
+                    return launchMs >= minLaunchMs;
+                }).sort((a, b) => a.dist - b.dist);
+
+                for (let i = 0; i < validOrigins.length && fakesAssigned < fakesPerNeighbor; i++) {
+                    const cand = validOrigins[i];
+                    const usedCount = originUsageCount[cand.village.id] || 0;
+                    if (usedCount >= fakeMaxPerOrigin) continue;
+
+                    if (fakeStyle === 'fake_nt') {
+                        for (let wave = 0; wave < 4; wave++) {
+                            const waveOffset = wave * 100;
+                            const landMs = baseLandTime + waveOffset;
+                            const launchMs = landMs - (cand.travelSec * 1000);
+                            allCampaignCommands.push(makeCmd(`🎭 Fake NT #${fakesAssigned + 1} (${wave + 1}/4)`, 'tw-badge-praca', 'Attack', cand.village, nTarget.coord, cand.dist, cand.travelSec, new Date(launchMs), new Date(landMs), fakeModelName, '', nTarget.isRealTarget ? `Fake NT Alvo Real (${fakeSpeedMin}m/c)` : `Fake NT (${fakeSpeedMin}m/c)`));
+                        }
+                        originUsageCount[cand.village.id] = usedCount + 1;
+                        fakesAssigned++;
+                    } else {
+                        const launchMs = baseLandTime - (cand.travelSec * 1000);
+                        const typeLabel = nTarget.isRealTarget ? '🎭 Fake Saturação' : '🎭 Fake Cortina';
+                        const infoLabel = nTarget.isRealTarget ? `Saturação Alvo (${fakeSpeedMin}m/c)` : `Cortina (${fakeSpeedMin}m/c)`;
+                        allCampaignCommands.push(makeCmd(typeLabel, 'tw-badge-praca', 'Attack', cand.village, nTarget.coord, cand.dist, cand.travelSec, new Date(launchMs), new Date(baseLandTime), fakeModelName, '', infoLabel));
+                        originUsageCount[cand.village.id] = usedCount + 1;
+                        fakesAssigned++;
+                    }
+                }
+            });
+        }
+
+        allCampaignCommands.sort((a, b) => {
+            const aIsFake = (a.type && a.type.includes('Fake')) ? 1 : 0;
+            const bIsFake = (b.type && b.type.includes('Fake')) ? 1 : 0;
+            if (aIsFake !== bIsFake) return aIsFake - bIsFake;
+            return a.launchTime - b.launchTime;
+        });
         lastGeneratedCommands = allCampaignCommands;
         lastGeneratedTarget = targets.join(' ');
 
@@ -4259,17 +4454,28 @@
             }
         }
 
-        // 6. Cortina de Fakes em Raio
+        // 6. Cortina de Fakes & Saturação Avançada
         const isRadiusFakeEnabled = document.getElementById('tw-nt-fake-enable') && document.getElementById('tw-nt-fake-enable').checked;
         if (isRadiusFakeEnabled) {
-            const fakeRadius = parseFloat(document.getElementById('tw-nt-fake-radius').value) || 8;
-            const fakesPerNeighbor = parseInt(document.getElementById('tw-nt-fake-count').value, 10) || 4;
-            const fakeModelName = document.getElementById('tw-nt-fake-model').value.trim() || 'Fake';
-            const ramSpeedMin = unitSpeedMinutes.ram;
+            const fakeRadius = parseFloat(document.getElementById('tw-nt-fake-radius') ? document.getElementById('tw-nt-fake-radius').value : '8') || 8;
+            const fakesPerNeighbor = parseInt(document.getElementById('tw-nt-fake-count') ? document.getElementById('tw-nt-fake-count').value : '3', 10) || 3;
+            const fakeStyle = document.getElementById('tw-nt-fake-style') ? document.getElementById('tw-nt-fake-style').value : 'single';
+            const fakeMaxPerOrigin = parseInt(document.getElementById('tw-nt-fake-max-origin') ? document.getElementById('tw-nt-fake-max-origin').value : '2', 10) || 2;
+            const fakeIncludeTarget = document.getElementById('tw-nt-fake-include-target') ? document.getElementById('tw-nt-fake-include-target').checked : true;
+            const fakeModelName = document.getElementById('tw-nt-fake-model') ? document.getElementById('tw-nt-fake-model').value.trim() || 'Fake' : 'Fake';
+
+            let fakeSpeedMin = unitSpeedMinutes.ram; // 30 min/campo padrão
+            if (fakeStyle === 'snob') fakeSpeedMin = unitSpeedMinutes.snob; // 35 min/campo
+            else if (fakeStyle === 'spy') fakeSpeedMin = unitSpeedMinutes.spy; // 9 min/campo
 
             const [tx, ty] = target.split('|').map(Number);
             const myCoords = new Set(allVillages.map(v => v.coords));
             const neighborTargets = [];
+
+            // Se solicitado, incluir o próprio alvo real na saturação de fakes
+            if (fakeIncludeTarget) {
+                neighborTargets.push({ coord: target, dist: 0, isRealTarget: true });
+            }
 
             if (!worldVillagesLoaded) {
                 await fetchWorldVillages();
@@ -4284,7 +4490,7 @@
                     if (targetPlayerId && targetPlayerId !== '0' && v.playerId !== targetPlayerId) return;
 
                     const dist = Math.hypot(v.x - tx, v.y - ty);
-                    if (dist <= fakeRadius) neighborTargets.push({ coord: v.coord, dist });
+                    if (dist <= fakeRadius) neighborTargets.push({ coord: v.coord, dist, isRealTarget: false });
                 });
             } else if (typeof TWMap !== 'undefined' && TWMap.villages) {
                 for (let key in TWMap.villages) {
@@ -4294,7 +4500,7 @@
                         const coord = `${vx}|${vy}`;
                         if (coord === target || myCoords.has(coord)) continue;
                         const dist = Math.hypot(vx - tx, vy - ty);
-                        if (dist <= fakeRadius) neighborTargets.push({ coord, dist });
+                        if (dist <= fakeRadius) neighborTargets.push({ coord, dist, isRealTarget: false });
                     }
                 }
             }
@@ -4302,13 +4508,14 @@
             neighborTargets.sort((a, b) => a.dist - b.dist);
 
             const fakePool = allVillages.filter(v => !excludedIds.includes(v.id) && (!excludeCommitted || !committedMap[v.id]));
+            const originUsageCount = {};
 
             neighborTargets.forEach(nTarget => {
                 let fakesAssigned = 0;
-                
+
                 const validOrigins = fakePool.map(v => {
                     const dist = calcDistance(v.coords, nTarget.coord);
-                    const travelSec = dist * ramSpeedMin * 60;
+                    const travelSec = dist * fakeSpeedMin * 60;
                     return { village: v, dist, travelSec };
                 }).filter(item => {
                     const launchMs = baseLandTime - (item.travelSec * 1000);
@@ -4317,27 +4524,62 @@
 
                 for (let i = 0; i < validOrigins.length && fakesAssigned < fakesPerNeighbor; i++) {
                     const cand = validOrigins[i];
-                    const launchMs = baseLandTime - (cand.travelSec * 1000);
-                    
-                    sequence.push({
-                        type: '🎭 Fake Cortina',
-                        badge: 'tw-badge-praca',
-                        actionType: 'Attack',
-                        originId: cand.village.id,
-                        originName: cand.village.name,
-                        originCoords: cand.village.coords,
-                        targetCoords: nTarget.coord,
-                        dist: cand.dist.toFixed(2),
-                        sec: cand.travelSec,
-                        launchTime: new Date(launchMs),
-                        landTime: new Date(baseLandTime),
-                        model: fakeModelName,
-                        building: '',
-                        info: 'Cortina',
-                        isFake: true
-                    });
+                    const usedCount = originUsageCount[cand.village.id] || 0;
+                    if (usedCount >= fakeMaxPerOrigin) continue;
 
-                    fakesAssigned++;
+                    if (fakeStyle === 'fake_nt') {
+                        // Combo Fake NT (4 ataques da mesma aldeia espaçados por 100ms)
+                        for (let wave = 0; wave < 4; wave++) {
+                            const waveOffset = wave * 100;
+                            const landMs = baseLandTime + waveOffset;
+                            const launchMs = landMs - (cand.travelSec * 1000);
+                            sequence.push({
+                                type: `🎭 Fake NT #${fakesAssigned + 1} (${wave + 1}/4)`,
+                                badge: 'tw-badge-praca',
+                                actionType: 'Attack',
+                                originId: cand.village.id,
+                                originName: cand.village.name,
+                                originCoords: cand.village.coords,
+                                targetCoords: nTarget.coord,
+                                dist: cand.dist.toFixed(2),
+                                sec: cand.travelSec,
+                                launchTime: new Date(launchMs),
+                                landTime: new Date(landMs),
+                                model: fakeModelName,
+                                building: '',
+                                info: nTarget.isRealTarget ? `Fake NT Alvo Real (${fakeSpeedMin}m/c)` : `Fake NT (${fakeSpeedMin}m/c)`,
+                                isFake: true
+                            });
+                        }
+                        originUsageCount[cand.village.id] = usedCount + 1;
+                        fakesAssigned++;
+                    } else {
+                        // Ataques Simples individuais
+                        const launchMs = baseLandTime - (cand.travelSec * 1000);
+                        const typeLabel = nTarget.isRealTarget ? '🎭 Fake Saturação' : '🎭 Fake Cortina';
+                        const infoLabel = nTarget.isRealTarget ? `Saturação Alvo (${fakeSpeedMin}m/c)` : `Cortina (${fakeSpeedMin}m/c)`;
+
+                        sequence.push({
+                            type: typeLabel,
+                            badge: 'tw-badge-praca',
+                            actionType: 'Attack',
+                            originId: cand.village.id,
+                            originName: cand.village.name,
+                            originCoords: cand.village.coords,
+                            targetCoords: nTarget.coord,
+                            dist: cand.dist.toFixed(2),
+                            sec: cand.travelSec,
+                            launchTime: new Date(launchMs),
+                            landTime: new Date(baseLandTime),
+                            model: fakeModelName,
+                            building: '',
+                            info: infoLabel,
+                            isFake: true
+                        });
+
+                        originUsageCount[cand.village.id] = usedCount + 1;
+                        fakesAssigned++;
+                    }
                 }
             });
         }
