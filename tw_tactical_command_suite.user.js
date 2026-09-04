@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW Tactical Command Suite
 // @namespace    https://tribalwars.com.pt/
-// @version      2.3.0
+// @version      2.4.0
 // @description  Suite militar avançada para Tribal Wars PT: Visão Geral com regra 22k, Contador Tático, Gerador de Fakes dinâmico, Planeador NT + Anti-Snipe + Bunker com Paladino, Campanha Multialvo com IA de Atribuição e Memória Inteligente de Aldeias Reservadas.
 // @author       DeepMind / Antigravity
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -627,7 +627,7 @@
             counterSummaryData = summary;
             updateMemoryHUD();
             document.getElementById('tw-tabs-container').style.display = 'flex';
-            document.getElementById('tw-title-text').innerHTML = `⚡ TW Tactical Command Suite <span style="font-size:10px; font-weight:600; background:rgba(56,189,248,0.15); color:#38bdf8; padding:2px 7px; border-radius:4px; border:1px solid rgba(56,189,248,0.25); margin-left:6px; vertical-align:middle;">v2.3.0</span> <span style="font-size:11px; font-weight:normal; color:#94a3b8; margin-left:6px; vertical-align:middle;">(${allVillages.length} Aldeias Conectadas)</span>`;
+            document.getElementById('tw-title-text').innerHTML = `⚡ TW Tactical Command Suite <span style="font-size:10px; font-weight:600; background:rgba(56,189,248,0.15); color:#38bdf8; padding:2px 7px; border-radius:4px; border:1px solid rgba(56,189,248,0.25); margin-left:6px; vertical-align:middle;">v2.4.0</span> <span style="font-size:11px; font-weight:normal; color:#94a3b8; margin-left:6px; vertical-align:middle;">(${allVillages.length} Aldeias Conectadas)</span>`;
             
             document.getElementById('tab-btn-overview').onclick = () => switchTab('overview');
             document.getElementById('tab-btn-counter').onclick = () => switchTab('counter');
@@ -1497,7 +1497,8 @@
                         <div style="display:flex; flex-direction:column; gap:1px; margin-top:2px;">
                             <span style="font-size:9.5px; color:#fbbf24; font-weight:bold;">Modo de Ataque (Perfil):</span>
                             <select id="tw-nt-attack-mode" class="tw-select" style="padding:5px 6px; font-size:11.5px; font-weight:bold; color:#38bdf8;">
-                                <option value="standard_anti" selected>🛡️ NT + Escoltas Anti-Snipe (Competitivo)</option>
+                                <option value="standard_anti" selected>🛡️ NT + Escoltas Anti-Snipe (Full / 3 Aldeias)</option>
+                                <option value="standard_anti_50">🛡️ NT + Anti-Snipe 50% (2 Aldeias / Fácil)</option>
                                 <option value="nt_simple">👑 NT Simples (Ondas de Nobres Diretas)</option>
                                 <option value="nt_clean">⚔️ NT + Nuke Limpeza (Sem Anti-Snipe)</option>
                                 <option value="split_2x2">🔀 NT Dividido (Split 2x2 Aldeias Distintas)</option>
@@ -1569,9 +1570,29 @@
                                 <select id="tw-nt-anti-waves" class="tw-select" style="padding:4px 6px; font-size:11px; text-align:center; font-weight:bold; color:#38bdf8;">
                                     <option value="0">0 Escoltas</option>
                                     <option value="1">1 Escolta</option>
-                                    <option value="2">2 Escoltas</option>
-                                    <option value="3" selected>3 Escoltas (Total)</option>
+                                    <option value="2" selected>2 Escoltas (2 Aldeias)</option>
+                                    <option value="3">3 Escoltas (Total)</option>
                                 </select>
+                            </div>
+                        </div>
+
+                        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:4px;">
+                            <div style="display:flex; flex-direction:column; gap:1px;">
+                                <span style="font-size:9px; color:#94a3b8;">Origem Anti-Snipe:</span>
+                                <select id="tw-nt-anti-origins" class="tw-select" style="padding:4px 6px; font-size:11px; font-weight:bold; color:#38bdf8;">
+                                    <option value="dedicated">1 Aldeia / Vaga (Full)</option>
+                                    <option value="max2" selected>Apenas 2 Aldeias (Fácil)</option>
+                                </select>
+                            </div>
+                            <div style="display:flex; flex-direction:column; gap:1px;">
+                                <div style="display:flex; justify-content:space-between; align-items:center;">
+                                    <span style="font-size:9px; color:#94a3b8;">Mod. Anti-Snipe:</span>
+                                    <select id="tw-nt-anti-preset" class="tw-select" style="padding:0 3px; font-size:9px; font-weight:bold; color:#38bdf8; border:none; background:transparent;">
+                                        <option value="Ataque Full">Full</option>
+                                        <option value="Ataque 50%" selected>50%</option>
+                                    </select>
+                                </div>
+                                <input type="text" id="tw-nt-model-anti" class="tw-input" value="Ataque 50%" style="font-weight:bold; color:#38bdf8; padding:4px 6px; font-size:11px;">
                             </div>
                         </div>
 
@@ -1581,7 +1602,7 @@
                                 <input type="number" id="tw-nt-ms-interval" class="tw-input" value="200" min="50" max="1000" style="padding:4px 6px; font-size:11px; text-align:center;">
                             </div>
                             <div style="display:flex; flex-direction:column; gap:1px;">
-                                <span style="font-size:9px; color:#94a3b8;">Alvo Catapulta (Edifício):</span>
+                                <span style="font-size:9px; color:#94a3b8;">Alvo Catapulta:</span>
                                 <select id="tw-nt-cat-target-building" class="tw-select" style="padding:4px 6px; font-size:11px; font-weight:bold; color:#f43f5e;">
                                     <option value="none">Nenhum</option>
                                     <option value="place" selected>Praça (place)</option>
@@ -1596,31 +1617,25 @@
                         </div>
 
                         <!-- TICKBOX DE PALADINO NO NUKE -->
-                        <div style="display:flex; align-items:center; gap:5px; margin:2px 0; padding:3px 5px; background:rgba(239, 68, 68, 0.1); border:1px solid rgba(239, 68, 68, 0.3); border-radius:4px;">
+                        <div style="display:flex; align-items:center; gap:5px; margin:1px 0; padding:2px 5px; background:rgba(239, 68, 68, 0.1); border:1px solid rgba(239, 68, 68, 0.3); border-radius:4px;">
                             <input type="checkbox" id="tw-nt-req-paladin-nuke" checked style="cursor:pointer; width:13px; height:13px;">
-                            <label for="tw-nt-req-paladin-nuke" style="cursor:pointer; font-size:9.5px; color:#fca5a5; font-weight:bold;">
+                            <label for="tw-nt-req-paladin-nuke" style="cursor:pointer; font-size:9px; color:#fca5a5; font-weight:bold;">
                                 🛡️ Priorizar Paladino no Nuke (Aviso 3h31m)
                             </label>
                         </div>
 
-                        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:4px;">
+                        <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:4px;">
                             <div style="display:flex; flex-direction:column; gap:1px;">
-                                <span style="font-size:9px; color:#94a3b8;">Modelo Nuke:</span>
-                                <input type="text" id="tw-nt-model-nuke" class="tw-input" value="Ataque Full" style="font-weight:bold; color:#f87171; padding:4px 6px; font-size:11px;">
+                                <span style="font-size:8.5px; color:#94a3b8;">Mod. Nuke:</span>
+                                <input type="text" id="tw-nt-model-nuke" class="tw-input" value="Ataque Full" style="font-weight:bold; color:#f87171; padding:3px 5px; font-size:10.5px;">
                             </div>
                             <div style="display:flex; flex-direction:column; gap:1px;">
-                                <span style="font-size:9px; color:#94a3b8;">Modelo Anti-Snipe:</span>
-                                <input type="text" id="tw-nt-model-anti" class="tw-input" value="Ataque Full" style="font-weight:bold; color:#38bdf8; padding:4px 6px; font-size:11px;">
-                            </div>
-                        </div>
-                        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:4px;">
-                            <div style="display:flex; flex-direction:column; gap:1px;">
-                                <span style="font-size:9px; color:#94a3b8;">Modelo NT:</span>
-                                <input type="text" id="tw-nt-model-snob" class="tw-input" value="NT 25%" style="font-weight:bold; color:#fbbf24; padding:4px 6px; font-size:11px;">
+                                <span style="font-size:8.5px; color:#94a3b8;">Mod. NT:</span>
+                                <input type="text" id="tw-nt-model-snob" class="tw-input" value="NT 25%" style="font-weight:bold; color:#fbbf24; padding:3px 5px; font-size:10.5px;">
                             </div>
                             <div style="display:flex; flex-direction:column; gap:1px;">
-                                <span style="font-size:9px; color:#94a3b8;">Modelo Catapulta:</span>
-                                <input type="text" id="tw-nt-model-cats" class="tw-input" value="Cats" style="font-weight:bold; color:#f43f5e; padding:4px 6px; font-size:11px;">
+                                <span style="font-size:8.5px; color:#94a3b8;">Mod. Cats:</span>
+                                <input type="text" id="tw-nt-model-cats" class="tw-input" value="Cats" style="font-weight:bold; color:#f43f5e; padding:3px 5px; font-size:10.5px;">
                             </div>
                         </div>
                     </div>
@@ -1811,6 +1826,7 @@
         const archSelect = document.getElementById('tw-nt-architecture');
 
         leadNukesInput.oninput = updateMultiHUD;
+        antiWavesSelect.onchange = updateMultiHUD;
         bunkerCountSelect.onchange = updateMultiHUD;
         nobleCountSelect.onchange = updateMultiHUD;
 
@@ -1851,6 +1867,23 @@
                 catTargetSelect.value = 'place';
                 archSelect.value = 'single_4';
                 nobleCountSelect.value = 4;
+                if (document.getElementById('tw-nt-model-anti')) document.getElementById('tw-nt-model-anti').value = 'Ataque Full';
+                if (document.getElementById('tw-nt-anti-preset')) document.getElementById('tw-nt-anti-preset').value = 'Ataque Full';
+                if (document.getElementById('tw-nt-anti-origins')) document.getElementById('tw-nt-anti-origins').value = 'dedicated';
+            } else if (mode === 'standard_anti_50') {
+                nobleControlsBox.style.display = 'grid';
+                if (noblePrimaryBox) noblePrimaryBox.style.display = 'flex';
+                if (nobleSecondaryBox) nobleSecondaryBox.style.display = 'none';
+                if (document.getElementById('tw-box-manual-nobles')) document.getElementById('tw-box-manual-nobles').style.display = plannerMode === 'single' ? 'block' : 'none';
+                leadNukesInput.value = 1;
+                antiWavesSelect.value = 2;
+                bunkerCountSelect.value = 1;
+                catTargetSelect.value = 'place';
+                archSelect.value = 'single_4';
+                nobleCountSelect.value = 4;
+                if (document.getElementById('tw-nt-model-anti')) document.getElementById('tw-nt-model-anti').value = 'Ataque 50%';
+                if (document.getElementById('tw-nt-anti-preset')) document.getElementById('tw-nt-anti-preset').value = 'Ataque 50%';
+                if (document.getElementById('tw-nt-anti-origins')) document.getElementById('tw-nt-anti-origins').value = 'max2';
             } else if (mode === 'split_2x2') {
                 nobleControlsBox.style.display = 'grid';
                 if (noblePrimaryBox) noblePrimaryBox.style.display = 'flex';
@@ -2004,7 +2037,8 @@
         });
 
         const savedNukeModel = getPref('tw_nt_model_nuke', 'Ataque Full');
-        const savedAntiModel = getPref('tw_nt_model_anti', 'Ataque Full');
+        const savedAntiModel = getPref('tw_nt_model_anti', 'Ataque 50%');
+        const savedAntiOrigins = getPref('tw_nt_anti_origins', 'max2');
         const savedCatsModel = getPref('tw_nt_model_cats', 'Cats');
         const savedBunkModel1 = getPref('tw_nt_model_bunk1', 'BUNK');
         const savedBunkModel2 = getPref('tw_nt_model_bunk2', 'BUNK');
@@ -2012,13 +2046,37 @@
 
         if (document.getElementById('tw-nt-model-nuke')) document.getElementById('tw-nt-model-nuke').value = savedNukeModel;
         if (document.getElementById('tw-nt-model-anti')) document.getElementById('tw-nt-model-anti').value = savedAntiModel;
+        if (document.getElementById('tw-nt-anti-origins')) document.getElementById('tw-nt-anti-origins').value = savedAntiOrigins;
+        if (document.getElementById('tw-nt-anti-preset')) {
+            document.getElementById('tw-nt-anti-preset').value = savedAntiModel.includes('50%') ? 'Ataque 50%' : 'Ataque Full';
+        }
         if (document.getElementById('tw-nt-model-cats')) document.getElementById('tw-nt-model-cats').value = savedCatsModel;
         if (document.getElementById('tw-nt-model-bunker-1')) document.getElementById('tw-nt-model-bunker-1').value = savedBunkModel1;
         if (document.getElementById('tw-nt-model-bunker-2')) document.getElementById('tw-nt-model-bunker-2').value = savedBunkModel2;
         if (document.getElementById('tw-nt-fake-model')) document.getElementById('tw-nt-fake-model').value = savedFakeModel;
 
         document.getElementById('tw-nt-model-nuke').onchange = (e) => savePrefs('tw_nt_model_nuke', e.target.value);
-        document.getElementById('tw-nt-model-anti').onchange = (e) => savePrefs('tw_nt_model_anti', e.target.value);
+        document.getElementById('tw-nt-model-anti').onchange = (e) => {
+            savePrefs('tw_nt_model_anti', e.target.value);
+            if (document.getElementById('tw-nt-anti-preset')) {
+                document.getElementById('tw-nt-anti-preset').value = e.target.value.includes('50%') ? 'Ataque 50%' : 'Ataque Full';
+            }
+        };
+        if (document.getElementById('tw-nt-anti-preset')) {
+            document.getElementById('tw-nt-anti-preset').onchange = (e) => {
+                const val = e.target.value;
+                document.getElementById('tw-nt-model-anti').value = val;
+                savePrefs('tw_nt_model_anti', val);
+                const originsVal = val === 'Ataque 50%' ? 'max2' : 'dedicated';
+                if (document.getElementById('tw-nt-anti-origins')) {
+                    document.getElementById('tw-nt-anti-origins').value = originsVal;
+                    savePrefs('tw_nt_anti_origins', originsVal);
+                }
+            };
+        }
+        if (document.getElementById('tw-nt-anti-origins')) {
+            document.getElementById('tw-nt-anti-origins').onchange = (e) => savePrefs('tw_nt_anti_origins', e.target.value);
+        }
         if (document.getElementById('tw-nt-model-cats')) document.getElementById('tw-nt-model-cats').onchange = (e) => savePrefs('tw_nt_model_cats', e.target.value);
         document.getElementById('tw-nt-model-bunker-1').onchange = (e) => savePrefs('tw_nt_model_bunk1', e.target.value);
         document.getElementById('tw-nt-model-bunker-2').onchange = (e) => savePrefs('tw_nt_model_bunk2', e.target.value);
@@ -2066,6 +2124,7 @@
         const nobleCount = parseInt(document.getElementById('tw-nt-noble-count').value, 10) || 4;
         const leadNukesCount = parseInt(document.getElementById('tw-nt-lead-nukes').value, 10) || 0;
         const antiWavesCount = parseInt(document.getElementById('tw-nt-anti-waves').value, 10) || 0;
+        const antiOrigins = document.getElementById('tw-nt-anti-origins') ? document.getElementById('tw-nt-anti-origins').value : 'dedicated';
         const bunkerCount = parseInt(document.getElementById('tw-nt-bunker-count').value, 10) || 0;
         const bunkerGapMs = parseInt(document.getElementById('tw-nt-bunker-gap').value, 10) || 200;
         const bunkerStepMs = parseInt(document.getElementById('tw-nt-bunker-step').value, 10) || 50;
@@ -2184,14 +2243,41 @@
             // Escoltas Anti-Snipe
             if (antiWavesCount > 0) {
                 const antiOffsets = [halfStep, msStep + halfStep, (2 * msStep) + halfStep].slice(0, antiWavesCount);
-                antiOffsets.forEach((offset, idx) => {
-                    const landMs = baseLandTime + offset;
-                    const antiOff = findClosestAvailable(offPool, usedOffVillages, tCoord, landMs, minLaunchMs);
-                    if (antiOff) {
-                        usedOffVillages.add(antiOff.village.id);
-                        allCampaignCommands.push(makeCmd(`Anti-Snipe #${idx+1}`, 'tw-badge-anti', 'Attack', antiOff.village, tCoord, antiOff.dist, antiOff.sec, antiOff.launchTime, new Date(landMs), modelAnti, '', 'Escolta Anti-Snipe'));
+                if (antiOrigins === 'max2') {
+                    const v1 = findClosestAvailable(offPool, usedOffVillages, tCoord, baseLandTime + antiOffsets[0], minLaunchMs);
+                    let v2 = null;
+                    if (v1) {
+                        usedOffVillages.add(v1.village.id);
+                        if (antiWavesCount > 1) {
+                            v2 = findClosestAvailable(offPool, usedOffVillages, tCoord, baseLandTime + antiOffsets[antiOffsets.length - 1], minLaunchMs);
+                            if (v2) usedOffVillages.add(v2.village.id);
+                        }
                     }
-                });
+                    antiOffsets.forEach((offset, idx) => {
+                        const landMs = baseLandTime + offset;
+                        let cand = null;
+                        if (antiWavesCount === 3) {
+                            cand = (idx === 0 || idx === 1) ? v1 : (v2 || v1);
+                        } else if (antiWavesCount === 2) {
+                            cand = (idx === 0) ? v1 : (v2 || v1);
+                        } else {
+                            cand = v1;
+                        }
+                        if (cand) {
+                            const launchMs = landMs - (cand.sec * 1000);
+                            allCampaignCommands.push(makeCmd(`Anti-Snipe #${idx+1}`, 'tw-badge-anti', 'Attack', cand.village, tCoord, cand.dist, cand.sec, new Date(launchMs), new Date(landMs), modelAnti, '', `Escolta Anti-Snipe (${modelAnti})`));
+                        }
+                    });
+                } else {
+                    antiOffsets.forEach((offset, idx) => {
+                        const landMs = baseLandTime + offset;
+                        const antiOff = findClosestAvailable(offPool, usedOffVillages, tCoord, landMs, minLaunchMs);
+                        if (antiOff) {
+                            usedOffVillages.add(antiOff.village.id);
+                            allCampaignCommands.push(makeCmd(`Anti-Snipe #${idx+1}`, 'tw-badge-anti', 'Attack', antiOff.village, tCoord, antiOff.dist, antiOff.sec, antiOff.launchTime, new Date(landMs), modelAnti, '', 'Escolta Anti-Snipe'));
+                        }
+                    });
+                }
             }
 
             // Bunkers de Conquista
@@ -2339,6 +2425,7 @@
 
         const leadNukesCount = parseInt(document.getElementById('tw-nt-lead-nukes').value, 10) || 0;
         const antiWavesCount = parseInt(document.getElementById('tw-nt-anti-waves').value, 10) || 0;
+        const antiOrigins = document.getElementById('tw-nt-anti-origins') ? document.getElementById('tw-nt-anti-origins').value : 'dedicated';
         const msStep = parseInt(document.getElementById('tw-nt-ms-interval').value, 10) || 200;
         const halfStep = Math.floor(msStep / 2);
         
@@ -2542,9 +2629,75 @@
         // 3. Escoltas Anti-Snipe
         if (antiWavesCount > 0) {
             const antiSnipeOffsets = [halfStep, msStep + halfStep, (2 * msStep) + halfStep].slice(0, antiWavesCount);
-            antiSnipeOffsets.forEach((offset, idx) => {
-                assignOffNuke(baseLandTime + offset, `Anti-Snipe #${idx+1}`, 'tw-badge-anti', modelAnti, false, '');
-            });
+            if (antiOrigins === 'max2') {
+                let antiCand1 = null;
+                let antiCand2 = null;
+
+                for (let i = 0; i < sortedOff.length; i++) {
+                    const c = sortedOff[i];
+                    if (usedOffVillages.has(c.village.id)) continue;
+                    const travelSec = c.sec;
+                    if ((baseLandTime + antiSnipeOffsets[0]) - (travelSec * 1000) >= minLaunchMs) {
+                        antiCand1 = c;
+                        usedOffVillages.add(c.village.id);
+                        break;
+                    }
+                }
+
+                if (antiWavesCount > 1) {
+                    for (let i = 0; i < sortedOff.length; i++) {
+                        const c = sortedOff[i];
+                        if (usedOffVillages.has(c.village.id)) continue;
+                        const travelSec = c.sec;
+                        if ((baseLandTime + antiSnipeOffsets[antiSnipeOffsets.length - 1]) - (travelSec * 1000) >= minLaunchMs) {
+                            antiCand2 = c;
+                            usedOffVillages.add(c.village.id);
+                            break;
+                        }
+                    }
+                }
+
+                antiSnipeOffsets.forEach((offset, idx) => {
+                    const targetLandMs = baseLandTime + offset;
+                    let cand = null;
+                    if (antiWavesCount === 3) {
+                        cand = (idx === 0 || idx === 1) ? antiCand1 : (antiCand2 || antiCand1);
+                    } else if (antiWavesCount === 2) {
+                        cand = (idx === 0) ? antiCand1 : (antiCand2 || antiCand1);
+                    } else {
+                        cand = antiCand1;
+                    }
+
+                    if (cand) {
+                        const travelSec = cand.sec;
+                        const launchMs = targetLandMs - (travelSec * 1000);
+                        const finalBadge = 'tw-badge-anti';
+                        const finalType = `Anti-Snipe #${idx + 1}`;
+                        const extraInfo = `Escolta Anti-Snipe (${modelAnti})`;
+
+                        sequence.push({
+                            type: finalType,
+                            badge: finalBadge,
+                            actionType: 'Attack',
+                            originId: cand.village.id,
+                            originName: cand.village.name,
+                            originCoords: cand.village.coords,
+                            targetCoords: target,
+                            dist: cand.dist.toFixed(2),
+                            sec: travelSec,
+                            launchTime: new Date(launchMs),
+                            landTime: new Date(targetLandMs),
+                            model: modelAnti,
+                            building: '',
+                            info: extraInfo
+                        });
+                    }
+                });
+            } else {
+                antiSnipeOffsets.forEach((offset, idx) => {
+                    assignOffNuke(baseLandTime + offset, `Anti-Snipe #${idx+1}`, 'tw-badge-anti', modelAnti, false, '');
+                });
+            }
         }
 
         // 4. Inserção do Trem de Nobres
