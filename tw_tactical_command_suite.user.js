@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TW Tactical Command Suite
 // @namespace    https://tribalwars.com.pt/
-// @version      2.5.7
-// @description  Suite militar avançada para Tribal Wars PT: Visão Geral com regra 22k, Contador Tático, Gerador de Fakes dinâmico, Planeador NT + Anti-Snipe + Bunker com Paladino, Priorização de Paladino nos Nukes Principais c/ Atalho de Estátua, Re-Nobre em Bate e Volta (4 viagens consecutivas), Campanha Multialvo com IA de Atribuição e exportação BBCode.
+// @version      2.5.8
+// @description  Suite militar avançada para Tribal Wars PT: Visão Geral com regra 22k, Reconhecimento Real de Todos os Paladinos (Ofensivos vs Defensivos) c/ Atalho Direto na Estátua, Contador Tático, Gerador de Fakes dinâmico, Planeador NT + Anti-Snipe + Bunker, Re-Nobre em Bate e Volta (4 viagens consecutivas), Campanha Multialvo com IA de Atribuição e exportação BBCode.
 // @author       Diogo & Antigravity
 // @match        https://*.tribalwars.com.pt/game.php*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=tribalwars.com.pt
@@ -10,7 +10,7 @@
 // ==/UserScript==
 
 (async function () {
-    const SCRIPT_VERSION = '2.5.7';
+    const SCRIPT_VERSION = '2.5.8';
     const modalId = 'tw-master-suite';
     
     // Limpeza de instâncias anteriores
@@ -415,6 +415,45 @@
     let lastGeneratedCommands = [];
     let lastGeneratedTarget = '';
     let plannerMode = 'single'; // 'single' ou 'multi'
+    let allAccountPaladins = [];
+
+    const STANDARD_RELOCATE_MS = (3 * 3600 + 31 * 60 + 45) * 1000;
+
+    function parseKnightsFromHtml(html) {
+        if (!html) return [];
+        const match = html.match(/BuildingStatue\.receiveKnightsData\(\s*(?:\[\]|null|\{\})\s*,\s*(\{[\s\S]*?\})\s*,\s*\d+\s*\);/);
+        if (!match) return [];
+        try {
+            const rawJson = match[1];
+            const data = JSON.parse(rawJson);
+            const result = [];
+            for (const kId in data) {
+                const k = data[kId];
+                if (!k || !k.id) continue;
+                const offPts = (k.branch_investments || []).find(b => b.branch_name === 'Ofensivo')?.points || 0;
+                const defPts = (k.branch_investments || []).find(b => b.branch_name === 'Defesa')?.points || 0;
+                const isOff = offPts > defPts;
+                result.push({
+                    id: k.id,
+                    name: k.name,
+                    level: k.level,
+                    homeVillageId: k.home_village ? String(k.home_village.id) : null,
+                    homeCoords: k.home_village ? k.home_village.coord : null,
+                    homeName: k.home_village ? k.home_village.name : null,
+                    isOffense: isOff,
+                    offPoints: offPts,
+                    defPoints: defPts,
+                    skills: k.skills || {},
+                    activity: k.activity ? k.activity.type : 'home',
+                    isHome: k.activity ? k.activity.type === 'home' : true
+                });
+            }
+            return result;
+        } catch (e) {
+            console.warn('[TW Suite] Erro ao analisar dados do Paladino:', e);
+            return [];
+        }
+    }
 
     const PT114_TIME_MODIFIER = 58.8227 / 60;
     const unitSpeedMinutes = { 
@@ -492,10 +531,26 @@
         fetchWorldVillages();
         try {
             const baseUrl = (typeof game_data !== 'undefined' && game_data.link_base_pure) ? game_data.link_base_pure : '/game.php?';
-            const [rU, rP] = await Promise.all([
+            const statueUrl = (typeof game_data !== 'undefined' && game_data.village && game_data.village.id)
+                ? `/game.php?village=${game_data.village.id}&screen=statue&mode=overview`
+                : (baseUrl.includes('screen=') ? baseUrl + 'statue&mode=overview' : baseUrl + 'screen=statue&mode=overview');
+
+            const [rU, rP, rS] = await Promise.all([
                 fetch(baseUrl + 'overview_villages&mode=units&type=complete&group=0&page=-1').then(r => r.text()),
-                fetch(baseUrl + 'overview_villages&mode=prod&group=0&page=-1').then(r => r.text())
+                fetch(baseUrl + 'overview_villages&mode=prod&group=0&page=-1').then(r => r.text()),
+                fetch(statueUrl).then(r => r.text()).catch(e => {
+                    console.warn('[TW Suite] Falha ao carregar estátua:', e);
+                    return '';
+                })
             ]);
+
+            allAccountPaladins = parseKnightsFromHtml(rS);
+            const paladinByVillage = {};
+            allAccountPaladins.forEach(p => {
+                if (p.homeVillageId) {
+                    paladinByVillage[p.homeVillageId] = p;
+                }
+            });
 
             const parser = new DOMParser();
             const dU = parser.parseFromString(rU, 'text/html');
@@ -622,7 +677,8 @@
                     }
                 }
 
-                const knightAvailable = homeDict.knight || 0;
+                const paladinInfo = paladinByVillage[vId] || null;
+                const knightAvailable = paladinInfo ? (paladinInfo.isHome ? 1 : 0) : (homeDict.knight || 0);
 
                 const vObj = {
                     id: vId, name: vName, coords, troops: vTroops, troopsDict: dict, homeTroopsDict: homeDict,
@@ -630,7 +686,8 @@
                     farm: farmInfo,
                     snobsAvailable: snobCount,
                     totalOffPop: vTot.offense,
-                    totalDefPop: vTot.defense
+                    totalDefPop: vTot.defense,
+                    paladin: paladinInfo
                 };
 
                 for (const [catName, catData] of Object.entries(outputCategories)) {
@@ -689,7 +746,7 @@
         if (overviewFilter === 'off22k') filtered = filtered.filter(v => v.rowClass === 'tw-row-off' && v.farm.used >= 22000);
         else if (overviewFilter === 'def22k') filtered = filtered.filter(v => v.rowClass === 'tw-row-def' && v.farm.used >= 22000);
         else if (overviewFilter === 'snob') filtered = filtered.filter(v => v.snobsAvailable > 0);
-        else if (overviewFilter === 'knight') filtered = filtered.filter(v => (v.knightAvailable || (v.homeTroopsDict && v.homeTroopsDict.knight) || 0) > 0);
+        else if (overviewFilter === 'knight') filtered = filtered.filter(v => (v.knightAvailable || (v.homeTroopsDict && v.homeTroopsDict.knight) || (v.paladin && v.paladin.isHome) || 0) > 0);
         else if (overviewFilter === 'farm22k') filtered = filtered.filter(v => v.farm.used >= 22000);
         else if (overviewFilter === 'committed') filtered = filtered.filter(v => !!committedMap[v.id]);
 
@@ -744,6 +801,7 @@
                 <tr class="${v.rowClass}" data-vid="${v.id}">
                     <td style="text-align:left; padding-left:10px; font-weight:bold;">
                         <a href="javascript:void(0);" class="tw-v-coord" data-coord="${v.coords}" style="color:#38bdf8; text-decoration:none;" title="Clica para copiar as coordenadas">${v.name}</a>
+                        ${v.paladin ? `<span class="tw-pill" style="font-size:9.5px; padding:1px 5px; margin-left:6px; background:rgba(124,58,237,0.25); border:1px solid #c084fc; color:#e9d5ff; vertical-align:middle;" title="Paladino: ${v.paladin.name} (Lvl ${v.paladin.level} • ${v.paladin.isOffense ? 'Ofensivo ⚔️' : 'Defensivo 🛡️'})">${v.paladin.name} ${v.paladin.isOffense ? '⚔️' : '🛡️'}</span>` : ''}
                         ${commBadge ? `<div style="margin-top:2px;">${commBadge}</div>` : ''}
                     </td>
                     <td><span class="${v.roleTag.css}">${v.roleTag.label}</span></td>
@@ -799,7 +857,7 @@
                         <div class="tw-pill ${overviewFilter==='off22k'?'active':''}" data-f="off22k">⚔️ Full Nukes ≥22k (${s.fullNuke22kCount})</div>
                         <div class="tw-pill ${overviewFilter==='def22k'?'active':''}" data-f="def22k">🛡️ Full Bunkers ≥22k (${s.fullBunk22kCount})</div>
                         <div class="tw-pill ${overviewFilter==='snob'?'active':''}" data-f="snob">👑 Com Nobres (${allVillages.filter(v=>v.snobsAvailable>0).length})</div>
-                        <div class="tw-pill ${overviewFilter==='knight'?'active':''}" data-f="knight">🛡️ Paladino em Casa (${allVillages.filter(v=>v.knightAvailable>0).length})</div>
+                        <div class="tw-pill ${overviewFilter==='knight'?'active':''}" data-f="knight">🛡️ Paladino em Casa (${allVillages.filter(v=>v.knightAvailable>0 || (v.paladin && v.paladin.isHome)).length})</div>
                         <div class="tw-pill ${overviewFilter==='committed'?'active':''}" data-f="committed">🔒 Reservadas (${committedCount})</div>
                         <div class="tw-pill ${overviewFilter==='farm22k'?'active':''}" data-f="farm22k">🌾 Fazenda ≥22.000</div>
                     </div>
@@ -2468,14 +2526,43 @@
             for (let i = 0; i < leadNukesCount; i++) {
                 const landOffset = hasNobles ? ((leadNukesCount - i) * 100) : ((leadNukesCount - 1 - i) * 100);
                 const landMs = baseLandTime - landOffset;
-                const nukeOff = findClosestAvailable(offPool, usedOffVillages, tCoord, landMs, minLaunchMs, false);
+                const nukeOff = findClosestAvailable(offPool, usedOffVillages, tCoord, landMs, minLaunchMs, false, reqPaladinNuke);
                 if (nukeOff) {
                     usedOffVillages.add(nukeOff.village.id);
-                    const isPaladin = nukeOff.hasKnight;
-                    const typeLabel = isPaladin ? `Limpeza #${i+1} (Paladino)` : `Limpeza #${i+1}`;
+                    const pal = nukeOff.village.paladin;
+                    const isPaladin = pal ? (pal.isOffense && pal.isHome) : nukeOff.hasKnight;
+                    const palName = pal ? pal.name : 'Paladino';
+                    const typeLabel = isPaladin ? `Limpeza #${i+1} (${palName} ⚔️)` : `Limpeza #${i+1}`;
                     const badge = isPaladin ? 'tw-badge-paladino' : 'tw-badge-nuke';
-                    const infoLabel = isPaladin ? 'Full Off (Buff Paladino ⚔️)' : 'Full Off';
+                    const infoLabel = isPaladin ? `Full Off (Buff ${palName} ⚔️${pal ? ' Lvl ' + pal.level : ''})` : 'Full Off';
                     allCampaignCommands.push(makeCmd(typeLabel, badge, 'Attack', nukeOff.village, tCoord, nukeOff.dist, nukeOff.sec, nukeOff.launchTime, new Date(landMs), modelNuke, catTargetBuilding !== 'none' ? catTargetBuilding : '', infoLabel));
+                }
+            }
+
+            // Se o utilizador pediu Paladino no Nuke, mas NENHUM dos nukes deste alvo tem Paladino:
+            if (reqPaladinNuke && leadNukesCount > 0) {
+                const targetNukes = allCampaignCommands.filter(c => c.targetCoords === tCoord && c.type.includes('Limpeza'));
+                const hasPal = targetNukes.some(c => c.badge === 'tw-badge-paladino');
+                if (!hasPal && targetNukes.length > 0) {
+                    const primaryNuke = targetNukes[0];
+                    const timeUntilLaunch = primaryNuke.launchTime.getTime() - now;
+                    const idleOffPaladins = allAccountPaladins
+                        .filter(p => p.isOffense && p.isHome)
+                        .sort((a, b) => (b.offPoints || b.level) - (a.offPoints || a.level));
+                    const bestPal = idleOffPaladins[0] || allAccountPaladins.find(p => p.isHome) || null;
+                    if (timeUntilLaunch >= STANDARD_RELOCATE_MS) {
+                        const marginMin = Math.floor((timeUntilLaunch - STANDARD_RELOCATE_MS) / 60000);
+                        const palName = bestPal ? bestPal.name : 'Paladino';
+                        primaryNuke.info = `⚠️ Realocar ${palName}! (+${marginMin}m folga)`;
+                        primaryNuke.badge = 'tw-badge-warn';
+                        primaryNuke.needsPaladinRelocate = true;
+                        if (bestPal) {
+                            primaryNuke.relocatePaladinId = bestPal.id;
+                            primaryNuke.relocatePaladinName = bestPal.name;
+                        }
+                    } else {
+                        primaryNuke.info = `Sem Paladino (Tempo insuficiente)`;
+                    }
                 }
             }
 
@@ -2596,8 +2683,13 @@
         let rows = '', output = '';
         allCampaignCommands.forEach((cmd, i) => {
             let actionShortcut = '';
-            if (cmd.needsPaladinRelocate || (cmd.info && cmd.info.includes('Realocar Paladino'))) {
-                actionShortcut = `<a href="game.php?village=${cmd.originId}&screen=statue" target="_blank" class="tw-btn" style="padding:2px 7px; font-size:9.5px; font-weight:bold; background:#7c3aed; border:1px solid #c084fc; color:#fff; border-radius:4px; text-decoration:none; margin-left:6px; display:inline-flex; align-items:center; gap:3px; vertical-align:middle; cursor:pointer;" title="Abre a Estátua da aldeia ${cmd.originName} (${cmd.originCoords}) noutro separador para puxares o Paladino">🏰 Puxar Paladino</a>`;
+            if (cmd.needsPaladinRelocate || (cmd.info && cmd.info.includes('Realocar Paladino')) || (cmd.info && cmd.info.includes('Realocar '))) {
+                const knightParam = cmd.relocatePaladinId ? `&mode=knight&knight=${cmd.relocatePaladinId}` : '';
+                const btnText = cmd.relocatePaladinName ? `🏰 Puxar ${cmd.relocatePaladinName}` : '🏰 Puxar Paladino';
+                const titleText = cmd.relocatePaladinName 
+                    ? `Abre a Estátua da aldeia ${cmd.originName} (${cmd.originCoords}) focada no ${cmd.relocatePaladinName} para o puxares imediatamente` 
+                    : `Abre a Estátua da aldeia ${cmd.originName} (${cmd.originCoords}) noutro separador para puxares o Paladino`;
+                actionShortcut = `<a href="game.php?village=${cmd.originId}&screen=statue${knightParam}" target="_blank" class="tw-btn" style="padding:2px 7px; font-size:9.5px; font-weight:bold; background:#7c3aed; border:1px solid #c084fc; color:#fff; border-radius:4px; text-decoration:none; margin-left:6px; display:inline-flex; align-items:center; gap:3px; vertical-align:middle; cursor:pointer;" title="${titleText}">${btnText}</a>`;
             }
 
             rows += `<tr data-vid="${cmd.originId}">
@@ -2652,11 +2744,10 @@
     }
 }
 
-    function findClosestAvailable(pool, usedSet, targetCoord, targetLandMs, minLaunchMs, forbidPaladin = false) {
-        let best = null;
-        let bestDist = Infinity;
-        let bestFallback = null;
-        let bestFallbackDist = Infinity;
+    function findClosestAvailable(pool, usedSet, targetCoord, targetLandMs, minLaunchMs, forbidPaladin = false, preferPaladin = false) {
+        let bestPal = null, bestPalDist = Infinity;
+        let best = null, bestDist = Infinity;
+        let bestFallback = null, bestFallbackDist = Infinity;
 
         pool.forEach(v => {
             if (usedSet.has(v.id)) return;
@@ -2664,20 +2755,29 @@
             const sec = dist * unitSpeedMinutes.ram * 60;
             const launchMs = targetLandMs - (sec * 1000);
             if (launchMs >= minLaunchMs) {
-                const hasKnight = (v.knightAvailable || (v.homeTroopsDict && v.homeTroopsDict.knight) || 0) >= 1;
+                const pal = v.paladin;
+                const hasKnight = pal ? pal.isHome : ((v.knightAvailable || (v.homeTroopsDict && v.homeTroopsDict.knight) || 0) >= 1);
+                const hasOffPaladin = pal ? (pal.isOffense && pal.isHome) : hasKnight;
                 if (!forbidPaladin || !hasKnight) {
+                    if (preferPaladin && hasOffPaladin) {
+                        if (dist < bestPalDist) {
+                            bestPalDist = dist;
+                            bestPal = { village: v, dist: dist.toFixed(2), sec, launchTime: new Date(launchMs), hasKnight, hasOffPaladin };
+                        }
+                    }
                     if (dist < bestDist) {
                         bestDist = dist;
-                        best = { village: v, dist: dist.toFixed(2), sec, launchTime: new Date(launchMs), hasKnight };
+                        best = { village: v, dist: dist.toFixed(2), sec, launchTime: new Date(launchMs), hasKnight, hasOffPaladin };
                     }
                 } else {
                     if (dist < bestFallbackDist) {
                         bestFallbackDist = dist;
-                        bestFallback = { village: v, dist: dist.toFixed(2), sec, launchTime: new Date(launchMs), hasKnight };
+                        bestFallback = { village: v, dist: dist.toFixed(2), sec, launchTime: new Date(launchMs), hasKnight, hasOffPaladin };
                     }
                 }
             }
         });
+        if (preferPaladin && bestPal) return bestPal;
         return best || bestFallback;
     }
 
@@ -2690,7 +2790,8 @@
             const defPop = (d.spear||0)*1 + (d.sword||0)*1 + (d.archer||0)*1 + (d.heavy||0)*6;
             if (defPop < minPop2) return;
 
-            const hasKnight = (v.knightAvailable || d.knight || 0) >= 1;
+            const pal = v.paladin;
+            const hasKnight = pal ? pal.isHome : ((v.knightAvailable || d.knight || 0) >= 1);
             const speedMin = hasKnight ? unitSpeedMinutes.knight : unitSpeedMinutes.sword;
             const dist = calcDistance(v.coords, targetCoord);
             const sec = dist * speedMin * 60;
@@ -2699,7 +2800,8 @@
             if (launchMs >= minLaunchMs && dist < bestDist) {
                 bestDist = dist;
                 const chosenModel = defPop >= minPop1 ? model1 : model2;
-                const infoStr = hasKnight ? `Paladino (${formatDuration(sec)}) • ${(defPop/1000).toFixed(1)}k` : `Espada (${formatDuration(sec)}) • ${(defPop/1000).toFixed(1)}k`;
+                const palTag = pal ? `${pal.name} 🛡️ (Lvl ${pal.level})` : 'Paladino';
+                const infoStr = hasKnight ? `${palTag} (${formatDuration(sec)}) • ${(defPop/1000).toFixed(1)}k` : `Espada (${formatDuration(sec)}) • ${(defPop/1000).toFixed(1)}k`;
                 best = { village: v, dist: dist.toFixed(2), sec, launchTime: new Date(launchMs), model: chosenModel, hasKnight, info: infoStr };
             }
         });
@@ -2713,7 +2815,10 @@
             originName: v.name,
             originCoords: v.coords,
             targetCoords,
-            dist, sec, launchTime, landTime, model, building, info
+            dist, sec, launchTime, landTime, model, building, info,
+            needsPaladinRelocate: false,
+            relocatePaladinId: null,
+            relocatePaladinName: null
         };
     }
 
@@ -2846,12 +2951,14 @@
 
         const sortedOff = offPool.map(v => {
             const dist = calcDistance(v.coords, target);
-            const hasKnight = (v.knightAvailable || (v.homeTroopsDict && v.homeTroopsDict.knight) || 0) >= 1;
-            return { village: v, dist, sec: dist * unitSpeedMinutes.ram * 60, hasKnight };
+            const pal = v.paladin;
+            const hasKnight = pal ? pal.isHome : ((v.knightAvailable || (v.homeTroopsDict && v.homeTroopsDict.knight) || 0) >= 1);
+            const hasOffPaladin = pal ? (pal.isOffense && pal.isHome) : hasKnight;
+            return { village: v, dist, sec: dist * unitSpeedMinutes.ram * 60, hasKnight, hasOffPaladin, paladin: pal };
         }).sort((a,b) => {
             if (reqPaladinNuke) {
-                if (a.hasKnight && !b.hasKnight) return -1;
-                if (!a.hasKnight && b.hasKnight) return 1;
+                if (a.hasOffPaladin && !b.hasOffPaladin) return -1;
+                if (!a.hasOffPaladin && b.hasOffPaladin) return 1;
             }
             return a.dist - b.dist;
         });
@@ -2902,12 +3009,17 @@
                 usedOffVillages.add(cand.village.id);
                 const travelSec = cand.sec;
                 const launchMs = targetLandMs - (travelSec * 1000);
-                const isPaladinOff = cand.hasKnight;
+                const isPaladinOff = cand.hasOffPaladin || cand.hasKnight;
                 let finalType = typeLabel;
                 let finalBadge = badgeClass;
                 let extraInfo = 'Full Off';
 
-                if (isPaladinOff) {
+                if (cand.paladin && cand.paladin.isHome) {
+                    const pal = cand.paladin;
+                    finalType = `${typeLabel} (${pal.name} ⚔️)`;
+                    finalBadge = 'tw-badge-paladino';
+                    extraInfo = `Full Off (Buff ${pal.name} ⚔️ Lvl ${pal.level})`;
+                } else if (isPaladinOff) {
                     finalType = `${typeLabel} (Paladino)`;
                     finalBadge = 'tw-badge-paladino';
                     extraInfo = 'Full Off (Buff Paladino ⚔️)';
@@ -2929,7 +3041,9 @@
                     building: buildingTarget !== 'none' ? buildingTarget : '',
                     info: extraInfo,
                     hasPaladin: isPaladinOff,
-                    needsPaladinRelocate: false
+                    needsPaladinRelocate: false,
+                    relocatePaladinId: null,
+                    relocatePaladinName: null
                 };
 
                 sequence.push(cmdObj);
@@ -2946,7 +3060,8 @@
                 const v = cand.village;
                 const d = v.homeTroopsDict || v.troopsDict;
                 const defPop = (d.spear||0)*1 + (d.sword||0)*1 + (d.archer||0)*1 + (d.heavy||0)*6;
-                const hasKnightInVillage = (v.knightAvailable || d.knight || 0) >= 1;
+                const pal = v.paladin;
+                const hasKnightInVillage = pal ? pal.isHome : ((v.knightAvailable || d.knight || 0) >= 1);
 
                 if (requirePaladin && !hasKnightInVillage) continue;
                 
@@ -2967,9 +3082,10 @@
                 
                 if (launchMs >= minLaunchMs) {
                     usedDefVillages.add(v.id);
+                    const palTag = pal ? `${pal.name} 🛡️ (Lvl ${pal.level})` : 'Paladino';
                     const finalBadge = hasKnightInVillage ? 'tw-badge-paladino' : badgeClass;
-                    const finalType = hasKnightInVillage ? `${typeLabel} (Paladino)` : typeLabel;
-                    const extraInfo = hasKnightInVillage ? `Paladino (${formatDuration(travelSec)}) • ${presetLabel}` : `Espada (${formatDuration(travelSec)}) • ${presetLabel}`;
+                    const finalType = hasKnightInVillage ? `${typeLabel} (${pal ? pal.name : 'Paladino'})` : typeLabel;
+                    const extraInfo = hasKnightInVillage ? `${palTag} (${formatDuration(travelSec)}) • ${presetLabel}` : `Espada (${formatDuration(travelSec)}) • ${presetLabel}`;
 
                     sequence.push({
                         type: finalType,
@@ -3010,11 +3126,23 @@
         if (reqPaladinNuke && !paladinInNukes && nukeCommands.length > 0) {
             const primaryNuke = nukeCommands[0]; // Limpeza Principal #1
             const timeUntilLaunch = primaryNuke.launchTime.getTime() - now;
+
+            // Procurar o melhor paladino ofensivo que esteja livre na conta
+            const idleOffPaladins = allAccountPaladins
+                .filter(p => p.isOffense && p.isHome)
+                .sort((a, b) => (b.offPoints || b.level) - (a.offPoints || a.level));
+            const bestPal = idleOffPaladins[0] || allAccountPaladins.find(p => p.isHome) || null;
+
             if (timeUntilLaunch >= STANDARD_RELOCATE_MS) {
                 const marginMin = Math.floor((timeUntilLaunch - STANDARD_RELOCATE_MS) / 60000);
-                primaryNuke.info = `⚠️ Realocar Paladino! (+${marginMin}m folga)`;
+                const palName = bestPal ? bestPal.name : 'Paladino';
+                primaryNuke.info = `⚠️ Realocar ${palName}! (+${marginMin}m folga)`;
                 primaryNuke.badge = 'tw-badge-warn';
                 primaryNuke.needsPaladinRelocate = true;
+                if (bestPal) {
+                    primaryNuke.relocatePaladinId = bestPal.id;
+                    primaryNuke.relocatePaladinName = bestPal.name;
+                }
             } else {
                 primaryNuke.info = `Sem Paladino (Tempo insuficiente)`;
             }
@@ -3350,8 +3478,13 @@
         let rows = '', output = '';
         sequence.forEach((cmd, i) => {
             let actionShortcut = '';
-            if (cmd.needsPaladinRelocate || (cmd.info && cmd.info.includes('Realocar Paladino'))) {
-                actionShortcut = `<a href="game.php?village=${cmd.originId}&screen=statue" target="_blank" class="tw-btn" style="padding:2px 7px; font-size:9.5px; font-weight:bold; background:#7c3aed; border:1px solid #c084fc; color:#fff; border-radius:4px; text-decoration:none; margin-left:6px; display:inline-flex; align-items:center; gap:3px; vertical-align:middle; cursor:pointer;" title="Abre a Estátua da aldeia ${cmd.originName} (${cmd.originCoords}) noutro separador para puxares o Paladino">🏰 Puxar Paladino</a>`;
+            if (cmd.needsPaladinRelocate || (cmd.info && cmd.info.includes('Realocar Paladino')) || (cmd.info && cmd.info.includes('Realocar '))) {
+                const knightParam = cmd.relocatePaladinId ? `&mode=knight&knight=${cmd.relocatePaladinId}` : '';
+                const btnText = cmd.relocatePaladinName ? `🏰 Puxar ${cmd.relocatePaladinName}` : '🏰 Puxar Paladino';
+                const titleText = cmd.relocatePaladinName 
+                    ? `Abre a Estátua da aldeia ${cmd.originName} (${cmd.originCoords}) focada no ${cmd.relocatePaladinName} para o puxares imediatamente` 
+                    : `Abre a Estátua da aldeia ${cmd.originName} (${cmd.originCoords}) noutro separador para puxares o Paladino`;
+                actionShortcut = `<a href="game.php?village=${cmd.originId}&screen=statue${knightParam}" target="_blank" class="tw-btn" style="padding:2px 7px; font-size:9.5px; font-weight:bold; background:#7c3aed; border:1px solid #c084fc; color:#fff; border-radius:4px; text-decoration:none; margin-left:6px; display:inline-flex; align-items:center; gap:3px; vertical-align:middle; cursor:pointer;" title="${titleText}">${btnText}</a>`;
             }
 
             rows += `<tr data-vid="${cmd.originId}">
