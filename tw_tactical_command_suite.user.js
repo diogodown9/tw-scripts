@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW Tactical Command Suite
 // @namespace    https://tribalwars.com.pt/
-// @version      2.2.0
+// @version      2.3.0
 // @description  Suite militar avançada para Tribal Wars PT: Visão Geral com regra 22k, Contador Tático, Gerador de Fakes dinâmico, Planeador NT + Anti-Snipe + Bunker com Paladino, Campanha Multialvo com IA de Atribuição e Memória Inteligente de Aldeias Reservadas.
 // @author       DeepMind / Antigravity
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -627,7 +627,7 @@
             counterSummaryData = summary;
             updateMemoryHUD();
             document.getElementById('tw-tabs-container').style.display = 'flex';
-            document.getElementById('tw-title-text').innerHTML = `⚡ TW Tactical Command Suite <span style="font-size:10px; font-weight:600; background:rgba(56,189,248,0.15); color:#38bdf8; padding:2px 7px; border-radius:4px; border:1px solid rgba(56,189,248,0.25); margin-left:6px; vertical-align:middle;">v2.2.0</span> <span style="font-size:11px; font-weight:normal; color:#94a3b8; margin-left:6px; vertical-align:middle;">(${allVillages.length} Aldeias Conectadas)</span>`;
+            document.getElementById('tw-title-text').innerHTML = `⚡ TW Tactical Command Suite <span style="font-size:10px; font-weight:600; background:rgba(56,189,248,0.15); color:#38bdf8; padding:2px 7px; border-radius:4px; border:1px solid rgba(56,189,248,0.25); margin-left:6px; vertical-align:middle;">v2.3.0</span> <span style="font-size:11px; font-weight:normal; color:#94a3b8; margin-left:6px; vertical-align:middle;">(${allVillages.length} Aldeias Conectadas)</span>`;
             
             document.getElementById('tab-btn-overview').onclick = () => switchTab('overview');
             document.getElementById('tab-btn-counter').onclick = () => switchTab('counter');
@@ -1443,60 +1443,60 @@
         if (!nobleOptions) nobleOptions = `<option value="">❌ Nenhuma aldeia com nobres</option>`;
 
         document.getElementById('tw-main-body').innerHTML = `
-            <div class="tw-pane active" style="padding: 2px; gap:6px;">
-                <div style="display:grid; grid-template-columns: repeat(4, 1fr); gap:6px;">
+            <div class="tw-pane active" style="padding: 4px; gap:8px; display:flex; flex-direction:column; flex-grow:1; overflow:hidden;">
+                <div style="display:grid; grid-template-columns: repeat(4, 1fr); gap:8px; flex-shrink:0;">
                     
                     <!-- CARD 1: ALVO, MODO DE OPERAÇÃO & NOBRES -->
-                    <div class="tw-card" style="padding:8px 10px; gap:4px;">
-                        <div class="tw-card-title" style="color:#fbbf24; font-size:10px;">
+                    <div class="tw-card" style="padding:10px 12px; gap:5px;">
+                        <div class="tw-card-title" style="color:#fbbf24; font-size:11px;">
                             <span>🎯 1. Alvo & Operação</span>
                             <div style="display:flex; gap:3px;">
-                                <button class="tw-pill ${plannerMode==='single'?'active':''}" id="tw-btn-mode-single" style="padding:1px 6px; font-size:9px;">🎯 Único</button>
-                                <button class="tw-pill ${plannerMode==='multi'?'active':''}" id="tw-btn-mode-multi" style="padding:1px 6px; font-size:9px;">🌐 Multialvo</button>
+                                <button class="tw-pill ${plannerMode==='single'?'active':''}" id="tw-btn-mode-single" style="padding:2px 7px; font-size:9.5px;">🎯 Único</button>
+                                <button class="tw-pill ${plannerMode==='multi'?'active':''}" id="tw-btn-mode-multi" style="padding:2px 7px; font-size:9.5px;">🌐 Multialvo</button>
                             </div>
                         </div>
 
                         <!-- MODO ALVO ÚNICO -->
-                        <div id="tw-box-target-single" style="display:${plannerMode==='single'?'grid':'none'}; grid-template-columns: 1fr 1fr; gap:4px;">
+                        <div id="tw-box-target-single" style="display:${plannerMode==='single'?'grid':'none'}; grid-template-columns: 1fr 1fr; gap:6px;">
                             <div style="display:flex; flex-direction:column; gap:1px;">
                                 <span style="font-size:9px; color:#94a3b8;">Coordenada:</span>
-                                <input type="text" id="tw-nt-target" class="tw-input" placeholder="xxx|yyy" maxlength="7" style="font-weight:bold; color:#fbbf24; text-align:center; padding:4px 6px;">
+                                <input type="text" id="tw-nt-target" class="tw-input" placeholder="xxx|yyy" maxlength="7" style="font-weight:bold; color:#fbbf24; text-align:center; padding:5px 6px; font-size:12px;">
                             </div>
                             <div style="display:flex; flex-direction:column; gap:1px;">
                                 <span style="font-size:9px; color:#94a3b8;">Impacto Chegada:</span>
-                                <input type="datetime-local" id="tw-nt-landtime" class="tw-input" step="1" value="${landDefaultStr}" style="padding:4px 4px; font-size:11px;">
+                                <input type="datetime-local" id="tw-nt-landtime" class="tw-input" step="1" value="${landDefaultStr}" style="padding:5px 6px; font-size:11px;">
                             </div>
                         </div>
 
                         <!-- MODO CAMPANHA MULTIALVO -->
-                        <div id="tw-box-target-multi" style="display:${plannerMode==='multi'?'flex':'none'}; flex-direction:column; gap:2px;">
+                        <div id="tw-box-target-multi" style="display:${plannerMode==='multi'?'flex':'none'}; flex-direction:column; gap:3px;">
                             <div style="display:flex; justify-content:space-between; align-items:center;">
-                                <span style="font-size:9px; color:#c084fc; font-weight:bold;">Alvos da Campanha:</span>
-                                <button class="tw-btn tw-btn-blue" id="tw-btn-open-map-planner" style="padding:1px 6px; font-size:9px;">🗺️ Seleção no Mapa</button>
+                                <span style="font-size:9.5px; color:#c084fc; font-weight:bold;">Alvos da Campanha:</span>
+                                <button class="tw-btn tw-btn-blue" id="tw-btn-open-map-planner" style="padding:2px 7px; font-size:9.5px;">🗺️ Seleção no Mapa</button>
                             </div>
-                            <textarea id="tw-nt-targets-multi" class="tw-textarea" style="height:36px; font-size:10px;" placeholder="Cola lista de alvos (ex: 500|500 501|501 502|502) ou clica em Seleção no Mapa...">${Array.from(grabbedTargets).join(' ')}</textarea>
+                            <textarea id="tw-nt-targets-multi" class="tw-textarea" style="height:58px; min-height:52px; font-size:11px; padding:6px 8px; line-height:1.4;" placeholder="Cola lista de alvos (ex: 500|500 501|501 502|502) ou clica em Seleção no Mapa...">${Array.from(grabbedTargets).join(' ')}</textarea>
                             <div style="display:flex; justify-content:space-between; align-items:center; margin-top:1px;">
-                                <span style="font-size:9px; color:#94a3b8;">Impacto Chegada (OP):</span>
-                                <input type="datetime-local" id="tw-nt-landtime-multi" class="tw-input" step="1" value="${landDefaultStr}" style="padding:2px 4px; font-size:10px; width:140px;">
+                                <span style="font-size:9.5px; color:#94a3b8;">Impacto Chegada (OP):</span>
+                                <input type="datetime-local" id="tw-nt-landtime-multi" class="tw-input" step="1" value="${landDefaultStr}" style="padding:3px 6px; font-size:11px; width:155px;">
                             </div>
-                            <div id="tw-nt-multi-hud" style="font-size:9px; color:#34d399; font-weight:bold; background:rgba(52, 211, 153, 0.1); padding:2px 4px; border-radius:4px; margin-top:2px;">
+                            <div id="tw-nt-multi-hud" style="font-size:10px; color:#34d399; font-weight:bold; background:rgba(52, 211, 153, 0.1); padding:4px 6px; border-radius:4px; margin-top:2px;">
                                 🎯 0 Alvos | 👑 0 Nobres req.
                             </div>
                         </div>
 
                         <!-- ATALHOS RÁPIDOS DE HORA -->
                         <div style="display:flex; gap:3px; justify-content:space-between; margin-top:2px;">
-                            <button class="tw-pill tw-time-shortcut" data-add-h="4" style="padding:2px 5px; font-size:9px;">+4h</button>
-                            <button class="tw-pill tw-time-shortcut" data-add-h="8" style="padding:2px 5px; font-size:9px;">+8h</button>
-                            <button class="tw-pill tw-time-shortcut" data-add-h="12" style="padding:2px 5px; font-size:9px;">+12h</button>
-                            <button class="tw-pill tw-time-shortcut" data-set-h="20" style="padding:2px 5px; font-size:9px;">20:00</button>
-                            <button class="tw-pill tw-time-shortcut" data-set-h="08" style="padding:2px 5px; font-size:9px;">08:00</button>
+                            <button class="tw-pill tw-time-shortcut" data-add-h="4" style="padding:2px 6px; font-size:9.5px;">+4h</button>
+                            <button class="tw-pill tw-time-shortcut" data-add-h="8" style="padding:2px 6px; font-size:9.5px;">+8h</button>
+                            <button class="tw-pill tw-time-shortcut" data-add-h="12" style="padding:2px 6px; font-size:9.5px;">+12h</button>
+                            <button class="tw-pill tw-time-shortcut" data-set-h="20" style="padding:2px 6px; font-size:9.5px;">20:00</button>
+                            <button class="tw-pill tw-time-shortcut" data-set-h="08" style="padding:2px 6px; font-size:9.5px;">08:00</button>
                         </div>
 
                         <!-- SELETOR DE MODO DE ATAQUE EXPANDIDO -->
                         <div style="display:flex; flex-direction:column; gap:1px; margin-top:2px;">
-                            <span style="font-size:9px; color:#fbbf24; font-weight:bold;">Modo de Ataque (Perfil):</span>
-                            <select id="tw-nt-attack-mode" class="tw-select" style="padding:4px 6px; font-size:11px; font-weight:bold; color:#38bdf8;">
+                            <span style="font-size:9.5px; color:#fbbf24; font-weight:bold;">Modo de Ataque (Perfil):</span>
+                            <select id="tw-nt-attack-mode" class="tw-select" style="padding:5px 6px; font-size:11.5px; font-weight:bold; color:#38bdf8;">
                                 <option value="standard_anti" selected>🛡️ NT + Escoltas Anti-Snipe (Competitivo)</option>
                                 <option value="nt_simple">👑 NT Simples (Ondas de Nobres Diretas)</option>
                                 <option value="nt_clean">⚔️ NT + Nuke Limpeza (Sem Anti-Snipe)</option>
@@ -1512,6 +1512,7 @@
                             <div style="display:flex; flex-direction:column; gap:1px;">
                                 <span style="font-size:9px; color:#94a3b8;">Qtd Nobres:</span>
                                 <select id="tw-nt-noble-count" class="tw-select" style="padding:4px 6px; font-size:11px; font-weight:bold; color:#fbbf24;">
+                                    <option value="0">0 Nobres (Apenas Limpeza)</option>
                                     <option value="1">1 Nobre</option>
                                     <option value="2">2 Nobres</option>
                                     <option value="3">3 Nobres</option>
@@ -1541,12 +1542,12 @@
                         </div>
 
                         <!-- INDICAÇÃO IA NO MODO MULTIALVO -->
-                        <div id="tw-box-auto-nobles-hint" style="display:${plannerMode==='multi'?'block':'none'}; padding:4px 6px; background:rgba(56, 189, 248, 0.1); border:1px dashed #0284c7; border-radius:4px; font-size:9.5px; color:#bae6fd;">
-                            🤖 <b>IA de Atribuição Ativa:</b> As melhores aldeias de nobres serão alocadas automaticamente a cada alvo por menor tempo de viagem.
+                        <div id="tw-box-auto-nobles-hint" style="display:${plannerMode==='multi'?'block':'none'}; padding:5px 7px; background:rgba(56, 189, 248, 0.1); border:1px dashed #0284c7; border-radius:4px; font-size:9.5px; color:#bae6fd; line-height:1.3;">
+                            🤖 <b>IA de Atribuição:</b> As melhores aldeias de nobres e nukes serão alocadas automaticamente a cada alvo por menor tempo de viagem.
                         </div>
 
                         <!-- EXCLUSÃO INTELIGENTE DE ALDEIAS RESERVADAS -->
-                        <div style="display:flex; align-items:center; gap:5px; margin-top:3px; padding:3px 5px; background:rgba(126, 34, 206, 0.15); border:1px solid rgba(126, 34, 206, 0.4); border-radius:4px;">
+                        <div style="display:flex; align-items:center; gap:5px; margin-top:2px; padding:3px 6px; background:rgba(126, 34, 206, 0.15); border:1px solid rgba(126, 34, 206, 0.4); border-radius:4px;">
                             <input type="checkbox" id="tw-nt-exclude-committed" checked style="cursor:pointer; width:13px; height:13px;">
                             <label for="tw-nt-exclude-committed" style="cursor:pointer; font-size:9.5px; color:#e9d5ff; font-weight:bold;">
                                 🔒 Ignorar aldeias agendadas (${committedCount})
@@ -1555,8 +1556,8 @@
                     </div>
 
                     <!-- CARD 2: LIMPEZAS, GAPS & DEMOLIÇÃO -->
-                    <div class="tw-card" style="padding:8px 10px; gap:4px;">
-                        <div class="tw-card-title" style="color:#f87171; font-size:10px;">⚔️ 2. Limpezas, Escoltas & Modelos</div>
+                    <div class="tw-card" style="padding:10px 12px; gap:5px;">
+                        <div class="tw-card-title" style="color:#f87171; font-size:11px;">⚔️ 2. Limpezas, Escoltas & Modelos</div>
                         
                         <div style="display:grid; grid-template-columns: 1fr 1fr; gap:4px;">
                             <div style="display:flex; flex-direction:column; gap:1px;">
@@ -1625,8 +1626,8 @@
                     </div>
 
                     <!-- CARD 3: BUNKER CIRÚRGICO C/ PALADINO -->
-                    <div class="tw-card" style="border-color:#059669; background:rgba(6, 78, 59, 0.2); padding:8px 10px; gap:4px;">
-                        <div class="tw-card-title" style="color:#34d399; font-size:10px;">
+                    <div class="tw-card" style="border-color:#059669; background:rgba(6, 78, 59, 0.2); padding:10px 12px; gap:5px;">
+                        <div class="tw-card-title" style="color:#34d399; font-size:11px;">
                             <span>🛡️ 3. Bunker Conquista</span>
                             <select id="tw-nt-bunker-count" class="tw-select" style="font-weight:bold; color:#34d399; padding:2px 4px; font-size:10px;">
                                 <option value="0">0 Apoios</option>
@@ -1661,8 +1662,8 @@
                     </div>
 
                     <!-- CARD 4: CORTINA DE FAKES EM RAIO -->
-                    <div class="tw-card" style="border-color:#a855f7; background:rgba(88, 28, 135, 0.2); padding:8px 10px; gap:4px;">
-                        <div class="tw-card-title" style="color:#c084fc; font-size:10px;">
+                    <div class="tw-card" style="border-color:#a855f7; background:rgba(88, 28, 135, 0.2); padding:10px 12px; gap:5px;">
+                        <div class="tw-card-title" style="color:#c084fc; font-size:11px;">
                             <div style="display:flex; align-items:center; gap:4px;">
                                 <input type="checkbox" id="tw-nt-fake-enable" style="cursor:pointer; width:14px; height:14px;">
                                 <label for="tw-nt-fake-enable" style="cursor:pointer;">🎭 Fakes em Raio</label>
@@ -1701,16 +1702,16 @@
                 </div>
 
                 <!-- BARRA DE AÇÕES: GERAR + BOTÃO DE MEMÓRIA DE 1H -->
-                <div style="display:flex; justify-content:space-between; align-items:center; padding:3px 0; margin-top:2px;">
-                    <div style="display:flex; gap:8px; align-items:center;">
-                        <button class="tw-btn tw-btn-gold" id="tw-btn-gen-nt-russo" style="padding:7px 18px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; padding:4px 0; margin-top:2px; flex-shrink:0;">
+                    <div style="display:flex; gap:10px; align-items:center;">
+                        <button class="tw-btn tw-btn-gold" id="tw-btn-gen-nt-russo" style="padding:8px 22px; font-size:12.5px; font-weight:bold; box-shadow:0 0 12px rgba(245, 158, 11, 0.3);">
                             ⚡ Gerar Plano de Ataque (Copiar BBCode)
                         </button>
-                        <div style="display:flex; align-items:center; gap:4px; background:#0f172a; border:1px solid #7e22ce; border-radius:6px; padding:2px 6px;">
-                            <button class="tw-btn tw-btn-purple" id="tw-btn-commit-1h" style="padding:5px 12px; font-size:11px; font-weight:bold;" title="Regista na memória que as aldeias desta operação estão ocupadas">
+                        <div style="display:flex; align-items:center; gap:4px; background:#0f172a; border:1px solid #7e22ce; border-radius:6px; padding:3px 8px;">
+                            <button class="tw-btn tw-btn-purple" id="tw-btn-commit-1h" style="padding:4px 10px; font-size:11px; font-weight:bold;" title="Regista na memória que as aldeias desta operação estão ocupadas">
                                 💾 Agendamento feito - guardar durante:
                             </button>
-                            <select id="tw-commit-duration" class="tw-select" style="padding:3px 6px; font-size:11px; font-weight:bold; color:#e9d5ff; border:none; background:transparent;">
+                            <select id="tw-commit-duration" class="tw-select" style="padding:2px 4px; font-size:11px; font-weight:bold; color:#e9d5ff; border:none; background:transparent;">
                                 <option value="3600000" selected>1 hora</option>
                                 <option value="7200000">2 horas</option>
                                 <option value="14400000">4 horas</option>
@@ -1722,24 +1723,26 @@
                     <span id="tw-nt-status" style="font-size:12px; font-weight:bold;"></span>
                 </div>
 
-                <div style="display:flex; flex-direction:column; flex-grow:1; overflow:hidden;">
-                    <textarea id="tw-nt-preview" class="tw-textarea" style="height:48px; margin-bottom:6px;" placeholder="Configura os parâmetros e clica em Gerar..."></textarea>
-                    <div class="tw-panel">
-                        <table class="tw-table">
+                <!-- PREVIEW COMPACTO & VISUALIZAÇÃO RESUMIDA (OTIMIZADO PARA COPY-PASTE RÁPIDO) -->
+                <div style="display:flex; flex-direction:column; gap:4px; flex-shrink:0;">
+                    <textarea id="tw-nt-preview" class="tw-textarea" style="height:38px; min-height:38px; max-height:48px; font-size:10.5px; padding:4px 8px;" placeholder="Configura os parâmetros e clica em Gerar... O BBCode é copiado automaticamente para o clipboard para colares no PS!"></textarea>
+                    
+                    <div class="tw-panel" style="height:150px; min-height:120px; max-height:170px; overflow-y:auto; flex-grow:0; flex-shrink:0;">
+                        <table class="tw-table" style="font-size:11px;">
                             <thead>
                                 <tr>
-                                    <th style="width:30px;">#</th>
-                                    <th style="width:150px;">Fase do Comando</th>
-                                    <th style="text-align:left; width:180px; padding-left:10px;">Origem</th>
-                                    <th style="width:75px;">Alvo</th>
-                                    <th style="width:65px;">Distância</th>
-                                    <th style="width:140px;">Hora de Envio</th>
-                                    <th style="width:140px;">Hora de Impacto</th>
-                                    <th style="width:120px;">Modelo & Pop</th>
+                                    <th style="width:28px; padding:4px 6px;">#</th>
+                                    <th style="width:140px; padding:4px 6px;">Fase do Comando</th>
+                                    <th style="text-align:left; width:180px; padding:4px 6px 4px 10px;">Origem</th>
+                                    <th style="width:70px; padding:4px 6px;">Alvo</th>
+                                    <th style="width:60px; padding:4px 6px;">Dist.</th>
+                                    <th style="width:130px; padding:4px 6px;">Hora de Envio</th>
+                                    <th style="width:130px; padding:4px 6px;">Hora de Impacto</th>
+                                    <th style="width:120px; padding:4px 6px;">Modelo & Pop</th>
                                 </tr>
                             </thead>
                             <tbody id="tw-nt-tbody">
-                                <tr><td colspan="8" style="padding:25px; color:#94a3b8;">Define o alvo e clica em 'Gerar Plano de Ataque'.</td></tr>
+                                <tr><td colspan="8" style="padding:16px; color:#94a3b8; font-size:11px;">Define os parâmetros e clica em 'Gerar Plano de Ataque'.</td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -1764,13 +1767,30 @@
         const updateMultiHUD = () => {
             const raw = document.getElementById('tw-nt-targets-multi') ? document.getElementById('tw-nt-targets-multi').value : '';
             const tList = Array.from(new Set(raw.match(/\d{3}\|\d{3}/g) || []));
-            const nobleCount = parseInt(document.getElementById('tw-nt-noble-count').value, 10) || 4;
+            const mode = document.getElementById('tw-nt-attack-mode') ? document.getElementById('tw-nt-attack-mode').value : 'standard_anti';
+            const isCleanOnly = (mode === 'nuke_sweep' || mode === 'cat_demolish');
+            const nobleCount = isCleanOnly ? 0 : (parseInt(document.getElementById('tw-nt-noble-count').value, 10) || 0);
             const leadNukes = parseInt(document.getElementById('tw-nt-lead-nukes').value, 10) || 0;
             const bunkerCount = parseInt(document.getElementById('tw-nt-bunker-count').value, 10) || 0;
             
             const hud = document.getElementById('tw-nt-multi-hud');
             if (hud) {
-                hud.innerHTML = `🎯 <b>${tList.length}</b> Alvos | 👑 <b>${tList.length * nobleCount}</b> Nobres | ⚔️ <b>${tList.length * leadNukes}</b> Nukes | 🛡️ <b>${tList.length * bunkerCount}</b> Bunkers`;
+                if (isCleanOnly) {
+                    hud.innerHTML = `🎯 <b>${tList.length}</b> Alvos | ⚔️ <b>${tList.length * leadNukes}</b> Nukes Limpeza | 🛡️ <b>${tList.length * bunkerCount}</b> Bunkers | <span style="color:#94a3b8;">👑 Sem Nobres</span>`;
+                } else {
+                    hud.innerHTML = `🎯 <b>${tList.length}</b> Alvos | 👑 <b>${tList.length * nobleCount}</b> Nobres | ⚔️ <b>${tList.length * leadNukes}</b> Nukes | 🛡️ <b>${tList.length * bunkerCount}</b> Bunkers`;
+                }
+            }
+
+            const hintEl = document.getElementById('tw-box-auto-nobles-hint');
+            if (hintEl) {
+                if (mode === 'nuke_sweep') {
+                    hintEl.innerHTML = `💥 <b>IA de Atribuição:</b> Alocação automática dos nukes de ataque mais próximos a cada alvo por menor tempo de viagem. Sem envio de nobres.`;
+                } else if (mode === 'cat_demolish') {
+                    hintEl.innerHTML = `🏚️ <b>IA de Atribuição:</b> Alocação de catapultas e nukes mais rápidos para demolir o edifício selecionado. Sem envio de nobres.`;
+                } else {
+                    hintEl.innerHTML = `🤖 <b>IA de Atribuição:</b> As melhores aldeias de nobres e nukes serão alocadas automaticamente a cada alvo por menor tempo de viagem.`;
+                }
             }
         };
 
@@ -1790,12 +1810,19 @@
         const nobleCountSelect = document.getElementById('tw-nt-noble-count');
         const archSelect = document.getElementById('tw-nt-architecture');
 
+        leadNukesInput.oninput = updateMultiHUD;
+        bunkerCountSelect.onchange = updateMultiHUD;
+        nobleCountSelect.onchange = updateMultiHUD;
+
         attackModeSelect.onchange = (e) => {
             const mode = e.target.value;
+            const isCleanOnly = (mode === 'nuke_sweep' || mode === 'cat_demolish');
+
             if (mode === 'nt_simple') {
                 nobleControlsBox.style.display = 'grid';
                 if (noblePrimaryBox) noblePrimaryBox.style.display = 'flex';
                 if (nobleSecondaryBox) nobleSecondaryBox.style.display = 'none';
+                if (document.getElementById('tw-box-manual-nobles')) document.getElementById('tw-box-manual-nobles').style.display = plannerMode === 'single' ? 'block' : 'none';
                 leadNukesInput.value = 0;
                 antiWavesSelect.value = 0;
                 bunkerCountSelect.value = 0;
@@ -1806,6 +1833,7 @@
                 nobleControlsBox.style.display = 'grid';
                 if (noblePrimaryBox) noblePrimaryBox.style.display = 'flex';
                 if (nobleSecondaryBox) nobleSecondaryBox.style.display = 'none';
+                if (document.getElementById('tw-box-manual-nobles')) document.getElementById('tw-box-manual-nobles').style.display = plannerMode === 'single' ? 'block' : 'none';
                 leadNukesInput.value = 1;
                 antiWavesSelect.value = 0;
                 bunkerCountSelect.value = 2;
@@ -1816,6 +1844,7 @@
                 nobleControlsBox.style.display = 'grid';
                 if (noblePrimaryBox) noblePrimaryBox.style.display = 'flex';
                 if (nobleSecondaryBox) nobleSecondaryBox.style.display = 'none';
+                if (document.getElementById('tw-box-manual-nobles')) document.getElementById('tw-box-manual-nobles').style.display = plannerMode === 'single' ? 'block' : 'none';
                 leadNukesInput.value = 1;
                 antiWavesSelect.value = 3;
                 bunkerCountSelect.value = 2;
@@ -1826,6 +1855,7 @@
                 nobleControlsBox.style.display = 'grid';
                 if (noblePrimaryBox) noblePrimaryBox.style.display = 'flex';
                 if (nobleSecondaryBox) nobleSecondaryBox.style.display = 'flex';
+                if (document.getElementById('tw-box-manual-nobles')) document.getElementById('tw-box-manual-nobles').style.display = plannerMode === 'single' ? 'block' : 'none';
                 leadNukesInput.value = 1;
                 antiWavesSelect.value = 3;
                 bunkerCountSelect.value = 2;
@@ -1837,6 +1867,7 @@
                 nobleControlsBox.style.display = 'grid';
                 if (noblePrimaryBox) noblePrimaryBox.style.display = 'flex';
                 if (nobleSecondaryBox) nobleSecondaryBox.style.display = 'none';
+                if (document.getElementById('tw-box-manual-nobles')) document.getElementById('tw-box-manual-nobles').style.display = plannerMode === 'single' ? 'block' : 'none';
                 leadNukesInput.value = 0;
                 antiWavesSelect.value = 1;
                 bunkerCountSelect.value = 1;
@@ -1847,22 +1878,27 @@
                 nobleControlsBox.style.display = 'none';
                 if (noblePrimaryBox) noblePrimaryBox.style.display = 'none';
                 if (nobleSecondaryBox) nobleSecondaryBox.style.display = 'none';
-                leadNukesInput.value = 3;
+                if (document.getElementById('tw-box-manual-nobles')) document.getElementById('tw-box-manual-nobles').style.display = 'none';
+                leadNukesInput.value = 1;
                 antiWavesSelect.value = 0;
                 bunkerCountSelect.value = 0;
                 catTargetSelect.value = 'wall';
+                nobleCountSelect.value = 0;
             } else if (mode === 'cat_demolish') {
                 nobleControlsBox.style.display = 'none';
                 if (noblePrimaryBox) noblePrimaryBox.style.display = 'none';
                 if (nobleSecondaryBox) nobleSecondaryBox.style.display = 'none';
-                leadNukesInput.value = 2;
+                if (document.getElementById('tw-box-manual-nobles')) document.getElementById('tw-box-manual-nobles').style.display = 'none';
+                leadNukesInput.value = 1;
                 antiWavesSelect.value = 0;
                 bunkerCountSelect.value = 0;
                 catTargetSelect.value = 'place';
+                nobleCountSelect.value = 0;
             } else if (mode === 'full_storm') {
                 nobleControlsBox.style.display = 'grid';
                 if (noblePrimaryBox) noblePrimaryBox.style.display = 'flex';
                 if (nobleSecondaryBox) nobleSecondaryBox.style.display = 'none';
+                if (document.getElementById('tw-box-manual-nobles')) document.getElementById('tw-box-manual-nobles').style.display = plannerMode === 'single' ? 'block' : 'none';
                 leadNukesInput.value = 2;
                 antiWavesSelect.value = 3;
                 bunkerCountSelect.value = 3;
@@ -2195,8 +2231,13 @@
         document.getElementById('tw-nt-tbody').innerHTML = rows;
         document.getElementById('tw-nt-preview').value = output.trim();
         await navigator.clipboard.writeText(output.trim());
-        document.getElementById('tw-nt-status').innerHTML = `<span style="color:#34d399;">✅ Campanha de ${targets.length} alvos (${allCampaignCommands.length} comandos) copiada para o Clipboard!</span>`;
-        showToast(`⚡ Campanha com ${targets.length} alvos copiada com sucesso!`);
+        if (attackMode === 'nuke_sweep' || attackMode === 'cat_demolish') {
+            document.getElementById('tw-nt-status').innerHTML = `<span style="color:#34d399;">✅ Campanha de Limpeza: ${targets.length} alvos (${allCampaignCommands.length} nukes) copiada para o Clipboard!</span>`;
+            showToast(`⚡ Campanha de Limpeza copiada para o Clipboard!`);
+        } else {
+            document.getElementById('tw-nt-status').innerHTML = `<span style="color:#34d399;">✅ Campanha de ${targets.length} alvos (${allCampaignCommands.length} comandos) copiada para o Clipboard!</span>`;
+            showToast(`⚡ Campanha com ${targets.length} alvos copiada com sucesso!`);
+        }
     }
 
     function findClosestAvailable(pool, usedSet, targetCoord, targetLandMs, minLaunchMs) {
@@ -2691,8 +2732,13 @@
         document.getElementById('tw-nt-tbody').innerHTML = rows;
         document.getElementById('tw-nt-preview').value = output.trim();
         await navigator.clipboard.writeText(output.trim());
-        document.getElementById('tw-nt-status').innerHTML = `<span style="color:#34d399;">✅ ${sequence.length} comandos sincronizados e copiados para o Clipboard!</span>`;
-        showToast(`⚡ Plano copiado para a Área de Transferência!`);
+        if (attackMode === 'nuke_sweep' || attackMode === 'cat_demolish') {
+            document.getElementById('tw-nt-status').innerHTML = `<span style="color:#34d399;">✅ Limpeza (${sequence.length} ataques) copiada para o Clipboard!</span>`;
+            showToast(`⚡ Limpeza copiada para o Clipboard!`);
+        } else {
+            document.getElementById('tw-nt-status').innerHTML = `<span style="color:#34d399;">✅ ${sequence.length} comandos sincronizados e copiados para o Clipboard!</span>`;
+            showToast(`⚡ Plano copiado para o Clipboard!`);
+        }
     }
 
     // ==========================================
