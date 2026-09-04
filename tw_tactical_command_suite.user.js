@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TW Tactical Command Suite
 // @namespace    https://tribalwars.com.pt/
-// @version      2.6.2
-// @description  Suite militar avançada para Tribal Wars PT: Seletor Inteligente & Manual de Aldeia para Nuke de Limpeza (com indicação de tropas reais, fazenda e tempos de viagem), Filtro para Priorizar Full Nukes Reais (≥20k Fazenda), Design Otimizado em 3 Colunas (Bunker + Fakes empilhados), Indicação de Nobres Mais Perto, Seleção de Paladino Personalizada e Campanha Multialvo.
+// @version      2.6.3
+// @description  Suite militar avançada para Tribal Wars PT: Deteção e Alerta de Tropas Fora/A Farmar (⚠️), Seletor Inteligente & Manual de Aldeia para Nuke de Limpeza, Filtro para Priorizar Full Nukes Reais (≥20k Fazenda com Tropas em Casa), Layout Otimizado em 3 Colunas, e Planeador Tático de Ataques e Campanhas.
 // @author       Diogo & Antigravity
 // @match        https://*.tribalwars.com.pt/game.php*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=tribalwars.com.pt
@@ -10,7 +10,7 @@
 // ==/UserScript==
 
 (async function () {
-    const SCRIPT_VERSION = '2.6.2';
+    const SCRIPT_VERSION = '2.6.3';
     const modalId = 'tw-master-suite';
     
     // Limpeza de instâncias anteriores
@@ -602,43 +602,90 @@
                 const coords = (vName.match(/(\d{3}\|\d{3})/)||[])[1]||'';
 
                 const rows = Array.from(tb.querySelectorAll('tr'));
-                let homeRow = rows.find(tr => {
+                let ownHomeRow = rows.find(tr => {
                     const firstTd = tr.querySelector('td');
                     if (!firstTd) return false;
                     const txt = firstTd.textContent.trim().toLowerCase();
-                    return txt.includes('na aldeia') || txt.includes('in the village') || txt === 'próprias' || txt === 'own';
+                    return txt.includes('próprias') || txt.includes('own') || txt.includes('suas');
                 }) || rows[0];
 
-                let totalRow = rows.find(tr => tr.querySelector('td') && tr.querySelector('td').textContent.trim().toLowerCase() === 'total') || rows[rows.length-1];
+                let totalRow = rows.find(tr => {
+                    const firstTd = tr.querySelector('td');
+                    if (!firstTd) return false;
+                    const txt = firstTd.textContent.trim().toLowerCase();
+                    return txt === 'total' || txt.includes('total');
+                }) || rows[rows.length-1];
+
+                let movingRow = rows.find(tr => {
+                    const firstTd = tr.querySelector('td');
+                    if (!firstTd) return false;
+                    const txt = firstTd.textContent.trim().toLowerCase();
+                    return txt.includes('trânsito') || txt.includes('transito') || txt.includes('transit');
+                });
+
+                let awayRow = rows.find(tr => {
+                    const firstTd = tr.querySelector('td');
+                    if (!firstTd) return false;
+                    const txt = firstTd.textContent.trim().toLowerCase();
+                    return txt.includes('exterior') || txt.includes('away') || txt.includes('fora');
+                });
                 
-                const homeCells = Array.from(homeRow.querySelectorAll('td.unit-item'));
+                const ownCells = Array.from(ownHomeRow.querySelectorAll('td.unit-item'));
                 const totalCells = Array.from(totalRow.querySelectorAll('td.unit-item'));
-                if (homeCells.length === 0 && totalCells.length === 0) return;
+                const movingCells = movingRow ? Array.from(movingRow.querySelectorAll('td.unit-item')) : [];
+                const awayCells = awayRow ? Array.from(awayRow.querySelectorAll('td.unit-item')) : [];
+                if (ownCells.length === 0 && totalCells.length === 0) return;
 
-                const targetCells = homeCells.length > 0 ? homeCells : totalCells;
+                const vTroops = [], dict = {}, homeDict = {}, movingDict = {}, awayDict = {};
+                let homePopTotal = 0, totalPopTotal = 0, movingPopTotal = 0, awayPopTotal = 0;
+                let homeOffPop = 0, totalOffPop = 0;
+                const vTot = { defense: 0, offense: 0, spy: 0, snob: 0, catapult: 0, ram: 0, knight: 0 };
 
-                const vTroops = [], dict = {}, homeDict = {}, vTot = { defense: 0, offense: 0, spy: 0, snob: 0, catapult: 0, ram: 0, knight: 0 };
                 headers.forEach((th, i) => {
                     const u = unitConfigs[i];
-                    const cell = targetCells[i];
-                    const c = (cell && !cell.classList.contains('hidden')) ? parseInt(cell.textContent.replace(/\./g,''),10)||0 : 0;
-                    
-                    const hCell = homeCells[i];
-                    const hc = (hCell && !hCell.classList.contains('hidden')) ? parseInt(hCell.textContent.replace(/\./g,''),10)||0 : c;
-                    
-                    if (!u.isHidden) vTroops.push(c);
-                    dict[u.name] = c;
+                    const pop = defaultUnitPop[u.name] || 1;
+
+                    const totCell = totalCells[i];
+                    const tc = (totCell && !totCell.classList.contains('hidden')) ? parseInt(totCell.textContent.replace(/\./g,''),10)||0 : 0;
+
+                    const ownCell = ownCells[i];
+                    const hc = (ownCell && !ownCell.classList.contains('hidden')) ? parseInt(ownCell.textContent.replace(/\./g,''),10)||0 : tc;
+
+                    const movCell = movingCells[i];
+                    const mc = (movCell && !movCell.classList.contains('hidden')) ? parseInt(movCell.textContent.replace(/\./g,''),10)||0 : 0;
+
+                    const awCell = awayCells[i];
+                    const ac = (awCell && !awCell.classList.contains('hidden')) ? parseInt(awCell.textContent.replace(/\./g,''),10)||0 : 0;
+
+                    const finalTotal = tc > 0 ? tc : (hc + mc + ac);
+                    if (!u.isHidden) vTroops.push(finalTotal);
+                    dict[u.name] = finalTotal;
                     homeDict[u.name] = hc;
+                    movingDict[u.name] = mc;
+                    awayDict[u.name] = ac;
+
+                    homePopTotal += hc * pop;
+                    totalPopTotal += finalTotal * pop;
+                    movingPopTotal += mc * pop;
+                    awayPopTotal += ac * pop;
 
                     if (u.name && summary.units[u.name]) {
-                        const pop = c * (defaultUnitPop[u.name] || 1);
-                        summary.units[u.name].count += c; summary.units[u.name].pop += pop; summary.totalPop += pop;
-                        if (['spear','sword','heavy','catapult','archer','militia','knight'].includes(u.name)) vTot.defense += pop;
-                        if (['axe','light','ram','catapult','marcher'].includes(u.name)) vTot.offense += pop;
-                        if (u.name === 'spy') vTot.spy += pop;
-                        if (u.name === 'snob') { vTot.snob += c; summary.snobCount += c; }
-                        if (u.name === 'catapult') vTot.catapult += c;
-                        if (u.name === 'ram') vTot.ram += c;
+                        summary.units[u.name].count += finalTotal;
+                        summary.units[u.name].pop += finalTotal * pop;
+                        summary.totalPop += finalTotal * pop;
+
+                        if (['spear','sword','heavy','catapult','archer','militia','knight'].includes(u.name)) {
+                            vTot.defense += finalTotal * pop;
+                        }
+                        if (['axe','light','ram','catapult','marcher'].includes(u.name)) {
+                            vTot.offense += finalTotal * pop;
+                            totalOffPop += finalTotal * pop;
+                            homeOffPop += hc * pop;
+                        }
+                        if (u.name === 'spy') vTot.spy += finalTotal * pop;
+                        if (u.name === 'snob') { vTot.snob += finalTotal; summary.snobCount += finalTotal; }
+                        if (u.name === 'catapult') vTot.catapult += finalTotal;
+                        if (u.name === 'ram') vTot.ram += finalTotal;
                         if (u.name === 'knight') vTot.knight += hc;
                     }
                 });
@@ -653,6 +700,25 @@
                 }
 
                 const farmInfo = farmMap[vId] || { txt:'N/A', used: 0, max: 24000, perc: 0, color:'#8b949e', lvl:'?' };
+
+                // Deteção inteligente de Tropas Fora / A Farmar
+                let outsidePop = Math.max(0, totalPopTotal - homePopTotal);
+                if (outsidePop === 0 && (movingPopTotal > 0 || awayPopTotal > 0)) {
+                    outsidePop = movingPopTotal + awayPopTotal;
+                }
+                // Deteção secundária baseada na Fazenda (se fazenda >= 15k mas homePop estiver muito abaixo)
+                if (outsidePop < 1000 && farmInfo.used >= 15000 && homePopTotal > 0) {
+                    const estimatedPop = Math.max(0, farmInfo.used - 3500);
+                    if (estimatedPop - homePopTotal > 1500) {
+                        outsidePop = estimatedPop - homePopTotal;
+                    }
+                }
+
+                const outsideOffPop = Math.max(0, totalOffPop - homeOffPop);
+                const isFarming = movingPopTotal >= 300;
+                const hasTroopsAway = (movingPopTotal >= 300) || (outsidePop >= 1000) || (outsideOffPop >= 1000);
+                const troopsAwayPop = outsidePop;
+
                 const is22kFull = farmInfo.used >= 22000;
                 const snobCount = dict.snob || 0;
 
@@ -690,12 +756,21 @@
 
                 const vObj = {
                     id: vId, name: vName, coords, troops: vTroops, troopsDict: dict, homeTroopsDict: homeDict,
+                    movingTroopsDict: movingDict, awayTroopsDict: awayDict,
                     knightAvailable, rowClass, roleTag,
                     farm: farmInfo,
                     snobsAvailable: snobCount,
                     totalOffPop: vTot.offense,
                     totalDefPop: vTot.defense,
-                    paladin: paladinInfo
+                    homeOffPop,
+                    paladin: paladinInfo,
+                    homePopTotal,
+                    totalPopTotal,
+                    movingPopTotal,
+                    awayPopTotal,
+                    hasTroopsAway,
+                    isFarming,
+                    troopsAwayPop
                 };
 
                 for (const [catName, catData] of Object.entries(outputCategories)) {
@@ -809,6 +884,7 @@
                 <tr class="${v.rowClass}" data-vid="${v.id}">
                     <td style="text-align:left; padding-left:10px; font-weight:bold;">
                         <a href="javascript:void(0);" class="tw-v-coord" data-coord="${v.coords}" style="color:#38bdf8; text-decoration:none;" title="Clica para copiar as coordenadas">${v.name}</a>
+                        ${v.hasTroopsAway ? `<span class="tw-pill" style="font-size:9.5px; padding:1px 5px; margin-left:5px; background:rgba(245,158,11,0.15); border:1px solid #f59e0b; color:#fbbf24; vertical-align:middle;" title="Tropas fora de casa / a farmar: ~${(v.troopsAwayPop/1000).toFixed(1)}k pop">⚠️ ${(v.troopsAwayPop/1000).toFixed(1)}k fora</span>` : ''}
                         ${v.paladin ? `<span class="tw-pill" style="font-size:9.5px; padding:1px 5px; margin-left:6px; background:rgba(124,58,237,0.25); border:1px solid #c084fc; color:#e9d5ff; vertical-align:middle;" title="Paladino: ${v.paladin.name} (Lvl ${v.paladin.level} • ${v.paladin.isOffense ? 'Ofensivo ⚔️' : 'Defensivo 🛡️'})">${v.paladin.name} ${v.paladin.isOffense ? '⚔️' : '🛡️'}</span>` : ''}
                         ${commBadge ? `<div style="margin-top:2px;">${commBadge}</div>` : ''}
                     </td>
@@ -2696,10 +2772,11 @@
                 defaultOptions += offPool.map(v => {
                     const isFull = (v.farm && v.farm.used >= 20000);
                     const tag = isFull ? '⭐ [FULL]' : '⚠️ [SEMI]';
+                    const awayWarn = v.hasTroopsAway ? ` ⚠️ [Tropas Fora: ${(v.troopsAwayPop/1000).toFixed(1)}k]` : '';
                     const pal = (v.paladin && v.paladin.isHome) ? ` [${v.paladin.name} ⚔️]` : '';
                     const comm = committedMap[v.id] ? ' [🔒 Reservada]' : '';
                     const farmK = (v.farm && v.farm.used) ? (v.farm.used/1000).toFixed(1) : '?';
-                    return `<option value="${v.id}">${tag} ${cleanVillageDisplayName(v)} • Faz. ${farmK}k • ${formatTroopsShort(v)}${pal}${comm}</option>`;
+                    return `<option value="${v.id}">${tag}${awayWarn} ${cleanVillageDisplayName(v)} • Faz. ${farmK}k • ${formatTroopsShort(v)}${pal}${comm}</option>`;
                 }).join('');
                 selNuke.innerHTML = defaultOptions;
                 if (prevSelected && selNuke.querySelector(`option[value="${prevSelected}"]`)) {
@@ -2741,6 +2818,11 @@
                 if (preferFull) {
                     if (a.isFull && !b.isFull) return -1;
                     if (!a.isFull && b.isFull) return 1;
+                    // Dar prioridade a aldeias cujas tropas estão em casa sobre as que estão fora a farmar
+                    const aReady = !a.village.hasTroopsAway;
+                    const bReady = !b.village.hasTroopsAway;
+                    if (aReady && !bReady) return -1;
+                    if (!aReady && bReady) return 1;
                 }
                 return a.dist - b.dist;
             });
@@ -2752,12 +2834,13 @@
                 const v = item.village;
                 const isFull = item.isFull;
                 const tag = isFull ? '⭐ [FULL]' : '⚠️ [SEMI]';
+                const awayWarn = v.hasTroopsAway ? ` ⚠️ [Tropas Fora: ${(v.troopsAwayPop/1000).toFixed(1)}k]` : '';
                 const isBest = (v.id === bestAuto.village.id);
                 const prefix = isBest ? '⭐ [1º RECOMENDADO] ' : `[#${idx + 1}] `;
                 const pal = (v.paladin && v.paladin.isHome) ? ` [${v.paladin.name} ⚔️]` : '';
                 const comm = item.isComm ? ' [🔒 Reservada]' : '';
                 const farmK = (v.farm && v.farm.used) ? (v.farm.used/1000).toFixed(1) : '?';
-                return `<option value="${v.id}">${prefix}${tag} ${cleanVillageDisplayName(v)} • ${item.dist.toFixed(1)}c • ⏳ ${item.timeStr} • Faz. ${farmK}k • ${formatTroopsShort(v)}${pal}${comm}</option>`;
+                return `<option value="${v.id}">${prefix}${tag}${awayWarn} ${cleanVillageDisplayName(v)} • ${item.dist.toFixed(1)}c • ⏳ ${item.timeStr} • Faz. ${farmK}k • ${formatTroopsShort(v)}${pal}${comm}</option>`;
             }).join('');
 
             selNuke.innerHTML = optionsHtml;
@@ -2773,16 +2856,34 @@
             // Atualizar o banner descritivo
             if (hintBox) {
                 const currentVal = selNuke.value;
-                if (currentVal === 'auto') {
-                    const bV = bestAuto.village;
-                    const farmK = (bV.farm && bV.farm.used) ? (bV.farm.used/1000).toFixed(1) : '?';
-                    hintBox.innerHTML = `⭐ <b>Auto:</b> <span style="color:#fbbf24; font-weight:bold;">${cleanVillageDisplayName(bV)}</span> (${bestAuto.dist.toFixed(1)}c • ⏳ ${bestAuto.timeStr}) • 🌾 Faz. <b>${farmK}k</b> • ⚔️ ${formatTroopsShort(bV)}`;
+                const chosenItem = (currentVal === 'auto') ? bestAuto : (listWithDist.find(i => i.village.id === currentVal) || bestAuto);
+                const cV = chosenItem.village;
+                const farmK = (cV.farm && cV.farm.used) ? (cV.farm.used/1000).toFixed(1) : '?';
+                const modeLabel = (currentVal === 'auto') ? '⭐ <b>Auto:</b>' : '🎯 <b>Manual:</b>';
+                const palHint = (cV.paladin && cV.paladin.isHome) ? ` • <span style="color:#c084fc; font-weight:bold;">[${cV.paladin.name} ⚔️ Lvl ${cV.paladin.level}]</span>` : '';
+
+                let awayBanner = '';
+                if (cV.hasTroopsAway) {
+                    awayBanner = `
+                        <div style="margin-top:5px; padding:4px 8px; background:rgba(245, 158, 11, 0.12); border:1px solid #f59e0b; border-radius:4px; color:#fbbf24; font-size:11px;">
+                            ⚠️ <b>Aviso: Tropas Fora de Casa / A Farmar!</b> Esta aldeia tem cerca de <b>${(cV.troopsAwayPop/1000).toFixed(1)}k tropas no exterior/trânsito</b>.<br>
+                            Em casa: <b>${formatTroopsShort(cV)}</b>. Confirma se as tropas regressam antes do horário de lançamento!
+                        </div>
+                    `;
                 } else {
-                    const chosenItem = listWithDist.find(i => i.village.id === currentVal) || bestAuto;
-                    const cV = chosenItem.village;
-                    const farmK = (cV.farm && cV.farm.used) ? (cV.farm.used/1000).toFixed(1) : '?';
-                    hintBox.innerHTML = `🎯 <b>Manual:</b> <span style="color:#38bdf8; font-weight:bold;">${cleanVillageDisplayName(cV)}</span> (${chosenItem.dist.toFixed(1)}c • ⏳ ${chosenItem.timeStr}) • 🌾 Faz. <b>${farmK}k</b> • ⚔️ ${formatTroopsShort(cV)}`;
+                    awayBanner = `
+                        <div style="margin-top:4px; color:#10b981; font-size:11px;">
+                            ✅ <b>Tropas prontas em casa:</b> ${formatTroopsShort(cV)}
+                        </div>
+                    `;
                 }
+
+                hintBox.innerHTML = `
+                    <div style="font-size:11.5px; color:#e2e8f0; line-height:1.4;">
+                        ${modeLabel} <span style="color:#38bdf8; font-weight:bold;">${cleanVillageDisplayName(cV)}</span> (${chosenItem.dist.toFixed(1)}c • ⏳ ${chosenItem.timeStr}) • 🌾 Faz. <b>${farmK}k</b> • ⚔️ ${formatTroopsShort(cV)}${palHint}
+                        ${awayBanner}
+                    </div>
+                `;
             }
         }
 
@@ -3300,6 +3401,7 @@
     function findClosestAvailable(pool, usedSet, targetCoord, targetLandMs, minLaunchMs, forbidPaladin = false, preferPaladin = false, paladinChoice = 'auto', preferFull = false) {
         let bestPal = null, bestPalDist = Infinity;
         let bestFull = null, bestFullDist = Infinity;
+        let bestFullReady = null, bestFullReadyDist = Infinity;
         let best = null, bestDist = Infinity;
         let bestFallback = null, bestFallbackDist = Infinity;
 
@@ -3319,7 +3421,7 @@
                 }
                 const hasOffPaladin = pal ? (pal.isOffense && pal.isHome) : hasKnight;
                 const isFullNuke = (v.farm && v.farm.used >= 20000) || (v.roleTag && v.roleTag.label && v.roleTag.label.includes('Full Nuke'));
-                const candObj = { village: v, dist: dist.toFixed(2), sec, launchTime: new Date(launchMs), hasKnight, hasOffPaladin, hasMatchingPaladin, isFullNuke };
+                const candObj = { village: v, dist: dist.toFixed(2), sec, launchTime: new Date(launchMs), hasKnight, hasOffPaladin, hasMatchingPaladin, isFullNuke, hasTroopsAway: v.hasTroopsAway };
 
                 if (!forbidPaladin || !hasKnight) {
                     if (preferPaladin && hasMatchingPaladin) {
@@ -3329,6 +3431,10 @@
                         }
                     }
                     if (preferFull && isFullNuke) {
+                        if (!v.hasTroopsAway && dist < bestFullReadyDist) {
+                            bestFullReadyDist = dist;
+                            bestFullReady = candObj;
+                        }
                         if (dist < bestFullDist) {
                             bestFullDist = dist;
                             bestFull = candObj;
@@ -3347,6 +3453,7 @@
             }
         });
         if (preferPaladin && bestPal) return bestPal;
+        if (preferFull && bestFullReady) return bestFullReady;
         if (preferFull && bestFull) return bestFull;
         return best || bestFallback;
     }
@@ -3571,7 +3678,7 @@
             }
             const hasOffPaladin = pal ? (pal.isOffense && pal.isHome) : hasKnight;
             const isFullNuke = (v.farm && v.farm.used >= 20000) || (v.roleTag && v.roleTag.label && v.roleTag.label.includes('Full Nuke'));
-            return { village: v, dist, sec: dist * unitSpeedMinutes.ram * 60, hasKnight, hasOffPaladin, hasMatchingPaladin, paladin: pal, isFullNuke };
+            return { village: v, dist, sec: dist * unitSpeedMinutes.ram * 60, hasKnight, hasOffPaladin, hasMatchingPaladin, paladin: pal, isFullNuke, hasTroopsAway: v.hasTroopsAway };
         }).sort((a,b) => {
             if (reqPaladinNuke) {
                 if (a.hasMatchingPaladin && !b.hasMatchingPaladin) return -1;
@@ -3580,6 +3687,11 @@
             if (preferFullNukes) {
                 if (a.isFullNuke && !b.isFullNuke) return -1;
                 if (!a.isFullNuke && b.isFullNuke) return 1;
+                // Dar prioridade a aldeias cujas tropas estão em casa sobre as que estão fora a farmar
+                const aReady = !a.village.hasTroopsAway;
+                const bReady = !b.village.hasTroopsAway;
+                if (aReady && !bReady) return -1;
+                if (!aReady && bReady) return 1;
             }
             return a.dist - b.dist;
         });
@@ -3660,16 +3772,25 @@
                 const farmK = (cand.village.farm && cand.village.farm.used) ? `Faz. ${(cand.village.farm.used/1000).toFixed(1)}k` : '';
                 const troopsInline = (axe || lc || ram || cat) ? `• ${axe}${lc}${ram}${cat}`.trim() : '';
                 let extraInfo = isLeadNuke ? `${farmK} ${troopsInline}`.trim() : 'Full Off';
+                if (cand.village.hasTroopsAway) {
+                    extraInfo += ` • ⚠️ ${(cand.village.troopsAwayPop/1000).toFixed(1)}k fora`;
+                }
 
                 if (cand.paladin && cand.paladin.isHome) {
                     const pal = cand.paladin;
                     finalType = `${typeLabel} (${pal.name} ⚔️)`;
                     finalBadge = 'tw-badge-paladino';
                     extraInfo = `Buff ${pal.name} ⚔️ Lvl ${pal.level} ${troopsInline}`.trim();
+                    if (cand.village.hasTroopsAway) {
+                        extraInfo += ` • ⚠️ ${(cand.village.troopsAwayPop/1000).toFixed(1)}k fora`;
+                    }
                 } else if (isPaladinOff) {
                     finalType = `${typeLabel} (Paladino)`;
                     finalBadge = 'tw-badge-paladino';
                     extraInfo = `Buff Paladino ⚔️ ${troopsInline}`.trim();
+                    if (cand.village.hasTroopsAway) {
+                        extraInfo += ` • ⚠️ ${(cand.village.troopsAwayPop/1000).toFixed(1)}k fora`;
+                    }
                 }
 
                 const cmdObj = {
