@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TW Tactical Command Suite
 // @namespace    https://tribalwars.com.pt/
-// @version      2.6.0
-// @description  Suite militar avançada para Tribal Wars PT: Visão Geral com regra 22k, Indicação e Seleção Inteligente da Aldeia de Nobres Mais Perto (com cálculo de distância, tempo de viagem e compatibilidade de nobres), Seleção Personalizada de Paladino para Ataque / Realocação (Preservação de QuimConquista p/ Nobres c/ Persuasão), Reconhecimento Real de Todos os Paladinos c/ Atalho Direto na Estátua, Contador Tático, Gerador de Fakes dinâmico, Planeador NT + Anti-Snipe + Bunker, Re-Nobre em Bate e Volta e Campanha Multialvo.
+// @version      2.6.1
+// @description  Suite militar avançada para Tribal Wars PT: Design Otimizado em 3 Colunas (Bunker + Fakes empilhados para layout mais prático e elegante), Indicação Inteligente da Aldeia de Nobres Mais Perto (com cálculo de distância, tempo de viagem e compatibilidade de nobres), Seleção Personalizada de Paladino para Ataque / Realocação (Preservação de QuimConquista p/ Nobres c/ Persuasão), Reconhecimento Real de Todos os Paladinos c/ Atalho Direto na Estátua, Contador Tático, Gerador de Fakes dinâmico, Planeador NT + Anti-Snipe + Bunker, Re-Nobre em Bate e Volta e Campanha Multialvo.
 // @author       Diogo & Antigravity
 // @match        https://*.tribalwars.com.pt/game.php*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=tribalwars.com.pt
@@ -10,7 +10,7 @@
 // ==/UserScript==
 
 (async function () {
-    const SCRIPT_VERSION = '2.6.0';
+    const SCRIPT_VERSION = '2.6.1';
     const modalId = 'tw-master-suite';
     
     // Limpeza de instâncias anteriores
@@ -494,6 +494,14 @@
     function formatRussianDateTime(d) {
         const ms = String(d.getMilliseconds()).padStart(3, '0');
         return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}:${String(d.getSeconds()).padStart(2,'0')}:${ms} ${String(d.getDate()).padStart(2,'0')}.${String(d.getMonth()+1).padStart(2,'0')}.${d.getFullYear()}`;
+    }
+
+    function cleanVillageDisplayName(v) {
+        if (!v) return '';
+        const name = v.name || '';
+        const coords = v.coords || '';
+        if (coords && name.includes(coords)) return name;
+        return coords ? `${name} (${coords})` : name;
     }
 
     let worldVillages = [];
@@ -1519,7 +1527,7 @@
             const isComm = !!committedMap[v.id];
             const pal = (v.paladin && v.paladin.isHome) ? v.paladin : null;
             const palTag = pal ? ` [${pal.name}${pal.name === 'QuimConquista' ? ' ⚔️ Persuasão' : ''}]` : '';
-            return `<option value="${v.id}">${v.name} (${v.coords}) • ${v.snobsAvailable} Nobres${palTag}${isComm ? ' [🔒 Reservada]' : ''}</option>`;
+            return `<option value="${v.id}">${cleanVillageDisplayName(v)} • ${v.snobsAvailable} Nobres${palTag}${isComm ? ' [🔒 Reservada]' : ''}</option>`;
         }).join('');
         if (!nobleOptions) nobleOptions = `<option value="">❌ Nenhuma aldeia com nobres</option>`;
 
@@ -1531,9 +1539,10 @@
 
         document.getElementById('tw-main-body').innerHTML = `
             <div class="tw-pane active" id="tw-pane-planner" style="padding: 4px 6px 24px 4px; gap:8px; display:flex; flex-direction:column; flex-grow:1; min-height:0; overflow-y:auto; overflow-x:hidden;">
-                <div style="display:grid; grid-template-columns: repeat(4, 1fr); gap:8px; flex-shrink:0;">
+                <!-- GRID PRINCIPAL DE 3 COLUNAS BALANCEADAS -->
+                <div style="display:grid; grid-template-columns: 1.35fr 1.25fr 1.05fr; gap:10px; flex-shrink:0;">
                     
-                    <!-- CARD 1: ALVO, MODO DE OPERAÇÃO & NOBRES -->
+                    <!-- COLUNA 1: ALVO, MODO DE OPERAÇÃO & NOBRES -->
                     <div class="tw-card" style="padding:10px 12px; gap:5px;">
                         <div class="tw-card-title" style="color:#fbbf24; font-size:11px;">
                             <span>🎯 1. Alvo & Operação</span>
@@ -1656,7 +1665,7 @@
                         </div>
                     </div>
 
-                    <!-- CARD 2: LIMPEZAS, ESCÔRTAS & MODELOS -->
+                    <!-- COLUNA 2: LIMPEZAS, ESCÔRTAS & MODELOS -->
                     <div class="tw-card" style="padding:10px 12px; gap:5px;">
                         <div class="tw-card-title" style="color:#f87171; font-size:11px;">⚔️ 2. Limpezas, Escoltas & Modelos</div>
                         
@@ -1738,78 +1747,87 @@
                         </div>
                     </div>
 
-                    <!-- CARD 3: BUNKER CIRÚRGICO C/ PALADINO -->
-                    <div class="tw-card" style="border-color:#059669; background:rgba(6, 78, 59, 0.2); padding:10px 12px; gap:5px;">
-                        <div class="tw-card-title" style="color:#34d399; font-size:11px;">
-                            <span>🛡️ 3. Bunker Conquista</span>
-                            <select id="tw-nt-bunker-count" class="tw-select" style="font-weight:bold; color:#34d399; padding:2px 4px; font-size:10px;">
-                                <option value="0">0 Apoios</option>
-                                <option value="1">1 Apoio</option>
-                                <option value="2" selected>2 Apoios</option>
-                                <option value="3">3 Apoios</option>
-                                <option value="4">4 Apoios</option>
-                            </select>
-                        </div>
+                    <!-- COLUNA 3: BUNKER CONQUISTA + FAKES EM RAIO (EMPILHADOS) -->
+                    <div style="display:flex; flex-direction:column; gap:8px;">
                         
-                        <div style="display:grid; grid-template-columns: 1.1fr 1fr; gap:4px;">
-                            <div style="display:flex; flex-direction:column; gap:1px;">
-                                <span style="font-size:9px; color:#a7f3d0;">Gap Nobre (ms):</span>
-                                <input type="number" id="tw-nt-bunker-gap" class="tw-input" value="200" min="50" max="2000" step="50" style="font-weight:bold; color:#34d399; text-align:center; padding:4px 6px; font-size:11px;">
-                            </div>
-                            <div style="display:flex; flex-direction:column; gap:1px;">
-                                <span style="font-size:9px; color:#a7f3d0;">Degrau / Apoio:</span>
-                                <input type="number" id="tw-nt-bunker-step" class="tw-input" value="50" min="10" max="500" step="10" style="font-weight:bold; color:#34d399; text-align:center; padding:4px 6px; font-size:11px;">
-                            </div>
-                        </div>
-
-                        <div style="display:flex; flex-direction:column; gap:2px;">
-                            <div style="display:grid; grid-template-columns: 1.4fr 1fr; gap:4px;">
-                                <input type="text" id="tw-nt-model-bunker-1" class="tw-input" value="BUNK" placeholder="Preset 1" style="font-weight:bold; color:#34d399; padding:4px 6px; font-size:11px;">
-                                <input type="number" id="tw-nt-pop-bunker-1" class="tw-input" value="12000" placeholder="Pop Mín" style="text-align:center; padding:4px 6px; font-size:11px;">
-                            </div>
-                            <div style="display:grid; grid-template-columns: 1.4fr 1fr; gap:4px;">
-                                <input type="text" id="tw-nt-model-bunker-2" class="tw-input" value="BUNK" placeholder="Preset 2" style="font-weight:bold; color:#34d399; padding:4px 6px; font-size:11px;">
-                                <input type="number" id="tw-nt-pop-bunker-2" class="tw-input" value="4000" placeholder="Pop Mín" style="text-align:center; padding:4px 6px; font-size:11px;">
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- CARD 4: CORTINA DE FAKES EM RAIO -->
-                    <div class="tw-card" style="border-color:#a855f7; background:rgba(88, 28, 135, 0.2); padding:10px 12px; gap:5px;">
-                        <div class="tw-card-title" style="color:#c084fc; font-size:11px;">
-                            <div style="display:flex; align-items:center; gap:4px;">
-                                <input type="checkbox" id="tw-nt-fake-enable" style="cursor:pointer; width:14px; height:14px;">
-                                <label for="tw-nt-fake-enable" style="cursor:pointer;">🎭 Fakes em Raio</label>
-                            </div>
-                            <span style="font-size:9px; color:#a855f7;">Auto-Mascarar</span>
-                        </div>
-                        
-                        <div style="display:grid; grid-template-columns: 1.1fr 1fr; gap:4px;">
-                            <div style="display:flex; flex-direction:column; gap:1px;">
-                                <span style="font-size:9px; color:#e9d5ff;">Raio de Busca:</span>
-                                <select id="tw-nt-fake-radius" class="tw-select" style="font-weight:bold; color:#c084fc; padding:4px 6px; font-size:11px;">
-                                    <option value="4">4 campos</option>
-                                    <option value="6">6 campos</option>
-                                    <option value="8" selected>8 campos</option>
-                                    <option value="10">10 campos</option>
-                                    <option value="12">12 campos</option>
-                                    <option value="15">15 campos</option>
+                        <!-- CARD 3: BUNKER CIRÚRGICO C/ PALADINO -->
+                        <div class="tw-card" id="tw-card-bunker" style="border-color:#059669; background:rgba(6, 78, 59, 0.2); padding:8px 10px; gap:4px;">
+                            <div class="tw-card-title" style="color:#34d399; font-size:11px;">
+                                <span>🛡️ 3. Bunker Conquista</span>
+                                <select id="tw-nt-bunker-count" class="tw-select" style="font-weight:bold; color:#34d399; padding:2px 4px; font-size:10px;">
+                                    <option value="0">0 Apoios</option>
+                                    <option value="1">1 Apoio</option>
+                                    <option value="2" selected>2 Apoios</option>
+                                    <option value="3">3 Apoios</option>
+                                    <option value="4">4 Apoios</option>
                                 </select>
                             </div>
-                            <div style="display:flex; flex-direction:column; gap:1px;">
-                                <span style="font-size:9px; color:#e9d5ff;">Fakes / Aldeia:</span>
-                                <input type="number" id="tw-nt-fake-count" class="tw-input" value="4" min="1" max="20" style="text-align:center; font-weight:bold; color:#c084fc; padding:4px 6px; font-size:11px;">
+                            
+                            <div id="tw-box-bunker-inputs" style="display:flex; flex-direction:column; gap:4px; transition:opacity 0.2s ease;">
+                                <div style="display:grid; grid-template-columns: 1.1fr 1fr; gap:4px;">
+                                    <div style="display:flex; flex-direction:column; gap:1px;">
+                                        <span style="font-size:9px; color:#a7f3d0;">Gap Nobre (ms):</span>
+                                        <input type="number" id="tw-nt-bunker-gap" class="tw-input" value="200" min="50" max="2000" step="50" style="font-weight:bold; color:#34d399; text-align:center; padding:3px 5px; font-size:10.5px;">
+                                    </div>
+                                    <div style="display:flex; flex-direction:column; gap:1px;">
+                                        <span style="font-size:9px; color:#a7f3d0;">Degrau / Apoio:</span>
+                                        <input type="number" id="tw-nt-bunker-step" class="tw-input" value="50" min="10" max="500" step="10" style="font-weight:bold; color:#34d399; text-align:center; padding:3px 5px; font-size:10.5px;">
+                                    </div>
+                                </div>
+
+                                <div style="display:flex; flex-direction:column; gap:2px;">
+                                    <div style="display:grid; grid-template-columns: 1.4fr 1fr; gap:4px;">
+                                        <input type="text" id="tw-nt-model-bunker-1" class="tw-input" value="BUNK" placeholder="Preset 1" style="font-weight:bold; color:#34d399; padding:3px 5px; font-size:10.5px;">
+                                        <input type="number" id="tw-nt-pop-bunker-1" class="tw-input" value="12000" placeholder="Pop Mín" style="text-align:center; padding:3px 5px; font-size:10.5px;">
+                                    </div>
+                                    <div style="display:grid; grid-template-columns: 1.4fr 1fr; gap:4px;">
+                                        <input type="text" id="tw-nt-model-bunker-2" class="tw-input" value="BUNK" placeholder="Preset 2" style="font-weight:bold; color:#34d399; padding:3px 5px; font-size:10.5px;">
+                                        <input type="number" id="tw-nt-pop-bunker-2" class="tw-input" value="4000" placeholder="Pop Mín" style="text-align:center; padding:3px 5px; font-size:10.5px;">
+                                    </div>
+                                </div>
                             </div>
                         </div>
 
-                        <div style="display:flex; flex-direction:column; gap:1px;">
-                            <span style="font-size:9px; color:#e9d5ff;">Modelo de Tropas:</span>
-                            <input type="text" id="tw-nt-fake-model" class="tw-input" value="Fake" style="font-weight:bold; color:#c084fc; padding:4px 6px; font-size:11px;">
+                        <!-- CARD 4: CORTINA DE FAKES EM RAIO -->
+                        <div class="tw-card" id="tw-card-fakes" style="border-color:#a855f7; background:rgba(88, 28, 135, 0.2); padding:8px 10px; gap:4px;">
+                            <div class="tw-card-title" style="color:#c084fc; font-size:11px;">
+                                <div style="display:flex; align-items:center; gap:4px;">
+                                    <input type="checkbox" id="tw-nt-fake-enable" style="cursor:pointer; width:13px; height:13px;">
+                                    <label for="tw-nt-fake-enable" style="cursor:pointer;">🎭 Fakes em Raio</label>
+                                </div>
+                                <span style="font-size:8.5px; color:#a855f7;">Auto-Mascarar</span>
+                            </div>
+                            
+                            <div id="tw-box-fakes-inputs" style="display:flex; flex-direction:column; gap:4px; opacity:0.4; pointer-events:none; transition:opacity 0.2s ease;">
+                                <div style="display:grid; grid-template-columns: 1.1fr 1fr; gap:4px;">
+                                    <div style="display:flex; flex-direction:column; gap:1px;">
+                                        <span style="font-size:9px; color:#e9d5ff;">Raio de Busca:</span>
+                                        <select id="tw-nt-fake-radius" class="tw-select" style="font-weight:bold; color:#c084fc; padding:3px 5px; font-size:10.5px;">
+                                            <option value="4">4 campos</option>
+                                            <option value="6">6 campos</option>
+                                            <option value="8" selected>8 campos</option>
+                                            <option value="10">10 campos</option>
+                                            <option value="12">12 campos</option>
+                                            <option value="15">15 campos</option>
+                                        </select>
+                                    </div>
+                                    <div style="display:flex; flex-direction:column; gap:1px;">
+                                        <span style="font-size:9px; color:#e9d5ff;">Fakes / Aldeia:</span>
+                                        <input type="number" id="tw-nt-fake-count" class="tw-input" value="4" min="1" max="20" style="text-align:center; font-weight:bold; color:#c084fc; padding:3px 5px; font-size:10.5px;">
+                                    </div>
+                                </div>
+
+                                <div style="display:flex; flex-direction:column; gap:1px;">
+                                    <span style="font-size:9px; color:#e9d5ff;">Modelo de Tropas:</span>
+                                    <input type="text" id="tw-nt-fake-model" class="tw-input" value="Fake" style="font-weight:bold; color:#c084fc; padding:3px 5px; font-size:10.5px;">
+                                </div>
+
+                                <div id="tw-nt-fake-info" style="padding:3px 5px; background:rgba(2, 6, 23, 0.7); border:1px solid #4c1d95; border-radius:4px; font-size:9px; color:#d8b4fe; line-height:1.2;">
+                                    🎯 Insere o alvo para filtrar as aldeias do defensor.
+                                </div>
+                            </div>
                         </div>
 
-                        <div id="tw-nt-fake-info" style="padding:4px 6px; background:rgba(2, 6, 23, 0.7); border:1px solid #4c1d95; border-radius:4px; font-size:9.5px; color:#d8b4fe; line-height:1.2;">
-                            🎯 Insere o alvo para filtrar as aldeias do defensor.
-                        </div>
                     </div>
 
                 </div>
@@ -1837,16 +1855,27 @@
                 </div>
 
                 <!-- PREVIEW & VISUALIZAÇÃO DE COMANDOS (FLEXÍVEL E EXPANDÍVEL) -->
-                <div style="display:flex; flex-direction:column; gap:4px; flex-grow:1; min-height:220px; margin-top:2px;">
-                    <div style="display:flex; justify-content:space-between; align-items:center;">
-                        <span style="font-size:10px; font-weight:bold; color:#94a3b8; text-transform:uppercase; letter-spacing:0.05em;">Visualização de Comandos & Links:</span>
-                        <button class="tw-btn" id="tw-btn-toggle-table-size" style="padding:2px 10px; font-size:10px; font-weight:bold; background:#0f172a; border-color:#0284c7; color:#38bdf8; box-shadow:0 0 6px rgba(56,189,248,0.2);" title="Alterna entre visualização normal e expandida de todos os comandos">
-                            ↕️ Expandir / Ver Lista Completa
-                        </button>
+                <div style="display:flex; flex-direction:column; gap:6px; flex-grow:1; min-height:220px; margin-top:2px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:6px;">
+                        <div style="display:flex; align-items:center; gap:6px;">
+                            <span style="font-size:10.5px; font-weight:bold; color:#94a3b8; text-transform:uppercase; letter-spacing:0.05em;">Visualização de Comandos & Links:</span>
+                            <span id="tw-nt-cmd-counter" style="display:inline-block; font-size:10px; font-weight:bold; padding:2px 7px; background:#1e293b; color:#38bdf8; border-radius:10px; border:1px solid #0284c7;">0 comandos</span>
+                        </div>
+                        <div style="display:flex; align-items:center; gap:6px;">
+                            <button class="tw-btn" id="tw-btn-copy-bbcode" style="padding:3px 10px; font-size:10px; font-weight:bold; background:#0f172a; border-color:#f59e0b; color:#fbbf24; box-shadow:0 0 6px rgba(245,158,11,0.2);" title="Copia o código BBCode gerado diretamente para o clipboard">
+                                📋 Copiar BBCode
+                            </button>
+                            <button class="tw-btn" id="tw-btn-toggle-bbcode-view" style="padding:3px 10px; font-size:10px; font-weight:bold; background:#0f172a; border-color:#64748b; color:#cbd5e1;" title="Mostra ou esconde a caixa de texto com o BBCode bruto">
+                                👁️ Ver BBCode
+                            </button>
+                            <button class="tw-btn" id="tw-btn-toggle-table-size" style="padding:3px 10px; font-size:10px; font-weight:bold; background:#0f172a; border-color:#0284c7; color:#38bdf8; box-shadow:0 0 6px rgba(56,189,248,0.2);" title="Alterna entre visualização normal e expandida de todos os comandos">
+                                ↕️ Expandir Tabela
+                            </button>
+                        </div>
                     </div>
-                    <textarea id="tw-nt-preview" class="tw-textarea" style="height:36px; min-height:36px; max-height:44px; font-size:10.5px; padding:4px 8px;" placeholder="Configura os parâmetros e clica em Gerar... O BBCode é copiado automaticamente para o clipboard para colares no PS!"></textarea>
+                    <textarea id="tw-nt-preview" class="tw-textarea" style="display:none; height:44px; min-height:44px; max-height:80px; font-size:10.5px; padding:4px 8px;" placeholder="Configura os parâmetros e clica em Gerar... O BBCode é copiado automaticamente para o clipboard para colares no PS!"></textarea>
                     
-                    <div class="tw-panel" id="tw-nt-table-panel" style="min-height:200px; max-height:380px; overflow-y:auto; border:1px solid #1e293b; border-radius:8px; background:#020617; transition:max-height 0.2s ease;">
+                    <div class="tw-panel" id="tw-nt-table-panel" style="min-height:220px; max-height:420px; overflow-y:auto; border:1px solid #1e293b; border-radius:8px; background:#020617; transition:max-height 0.2s ease;">
                         <table class="tw-table" id="tw-nt-table" style="font-size:11px;">
                             <thead>
                                 <tr>
@@ -1888,16 +1917,67 @@
                 isTableExpanded = !isTableExpanded;
                 if (isTableExpanded) {
                     tablePanel.style.maxHeight = 'none';
-                    btnToggleTable.innerHTML = '🔼 Reduzir / Vista Compacta';
+                    btnToggleTable.innerHTML = '🔼 Reduzir Tabela';
                     btnToggleTable.style.borderColor = '#d97706';
                     btnToggleTable.style.color = '#fbbf24';
                     tablePanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
                 } else {
-                    tablePanel.style.maxHeight = '380px';
-                    btnToggleTable.innerHTML = '↕️ Expandir / Ver Lista Completa';
+                    tablePanel.style.maxHeight = '420px';
+                    btnToggleTable.innerHTML = '↕️ Expandir Tabela';
                     btnToggleTable.style.borderColor = '#0284c7';
                     btnToggleTable.style.color = '#38bdf8';
                 }
+            };
+        }
+
+        // Botão de Copiar BBCode Manual
+        const btnCopyBB = document.getElementById('tw-btn-copy-bbcode');
+        if (btnCopyBB) {
+            btnCopyBB.onclick = async () => {
+                const previewEl = document.getElementById('tw-nt-preview');
+                const val = previewEl ? previewEl.value.trim() : '';
+                if (!val) {
+                    showToast('⚠️ Gera primeiro o plano para teres BBCode.');
+                    return;
+                }
+                try {
+                    if (navigator.clipboard && navigator.clipboard.writeText) {
+                        await navigator.clipboard.writeText(val);
+                    }
+                    showToast('📋 BBCode copiado para o Clipboard!');
+                } catch (e) {
+                    showToast('❌ Erro ao copiar BBCode.');
+                }
+            };
+        }
+
+        // Botão de Alternar Visualização do BBCode
+        const btnToggleBB = document.getElementById('tw-btn-toggle-bbcode-view');
+        const previewTextarea = document.getElementById('tw-nt-preview');
+        if (btnToggleBB && previewTextarea) {
+            btnToggleBB.onclick = () => {
+                if (previewTextarea.style.display === 'none') {
+                    previewTextarea.style.display = 'block';
+                    btnToggleBB.innerHTML = '🙈 Ocultar BBCode';
+                    btnToggleBB.style.borderColor = '#fbbf24';
+                    btnToggleBB.style.color = '#fbbf24';
+                } else {
+                    previewTextarea.style.display = 'none';
+                    btnToggleBB.innerHTML = '👁️ Ver BBCode';
+                    btnToggleBB.style.borderColor = '#64748b';
+                    btnToggleBB.style.color = '#cbd5e1';
+                }
+            };
+        }
+
+        // Alternância de Ativação de Fakes
+        const chkFakeEnable = document.getElementById('tw-nt-fake-enable');
+        const boxFakesInputs = document.getElementById('tw-box-fakes-inputs');
+        if (chkFakeEnable && boxFakesInputs) {
+            chkFakeEnable.onchange = () => {
+                const isEnabled = chkFakeEnable.checked;
+                boxFakesInputs.style.opacity = isEnabled ? '1' : '0.4';
+                boxFakesInputs.style.pointerEvents = isEnabled ? 'auto' : 'none';
             };
         }
 
@@ -2207,22 +2287,28 @@
             }
 
             // 3. Card 3: Bunker Conquista
-            const cardBunker = document.querySelector('.tw-card[style*="border-color:#059669"]') || document.querySelector('.tw-card[style*="rgba(6, 78, 59"]');
+            const boxBunkerInputs = document.getElementById('tw-box-bunker-inputs');
             if (bunkerCountSelect) {
                 if (!hasNobles) {
                     bunkerCountSelect.value = '0';
                     bunkerCountSelect.disabled = true;
                     bunkerCountSelect.style.opacity = '0.4';
-                    if (cardBunker) {
-                        cardBunker.style.opacity = '0.4';
-                        cardBunker.style.pointerEvents = 'none';
+                    if (boxBunkerInputs) {
+                        boxBunkerInputs.style.opacity = '0.35';
+                        boxBunkerInputs.style.pointerEvents = 'none';
                     }
                 } else {
                     bunkerCountSelect.disabled = false;
                     bunkerCountSelect.style.opacity = '1';
-                    if (cardBunker) {
-                        cardBunker.style.opacity = '1';
-                        cardBunker.style.pointerEvents = 'auto';
+                    const bCount = parseInt(bunkerCountSelect.value, 10) || 0;
+                    if (boxBunkerInputs) {
+                        if (bCount === 0) {
+                            boxBunkerInputs.style.opacity = '0.35';
+                            boxBunkerInputs.style.pointerEvents = 'none';
+                        } else {
+                            boxBunkerInputs.style.opacity = '1';
+                            boxBunkerInputs.style.pointerEvents = 'auto';
+                        }
                     }
                 }
             }
@@ -2387,7 +2473,7 @@
                     const isComm = !!committedMap[v.id];
                     const pal = (v.paladin && v.paladin.isHome) ? v.paladin : null;
                     const palTag = pal ? ` [${pal.name}${pal.name === 'QuimConquista' ? ' ⚔️ Persuasão' : ''}]` : '';
-                    return `<option value="${v.id}">${v.name} (${v.coords}) • ${v.snobsAvailable} Nobres${palTag}${isComm ? ' [🔒 Reservada]' : ''}</option>`;
+                    return `<option value="${v.id}">${cleanVillageDisplayName(v)} • ${v.snobsAvailable} Nobres${palTag}${isComm ? ' [🔒 Reservada]' : ''}</option>`;
                 }).join('');
                 selPrimary.innerHTML = defaultOptions;
                 if (selSecondary) selSecondary.innerHTML = defaultOptions;
@@ -2438,7 +2524,7 @@
                     : (isBestWithEnough && !isClosest ? '⭐ [MAIS PERTO C/ NOBRES] ' : `[#${idx + 1}] `);
                 const nobleStatus = item.hasReqNobles ? `${v.snobsAvailable} Nobres` : `⚠️ ${v.snobsAvailable}/${reqNobles} Nobres`;
                 const commTag = item.isComm ? ' [🔒 Reservada]' : '';
-                return `<option value="${v.id}" data-dist="${item.dist.toFixed(2)}" data-time="${item.timeStr}">${prefix}${v.name} (${v.coords}) • ${item.dist.toFixed(1)}c • ⏳ ${item.timeStr} • ${nobleStatus}${palTag}${commTag}</option>`;
+                return `<option value="${v.id}" data-dist="${item.dist.toFixed(2)}" data-time="${item.timeStr}">${prefix}${cleanVillageDisplayName(v)} • ${item.dist.toFixed(1)}c • ⏳ ${item.timeStr} • ${nobleStatus}${palTag}${commTag}</option>`;
             }).join('');
 
             // Renderizar opções para Aldeia Nobres Secundária (Split 2x2)
@@ -2451,7 +2537,7 @@
                     const prefix = is2ndClosest ? '⭐ [2º MAIS PERTO] ' : `[#${idx + 1}] `;
                     const nobleStatus = item.hasReqNobles ? `${v.snobsAvailable} Nobres` : `⚠️ ${v.snobsAvailable}/${reqNobles} Nobres`;
                     const commTag = item.isComm ? ' [🔒 Reservada]' : '';
-                    return `<option value="${v.id}" data-dist="${item.dist.toFixed(2)}" data-time="${item.timeStr}">${prefix}${v.name} (${v.coords}) • ${item.dist.toFixed(1)}c • ⏳ ${item.timeStr} • ${nobleStatus}${palTag}${commTag}</option>`;
+                    return `<option value="${v.id}" data-dist="${item.dist.toFixed(2)}" data-time="${item.timeStr}">${prefix}${cleanVillageDisplayName(v)} • ${item.dist.toFixed(1)}c • ⏳ ${item.timeStr} • ${nobleStatus}${palTag}${commTag}</option>`;
                 }).join('');
             }
 
@@ -2492,7 +2578,7 @@
                     hintBox.innerHTML = `
                         <div style="display:flex; justify-content:space-between; align-items:center; width:100%; gap:6px;">
                             <span style="line-height:1.2;">
-                                ⭐ <b>Mais Perto do Alvo:</b> <span style="color:#fbbf24; font-weight:bold;">${bestV.name}</span> (${bestV.coords}) 
+                                ⭐ <b>Mais Perto do Alvo:</b> <span style="color:#fbbf24; font-weight:bold;">${cleanVillageDisplayName(bestV)}</span> 
                                 • <b style="color:#38bdf8;">${closestWithEnough.dist.toFixed(1)} campos</b> 
                                 • <span style="color:#4ade80;">⏳ ${closestWithEnough.timeStr}</span> 
                                 • <b>${bestV.snobsAvailable} Nobres</b>${bestPalTag}
@@ -2505,8 +2591,8 @@
                     hintBox.innerHTML = `
                         <div style="display:flex; justify-content:space-between; align-items:center; width:100%; gap:6px;">
                             <span style="line-height:1.2;">
-                                📍 <b>Selecionada:</b> <span style="color:#e2e8f0; font-weight:bold;">${selV.name}</span> (${currentPrimaryItem.dist.toFixed(1)}c • ⏳ ${currentPrimaryItem.timeStr}) 
-                                <br>⭐ <b>Mais Perto:</b> <span style="color:#fbbf24; font-weight:bold;">${bestV.name}</span> (${closestWithEnough.dist.toFixed(1)}c • ⏳ ${closestWithEnough.timeStr} • ${bestV.snobsAvailable}N)${bestPalTag}
+                                📍 <b>Selecionada:</b> <span style="color:#e2e8f0; font-weight:bold;">${cleanVillageDisplayName(selV)}</span> (${currentPrimaryItem.dist.toFixed(1)}c • ⏳ ${currentPrimaryItem.timeStr}) 
+                                <br>⭐ <b>Mais Perto:</b> <span style="color:#fbbf24; font-weight:bold;">${cleanVillageDisplayName(bestV)}</span> (${closestWithEnough.dist.toFixed(1)}c • ⏳ ${closestWithEnough.timeStr} • ${bestV.snobsAvailable}N)${bestPalTag}
                             </span>
                             <button type="button" class="tw-btn tw-btn-gold" id="tw-btn-pick-closest-noble" style="padding:2px 8px; font-size:9.5px; font-weight:bold; white-space:nowrap; flex-shrink:0;">
                                 🎯 Escolher Mais Perto
@@ -2990,6 +3076,10 @@
         const tPanel = document.getElementById('tw-nt-table-panel');
         if (tPanel) {
             tPanel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+        const cmdCounterEl = document.getElementById('tw-nt-cmd-counter');
+        if (cmdCounterEl) {
+            cmdCounterEl.innerText = `${allCampaignCommands.length} comandos (${targets.length} alvos)`;
         }
         const copyNotice = copied ? 'copiada para o Clipboard' : 'gerada (copia do campo de texto)';
         if (attackMode === 'nuke_sweep' || attackMode === 'cat_demolish' || !hasNobles) {
@@ -3854,6 +3944,10 @@
         const tPanel = document.getElementById('tw-nt-table-panel');
         if (tPanel) {
             tPanel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+        const cmdCounterEl = document.getElementById('tw-nt-cmd-counter');
+        if (cmdCounterEl) {
+            cmdCounterEl.innerText = `${sequence.length} comandos`;
         }
         const copyNotice = copied ? 'copiado para o Clipboard' : 'gerado (copia do campo de texto abaixo)';
         if (attackMode === 'nuke_sweep' || attackMode === 'cat_demolish' || !hasNobles) {
