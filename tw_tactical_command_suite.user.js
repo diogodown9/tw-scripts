@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TW Tactical Command Suite
 // @namespace    https://tribalwars.com.pt/
-// @version      3.2.7
-// @description  Suite militar avançada para Tribal Wars PT: Módulo Tático de Comandos (Ataques & Retornos com filtros, agrupamento por alvos, exclusão opcional de micro-saques Modo Turbo para velocidade máxima, purga automática de comandos expirados e timers sincronizados com o servidor), Rastreio de Nobres a Caminho & em Retorno de Comandos + Treino na Academia, Validação Precisa de Envio & Horário Mínimo de Ataque (⚡ com 5m folga e seleção do Nuke Full mais perto), Suporte Automático a Modelos NT (NT 33% para 3 nobres, NT 25% para 4 nobres), Bunkers Desligados por Default, Alvo Cats do Nuke Muralha por Default, Fakes Inteligentes 1% Dinâmico, Arsenal Tático de Fakes, UI de Limpezas/Nobres/Demolição, e Planeador Tático.
+// @version      3.2.8
+// @description  Suite militar avançada para Tribal Wars PT: Módulo Tático de Comandos (Ataques & Retornos com filtros, agrupamento por alvos, ordenação interativa por clique nos cabeçalhos de coluna, exclusão opcional de micro-saques Modo Turbo para velocidade máxima, purga automática de comandos expirados e timers sincronizados com o servidor), Rastreio de Nobres a Caminho & em Retorno de Comandos + Treino na Academia, Validação Precisa de Envio & Horário Mínimo de Ataque (⚡ com 5m folga e seleção do Nuke Full mais perto), Suporte Automático a Modelos NT (NT 33% para 3 nobres, NT 25% para 4 nobres), Bunkers Desligados por Default, Alvo Cats do Nuke Muralha por Default, Fakes Inteligentes 1% Dinâmico, Arsenal Tático de Fakes, UI de Limpezas/Nobres/Demolição, e Planeador Tático.
 // @author       Diogo & Antigravity
 // @match        https://*.tribalwars.com.pt/game.php*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=tribalwars.com.pt
@@ -12,7 +12,7 @@
 // ==/UserScript==
 
 (async function () {
-    const SCRIPT_VERSION = '3.2.7';
+    const SCRIPT_VERSION = '3.2.8';
 
     // Auto-selecionar alvo de catapulta na confirmação de ataque na Praça de Reunião se especificado no URL
     try {
@@ -482,7 +482,7 @@
     let allParsedCommands = [];
     let commandsFilter = 'players'; // 'players' (padrão: ataques e retornos a jogadores), 'all', 'attack', 'return', 'snob', 'farm', 'support'
     let commandsSearch = '';
-    let commandsSort = 'time_asc'; // 'time_asc', 'time_desc', 'origin', 'target', 'snob_first'
+    let commandsSort = getPref('tw_cmd_sort', 'time_asc'); // 'time_asc', 'time_desc', 'origin', 'target', 'snob_first'
     let commandsGroupByTarget = getPref('tw_cmd_group_targets', false); // Alternar agrupamento de comandos por aldeia alvo
     let commandsIgnoreFarms = getPref('tw_cmd_ignore_farms', true); // Modo Turbo: excluir micro-saques automáticos a bárbaras para velocidade máxima
     let collapsedTargetGroups = new Set(); // Conjunto de chaves de grupos recolhidos
@@ -7089,11 +7089,21 @@
                         <thead>
                             <tr>
                                 <th style="text-align:left; width:160px; padding-left:10px;">Tipo / Comando</th>
-                                <th style="text-align:left; width:140px;">Composição & Destaques</th>
-                                <th style="text-align:left; width:220px;">Aldeia Base (Origem)</th>
-                                <th style="text-align:left; width:250px;">Aldeia Alvo / Remota</th>
-                                <th style="width:140px;">Hora de Chegada</th>
-                                <th style="width:110px;">Tempo Restante</th>
+                                <th data-cmd-sort="snob_first" style="text-align:left; width:140px; cursor:pointer; user-select:none;" title="Clique para ordenar por Nobres">
+                                    Composição & Destaques <span class="tw-cmd-sort-indicator" data-sort-key="snob_first"></span>
+                                </th>
+                                <th data-cmd-sort="origin" style="text-align:left; width:220px; cursor:pointer; user-select:none;" title="Clique para ordenar por Aldeia Origem">
+                                    Aldeia Base (Origem) <span class="tw-cmd-sort-indicator" data-sort-key="origin"></span>
+                                </th>
+                                <th data-cmd-sort="target" style="text-align:left; width:250px; cursor:pointer; user-select:none;" title="Clique para ordenar por Aldeia Alvo">
+                                    Aldeia Alvo / Remota <span class="tw-cmd-sort-indicator" data-sort-key="target"></span>
+                                </th>
+                                <th data-cmd-sort="time" style="width:140px; cursor:pointer; user-select:none;" title="Clique para alternar: Mais Próximos ⇋ Mais Tardios">
+                                    Hora de Chegada <span class="tw-cmd-sort-indicator" data-sort-key="time"></span>
+                                </th>
+                                <th data-cmd-sort="time" style="width:110px; cursor:pointer; user-select:none;" title="Clique para alternar: Mais Próximos ⇋ Mais Tardios">
+                                    Tempo Restante <span class="tw-cmd-sort-indicator" data-sort-key="time"></span>
+                                </th>
                                 <th style="width:100px;">Ações Rápidas</th>
                             </tr>
                         </thead>
@@ -7122,9 +7132,37 @@
         if (sortSelect) {
             sortSelect.addEventListener('change', (e) => {
                 commandsSort = e.target.value;
+                savePrefs('tw_cmd_sort', commandsSort);
                 renderCommandsTable();
             });
         }
+
+        document.querySelectorAll('th[data-cmd-sort]').forEach(th => {
+            th.addEventListener('click', function() {
+                const sType = this.getAttribute('data-cmd-sort');
+                if (sType === 'time') {
+                    if (commandsSort === 'time_asc') {
+                        commandsSort = 'time_desc';
+                        showToast('⏱️ Mais Tardios Primeiro');
+                    } else {
+                        commandsSort = 'time_asc';
+                        showToast('⏱️ Mais Próximos Primeiro');
+                    }
+                } else if (sType === 'snob_first') {
+                    commandsSort = commandsSort === 'snob_first' ? 'time_asc' : 'snob_first';
+                    showToast(commandsSort === 'snob_first' ? '👑 Com Nobre Primeiro' : '⏱️ Mais Próximos Primeiro');
+                } else if (sType === 'origin') {
+                    commandsSort = commandsSort === 'origin' ? 'time_asc' : 'origin';
+                    showToast(commandsSort === 'origin' ? '🏰 Por Aldeia Origem' : '⏱️ Mais Próximos Primeiro');
+                } else if (sType === 'target') {
+                    commandsSort = commandsSort === 'target' ? 'time_asc' : 'target';
+                    showToast(commandsSort === 'target' ? '🎯 Por Aldeia Alvo' : '⏱️ Mais Próximos Primeiro');
+                }
+                savePrefs('tw_cmd_sort', commandsSort);
+                if (sortSelect) sortSelect.value = commandsSort;
+                renderCommandsTable();
+            });
+        });
 
         const groupTargetsBtn = document.getElementById('tw-btn-group-targets');
         if (groupTargetsBtn) {
@@ -7264,6 +7302,25 @@
             filtered.sort((a, b) => (a.originName || a.originCoords || '').localeCompare(b.originName || b.originCoords || '') || (a.readyAtMs - b.readyAtMs));
         } else if (commandsSort === 'target') {
             filtered.sort((a, b) => (a.targetName || a.targetCoords || '').localeCompare(b.targetName || b.targetCoords || '') || (a.readyAtMs - b.readyAtMs));
+        }
+
+        // Atualizar indicadores de ordenação nos cabeçalhos da tabela
+        const tableEl = tbody.closest('table');
+        if (tableEl) {
+            tableEl.querySelectorAll('.tw-cmd-sort-indicator').forEach(ind => {
+                const k = ind.getAttribute('data-sort-key');
+                if (k === 'time') {
+                    if (commandsSort === 'time_asc') ind.innerHTML = '<span style="color:#38bdf8; font-size:11px; margin-left:3px;">▲</span>';
+                    else if (commandsSort === 'time_desc') ind.innerHTML = '<span style="color:#f59e0b; font-size:11px; margin-left:3px;">▼</span>';
+                    else ind.innerHTML = '';
+                } else if (k === 'snob_first') {
+                    ind.innerHTML = commandsSort === 'snob_first' ? '<span style="color:#f59e0b; font-size:11px; margin-left:3px;">👑</span>' : '';
+                } else if (k === 'origin') {
+                    ind.innerHTML = commandsSort === 'origin' ? '<span style="color:#38bdf8; font-size:11px; margin-left:3px;">▲</span>' : '';
+                } else if (k === 'target') {
+                    ind.innerHTML = commandsSort === 'target' ? '<span style="color:#38bdf8; font-size:11px; margin-left:3px;">▲</span>' : '';
+                }
+            });
         }
 
         const footerSummary = document.getElementById('tw-cmd-footer-summary');
@@ -7411,9 +7468,30 @@
             });
 
             const sortedGroupEntries = Array.from(targetGroups.entries()).sort((a, b) => {
-                const minA = Math.min(...a[1].map(cmd => cmd.readyAtMs || 0));
-                const minB = Math.min(...b[1].map(cmd => cmd.readyAtMs || 0));
-                return minA - minB;
+                if (commandsSort === 'time_desc') {
+                    const maxA = Math.max(...a[1].map(cmd => cmd.readyAtMs || 0));
+                    const maxB = Math.max(...b[1].map(cmd => cmd.readyAtMs || 0));
+                    return maxB - maxA;
+                } else if (commandsSort === 'snob_first') {
+                    const snobA = a[1].filter(cmd => cmd.hasSnob).length;
+                    const snobB = b[1].filter(cmd => cmd.hasSnob).length;
+                    if (snobB !== snobA) return snobB - snobA;
+                    const minA = Math.min(...a[1].map(cmd => cmd.readyAtMs || 0));
+                    const minB = Math.min(...b[1].map(cmd => cmd.readyAtMs || 0));
+                    return minA - minB;
+                } else if (commandsSort === 'origin') {
+                    const origA = a[1][0]?.originName || '';
+                    const origB = b[1][0]?.originName || '';
+                    return origA.localeCompare(origB);
+                } else if (commandsSort === 'target') {
+                    const nameA = a[1][0]?.targetName || a[0];
+                    const nameB = b[1][0]?.targetName || b[0];
+                    return nameA.localeCompare(nameB);
+                } else {
+                    const minA = Math.min(...a[1].map(cmd => cmd.readyAtMs || 0));
+                    const minB = Math.min(...b[1].map(cmd => cmd.readyAtMs || 0));
+                    return minA - minB;
+                }
             });
 
             sortedGroupEntries.forEach(([key, groupCmds]) => {
@@ -7422,7 +7500,11 @@
                 const tName = firstCmd.targetName || 'Aldeia Alvo';
                 const isCollapsed = collapsedTargetGroups.has(key);
                 const snobCount = groupCmds.filter(cmd => cmd.hasSnob).length;
-                const sortedCmds = [...groupCmds].sort((a, b) => a.readyAtMs - b.readyAtMs);
+                const sortedCmds = [...groupCmds].sort((a, b) => {
+                    if (commandsSort === 'time_desc') return b.readyAtMs - a.readyAtMs;
+                    if (commandsSort === 'snob_first') return (b.hasSnob ? 1 : 0) - (a.hasSnob ? 1 : 0) || (a.readyAtMs - b.readyAtMs);
+                    return a.readyAtMs - b.readyAtMs;
+                });
                 const earliestCmd = sortedCmds[0];
                 const latestCmd = sortedCmds[sortedCmds.length - 1];
                 const earliestTimeStr = earliestCmd ? (earliestCmd.completionStr || (earliestCmd.readyAtMs ? new Date(earliestCmd.readyAtMs).toLocaleTimeString('pt-PT') : '--:--:--')) : '--:--:--';
