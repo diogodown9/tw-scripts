@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW Tactical Command Suite
 // @namespace    https://tribalwars.com.pt/
-// @version      3.1.1
+// @version      3.2.0
 // @description  Suite militar avançada para Tribal Wars PT: Módulo Tático de Comandos (Ataques & Retornos de tropas com filtros e timers em tempo real), Rastreio de Nobres a Caminho & em Retorno de Comandos + Treino na Academia, Validação Precisa de Envio & Horário Mínimo de Ataque (⚡ com 5m folga e seleção do Nuke Full mais perto), Suporte Automático a Modelos NT (NT 33% para 3 nobres, NT 25% para 4 nobres), Bunkers Desligados por Default, Alvo Cats do Nuke Muralha por Default, Fakes Inteligentes 1% Dinâmico, Arsenal Tático de Fakes, UI de Limpezas/Nobres/Demolição, e Planeador Tático.
 // @author       Diogo & Antigravity
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -12,7 +12,7 @@
 // ==/UserScript==
 
 (async function () {
-    const SCRIPT_VERSION = '3.1.1';
+    const SCRIPT_VERSION = '3.2.0';
 
     // Auto-selecionar alvo de catapulta na confirmação de ataque na Praça de Reunião se especificado no URL
     try {
@@ -464,7 +464,7 @@
     let plannerMode = 'single'; // 'single' ou 'multi'
     let allAccountPaladins = [];
     let allParsedCommands = [];
-    let commandsFilter = 'all'; // 'all', 'attack', 'return', 'snob', 'farm', 'support'
+    let commandsFilter = 'players'; // 'players' (padrão: ataques e retornos a jogadores), 'all', 'attack', 'return', 'snob', 'farm', 'support'
     let commandsSearch = '';
     let commandsSort = 'time_asc'; // 'time_asc', 'time_desc', 'origin', 'target', 'snob_first'
     let commandsTimerInterval = null;
@@ -640,8 +640,9 @@
 
     function parseTwDateTime(str, serverTimeObj = new Date()) {
         if (!str) return null;
-        str = str.trim().toLowerCase();
-        const timeMatch = str.match(/(\d{1,2}):(\d{2}):(\d{2})(?::(\d{1,3}))?/);
+        str = str.trim();
+        const cleanStr = str.replace(/<[^>]+>/g, '').trim().toLowerCase();
+        const timeMatch = cleanStr.match(/(\d{1,2}):(\d{2}):(\d{2})(?:[:\.](\d{1,3}))?/);
         if (!timeMatch) return null;
         const h = parseInt(timeMatch[1], 10);
         const m = parseInt(timeMatch[2], 10);
@@ -651,10 +652,10 @@
         const d = new Date(serverTimeObj.getTime());
         d.setHours(h, m, s, ms);
 
-        if (str.includes('amanhã') || str.includes('tomorrow')) {
+        if (cleanStr.includes('amanhã') || cleanStr.includes('tomorrow')) {
             d.setDate(d.getDate() + 1);
         } else {
-            const dateMatch = str.match(/(\d{1,2})\.(\d{1,2})\./) || str.match(/(\d{1,2})\/(\d{1,2})\//);
+            const dateMatch = cleanStr.match(/(\d{1,2})\.(\d{1,2})\./) || cleanStr.match(/(\d{1,2})\/(\d{1,2})\//);
             if (dateMatch) {
                 const day = parseInt(dateMatch[1], 10);
                 const month = parseInt(dateMatch[2], 10) - 1;
@@ -754,7 +755,7 @@
         }
     };
 
-    async function fetchAllAccountCommandsHtml(customMakeUrl = null, customSafeFetch = null) {
+    async function fetchAllAccountCommandsHtml(customMakeUrl = null, customSafeFetch = null, activeVillageIds = []) {
         if (window.twCommandDiagnostics) window.twCommandDiagnostics.clear();
 
         const doFetch = async (url) => {
@@ -765,7 +766,7 @@
                     if (r && r.length > 50) return r;
                 } catch (_) {}
             }
-            for (let attempt = 1; attempt <= 3; attempt++) {
+            for (let attempt = 1; attempt <= 2; attempt++) {
                 try {
                     const res = await fetch(url);
                     if (res.ok) {
@@ -773,14 +774,15 @@
                         if (txt && txt.length > 50) return txt;
                     }
                 } catch (e) {
-                    if (attempt === 3) console.warn('[TW Tactical] Falha de fetch:', url, e);
+                    if (attempt === 2) console.warn('[TW Tactical] Falha de fetch:', url, e);
                 }
-                if (attempt < 3) await new Promise(r => setTimeout(r, 250));
+                if (attempt < 2) await new Promise(r => setTimeout(r, 200));
             }
             return '';
         };
 
-        const mkUrl = customMakeUrl || (typeof makeUrl === 'function' ? makeUrl : (p => `/game.php?screen=${p}`));
+        const currentVId = (typeof game_data !== 'undefined' && game_data.village) ? game_data.village.id : null;
+        const sitterParam = (typeof game_data !== 'undefined' && game_data.player && game_data.player.sitter > 0) ? `&t=${game_data.player.id}` : '';
 
         const results = [];
         const seenCommandIds = new Set();
@@ -792,30 +794,12 @@
             const m2 = Array.from(html.matchAll(/href="[^"]*(?:info_command)[^"]*"/gi)).map(h => (h[0].match(/[?&;]id=(\d+)/i) || [])[1]).filter(Boolean);
             const m3 = Array.from(html.matchAll(/data-id="(\d+)"/g)).map(m => m[1]);
             const m4 = Array.from(html.matchAll(/id="command_(\d+)"/gi)).map(m => m[1]);
-            const m5 = Array.from(html.matchAll(/<tr[^>]*class="[^"]*nowrap[^"]*"[^>]*>([\s\S]*?)<\/tr>/gi)).map((m, idx) => {
-                const idM = m[1].match(/(?:data-command-id|data-id)="(\d+)"/) || m[1].match(/id=(\d+)/);
+            const m5 = Array.from(html.matchAll(/name="id_(\d+)"/gi)).map(m => m[1]);
+            const m6 = Array.from(html.matchAll(/<tr[^>]*class="[^"]*nowrap[^"]*"[^>]*>([\s\S]*?)<\/tr>/gi)).map((m, idx) => {
+                const idM = m[1].match(/(?:data-command-id|data-id)="(\d+)"/) || m[1].match(/[?&;]id=(\d+)/) || m[1].match(/id="command_(\d+)"/);
                 return idM ? idM[1] : `row_${idx}`;
             });
-            return [...new Set([...m1, ...m2, ...m3, ...m4, ...m5])];
-        };
-
-        const extractPageUrls = (html) => {
-            if (!html) return [];
-            const found = [];
-            // 1. Links com paged-nav-item
-            const navMatches = Array.from(html.matchAll(/class="[^"]*paged-nav-item[^"]*"[^>]*href="([^"]+)"/gi))
-                .concat(Array.from(html.matchAll(/href="([^"]+)"[^>]*class="[^"]*paged-nav-item[^"]*"/gi)));
-            navMatches.forEach(m => found.push(m[1]));
-
-            // 2. Opções de select de paginação
-            const optMatches = Array.from(html.matchAll(/<option[^>]*value="([^"]*(?:overview_villages|mode=commands|page=\d+)[^"]*)"/gi));
-            optMatches.forEach(m => found.push(m[1]));
-
-            // 3. Qualquer link que contenha mode=commands e page=
-            const pageMatches = Array.from(html.matchAll(/href="([^"]*(?:mode=commands|overview_villages)[^"]*page=\d+[^"]*)"/gi));
-            pageMatches.forEach(m => found.push(m[1]));
-
-            return [...new Set(found.map(u => u.replace(/&amp;/g, '&')).filter(u => u && !u.includes('page=-1')))];
+            return [...new Set([...m1, ...m2, ...m3, ...m4, ...m5, ...m6])];
         };
 
         const fetchSingleUrl = async (url, label = '') => {
@@ -847,80 +831,79 @@
             return null;
         };
 
-        const processPageHtml = (html) => {
+        const addPageHtml = (html) => {
             if (!html) return 0;
             const ids = extractIds(html);
-            const newIds = ids.filter(id => !seenCommandIds.has(id));
-            if (results.length === 0 || newIds.length > 0) {
-                results.push(html);
-                ids.forEach(id => seenCommandIds.add(id));
-            }
-            return newIds.length;
+            results.push(html);
+            ids.forEach(id => seenCommandIds.add(id));
+            return ids.length;
         };
 
-        // Lista de queries estratégicas prioritárias para capturar 100% dos comandos da conta
-        const queryList = [
-            '&type=all&group=0',
-            '&type=all',
-            '&type=attack&group=0',
-            '&type=attack',
-            '&group=0',
-            '',
-            '&type=return&group=0',
-            '&type=return',
-            '&type=support&group=0',
-            '&type=support'
-        ];
+        // 1. Pedido Primário Canónico: Visão Geral de Comandos com Todas as Aldeias (&group=0) e Sem Paginação (&page=-1)
+        const primaryEndpoints = [
+            currentVId ? `/game.php?village=${currentVId}&screen=overview_villages&mode=commands&group=0&page=-1${sitterParam}` : '',
+            `/game.php?screen=overview_villages&mode=commands&group=0&page=-1${sitterParam}`,
+            currentVId ? `/game.php?village=${currentVId}&screen=overview_villages&mode=commands&type=all&group=0&page=-1${sitterParam}` : '',
+            `/game.php?screen=overview_villages&mode=commands&type=all&group=0&page=-1${sitterParam}`
+        ].filter(Boolean);
 
-        for (const q of queryList) {
-            const candidates = [
-                typeof mkUrl === 'function' ? mkUrl(`overview_villages&mode=commands${q}`) : '',
-                `/game.php?screen=overview_villages&mode=commands${q}`
-            ].filter(Boolean);
-
-            let pageHtml = null;
-            for (const cand of candidates) {
-                pageHtml = await fetchSingleUrl(cand, q || 'default');
-                if (pageHtml) break;
-            }
-
-            if (!pageHtml) continue;
-            processPageHtml(pageHtml);
-
-            // Seguir links de paginação encontrados
-            const discoveredLinks = extractPageUrls(pageHtml);
-            for (const pLink of discoveredLinks) {
-                const pRes = await fetchSingleUrl(pLink, 'paginação-link');
-                if (pRes) {
-                    processPageHtml(pRes);
-                }
-            }
-
-            // Varredura de páginas numéricas ativas se houver mais de 1 página
-            if (pageHtml.includes('paged-nav-item') || pageHtml.includes('page=')) {
-                let consecutiveEmpty = 0;
-                for (let pageNum = 1; pageNum <= 5; pageNum++) {
-                    const pUrl = typeof mkUrl === 'function' ? mkUrl(`overview_villages&mode=commands${q}&page=${pageNum}`) : `/game.php?screen=overview_villages&mode=commands${q}&page=${pageNum}`;
-                    if (fetchedUrls.has(pUrl)) continue;
-                    const pRes = await fetchSingleUrl(pUrl, `page-${pageNum}`);
-                    if (!pRes) {
-                        consecutiveEmpty++;
-                        if (consecutiveEmpty >= 2) break;
-                        continue;
-                    }
-                    const newCount = processPageHtml(pRes);
-                    if (newCount === 0) {
-                        consecutiveEmpty++;
-                        if (consecutiveEmpty >= 2) break;
-                    } else {
-                        consecutiveEmpty = 0;
-                    }
-                }
+        let mainHtml = null;
+        for (const ep of primaryEndpoints) {
+            mainHtml = await fetchSingleUrl(ep, 'global-overview-page-all');
+            if (mainHtml && (mainHtml.includes('commands_table') || extractIds(mainHtml).length > 0)) {
+                addPageHtml(mainHtml);
+                break;
             }
         }
 
-        console.log(`[TW Tactical] Comandos recolhidos de ${results.length} páginas (${seenCommandIds.size} comandos únicos detetados).`);
+        // Se houver paginação real (.paged-nav-item), seguir apenas as páginas explícitas (teto máx 3 páginas)
+        if (mainHtml) {
+            const navMatches = Array.from(mainHtml.matchAll(/class="[^"]*paged-nav-item[^"]*"[^>]*href="([^"]+)"/gi))
+                .concat(Array.from(mainHtml.matchAll(/href="([^"]+)"[^>]*class="[^"]*paged-nav-item[^"]*"/gi)));
+            const pLinks = [...new Set(navMatches.map(m => m[1].replace(/&amp;/g, '&')).filter(u => u && !u.includes('page=-1')))].slice(0, 3);
+            for (const pUrl of pLinks) {
+                const pRes = await fetchSingleUrl(pUrl, 'paged-nav');
+                if (pRes) addPageHtml(pRes);
+            }
+        }
 
+        // 2. Consulta da aba de retornos (&type=return) caso o servidor os separe
+        const returnEndpoints = [
+            currentVId ? `/game.php?village=${currentVId}&screen=overview_villages&mode=commands&type=return&group=0&page=-1${sitterParam}` : '',
+            `/game.php?screen=overview_villages&mode=commands&type=return&group=0&page=-1${sitterParam}`
+        ].filter(Boolean);
+
+        for (const rEp of returnEndpoints) {
+            const rHtml = await fetchSingleUrl(rEp, 'global-returns-page');
+            if (rHtml && (rHtml.includes('commands_table') || extractIds(rHtml).length > 0)) {
+                addPageHtml(rHtml);
+                break;
+            }
+        }
+
+        // 3. Caçador Direcionado de Aldeias de Guerra (Bypassa os 3000+ comandos de auto-farm de bárbaras)
+        let targetVillages = Array.isArray(activeVillageIds) ? [...activeVillageIds] : [];
+        if (targetVillages.length === 0 && typeof allVillages !== 'undefined' && Array.isArray(allVillages)) {
+            allVillages.forEach(v => {
+                if (v.snobsOutside > 0 || (v.movingTroopsDict && v.movingTroopsDict.snob > 0) ||
+                    (v.movingTroopsDict && (v.movingTroopsDict.ram > 0 || v.movingTroopsDict.catapult > 0)) ||
+                    v.snobsReturning > 0 || (v.movingPopTotal && v.movingPopTotal > 1000) ||
+                    (v.paladin && v.movingTroopsDict && v.movingTroopsDict.knight > 0)) {
+                    targetVillages.push(String(v.id));
+                }
+            });
+        }
+        if (targetVillages.length > 0) {
+            const uniqueActive = [...new Set(targetVillages.map(String))].slice(0, 8);
+            await Promise.all(uniqueActive.map(async (aVId) => {
+                if (aVId === String(currentVId)) return;
+                const ovUrl = `/game.php?village=${aVId}&screen=overview${sitterParam}`;
+                const ovHtml = await fetchSingleUrl(ovUrl, `aldeia-guerra-${aVId}`);
+                if (ovHtml) addPageHtml(ovHtml);
+            }));
+        }
+
+        console.log(`[TW Tactical] Comandos recolhidos de ${results.length} respostas HTTP (${seenCommandIds.size} comandos únicos detetados).`);
         return results;
     }
 
@@ -1205,7 +1188,6 @@
             const hasSnob = /snob|nobre|snob\.webp|return_snob\.webp/i.test(row);
             const hasPaladin = /knight|paladino|knight\.webp/i.test(row);
             const hasSpy = /spy|batedor|spy\.webp/i.test(row);
-            const isFarm = /farm/i.test(row) || /saque/i.test(label);
             const isLarge = /attack_large|grande ataque/i.test(row);
             const isMedium = /attack_medium|médio ataque/i.test(row);
             const isSmall = /attack_small|pequeno ataque/i.test(row);
@@ -1262,6 +1244,14 @@
                 }
             }
 
+            // Classificação rigorosa de Alvo Jogador vs Saque Bárbara
+            const isBarbarianTarget = /b[áa]rbar[ao]|b[oó]nus|barbarian/i.test(targetName || '') || 
+                                      /b[áa]rbar[ao]|b[oó]nus|barbarian/i.test(label || '') ||
+                                      (typeof worldVillages !== 'undefined' && targetCoords && worldVillages.some(wv => wv.coord === targetCoords && wv.playerId === '0'));
+            const isFarmIconOrLabel = /farm\.webp/i.test(row) || /data-icon-hint="[^"]*saque[^"]*"/i.test(row) || /^saque\b/i.test(label || '');
+            const isFarm = (isFarmIconOrLabel || isBarbarianTarget) && !hasSnob && !hasPaladin && !isLarge;
+            const isPlayerTarget = !isFarm && (!isBarbarianTarget || hasSnob || hasPaladin || isLarge);
+
             commands.push({
                 commandId,
                 commandLink,
@@ -1274,6 +1264,7 @@
                 hasPaladin,
                 hasSpy,
                 isFarm,
+                isPlayerTarget,
                 isLarge,
                 isMedium,
                 isSmall,
@@ -1652,7 +1643,27 @@
                 villageOverviewUrl ? safeFetch(villageOverviewUrl) : Promise.resolve('')
             ]);
 
-            const rCmdResponses = await fetchAllAccountCommandsHtml(makeUrl, safeFetch);
+            // Identificar aldeias com nobres ou tropas de ataque em trânsito para caça direcionada de comandos
+            const warVillageIds = [];
+            if (rU) {
+                const trMatches = Array.from(rU.matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/gi));
+                let curVId = null;
+                trMatches.forEach(m => {
+                    const row = m[0];
+                    const vM = row.match(/class="[^"]*quickedit-vn[^"]*"[^>]*data-id="(\d+)"/i) || row.match(/village=(\d+)/i);
+                    if (vM) curVId = vM[1];
+                    if (curVId && (row.includes('em trânsito') || row.includes('transito') || row.includes('fora'))) {
+                        const hasSnob = /snob\.webp|graphic\/unit\/unit_snob/i.test(row);
+                        const hasRam = /ram\.webp|graphic\/unit\/unit_ram/i.test(row);
+                        const hasCat = /catapult\.webp|graphic\/unit\/unit_catapult/i.test(row);
+                        if (hasSnob || hasRam || hasCat) {
+                            if (!warVillageIds.includes(curVId)) warVillageIds.push(curVId);
+                        }
+                    }
+                });
+            }
+
+            const rCmdResponses = await fetchAllAccountCommandsHtml(makeUrl, safeFetch, warVillageIds);
 
             // Deteção de Nobres em Treino na Academia (DOM da página atual + página snob direta + popup + train)
             const allSnobProductions = [];
@@ -6611,17 +6622,29 @@
 
             const villageOverviewUrl = currentVId ? `/game.php?village=${currentVId}&screen=overview` : '';
 
+            const warVillageIds = [];
+            if (typeof allVillages !== 'undefined' && Array.isArray(allVillages)) {
+                allVillages.forEach(v => {
+                    if (v.snobsOutside > 0 || (v.movingTroopsDict && v.movingTroopsDict.snob > 0) ||
+                        (v.movingTroopsDict && (v.movingTroopsDict.ram > 0 || v.movingTroopsDict.catapult > 0)) ||
+                        v.snobsReturning > 0 || (v.movingPopTotal && v.movingPopTotal > 1000) ||
+                        (v.paladin && v.movingTroopsDict && v.movingTroopsDict.knight > 0)) {
+                        warVillageIds.push(String(v.id));
+                    }
+                });
+            }
+
             const [rCmdResponses, rVillageOverview] = await Promise.all([
-                fetchAllAccountCommandsHtml(makeUrl, safeFetchCmd),
+                fetchAllAccountCommandsHtml(makeUrl, safeFetchCmd, warVillageIds),
                 villageOverviewUrl ? safeFetchCmd(villageOverviewUrl) : Promise.resolve('')
             ]);
 
             const currentDocHtml = (typeof document !== 'undefined' && document.body) ? document.body.innerHTML : '';
             const cmdMap = new Map();
             const addAllCmds = (list) => {
-                list.forEach(c => {
+                list.forEach((c, idx) => {
                     if (!c) return;
-                    const k = c.commandId ? String(c.commandId) : `${c.originCoords}_${c.targetCoords}_${c.readyAtMs}_${c.completionStr || ''}_${c.type}`;
+                    const k = c.commandId ? String(c.commandId) : `${c.originCoords}_${c.targetCoords}_${c.readyAtMs}_${c.completionStr || ''}_${c.type}_${idx}`;
                     if (!cmdMap.has(k)) {
                         cmdMap.set(k, c);
                     } else {
@@ -6693,7 +6716,8 @@
 
     function renderCommands() {
         const totalCmds = allParsedCommands.length;
-        const attackCmds = allParsedCommands.filter(c => c.isAttack).length;
+        const playerCmds = allParsedCommands.filter(c => c.isPlayerTarget).length;
+        const attackCmds = allParsedCommands.filter(c => c.isAttack && c.isPlayerTarget).length;
         const returnCmds = allParsedCommands.filter(c => c.isReturn).length;
         const snobCmds = allParsedCommands.filter(c => c.hasSnob).length;
         const farmCmds = allParsedCommands.filter(c => c.isFarm).length;
@@ -6706,15 +6730,15 @@
             <div style="display:flex; flex-direction:column; gap:10px; height:100%; overflow:hidden;">
                 <!-- KPI SUMMARY CARDS -->
                 <div style="display:grid; grid-template-columns: repeat(6, 1fr); gap:8px;">
-                    <div class="tw-kpi-card tw-kpi-blue">
-                        <div class="tw-kpi-label">TOTAL COMANDOS <span>📡</span></div>
-                        <div class="tw-kpi-value" id="tw-kpi-cmd-total">${totalCmds}</div>
-                        <div class="tw-kpi-sub">Todos os movimentos</div>
+                    <div class="tw-kpi-card tw-kpi-blue" style="border:1px solid #38bdf8;">
+                        <div class="tw-kpi-label" style="color:#38bdf8;">🎯 COMANDOS PLAYERS</div>
+                        <div class="tw-kpi-value" id="tw-kpi-cmd-players">${playerCmds}</div>
+                        <div class="tw-kpi-sub">Ataques e retornos de guerra</div>
                     </div>
                     <div class="tw-kpi-card tw-kpi-red">
                         <div class="tw-kpi-label">ATAQUES A DECORRER <span>⚔️</span></div>
                         <div class="tw-kpi-value" id="tw-kpi-cmd-attacks">${attackCmds}</div>
-                        <div class="tw-kpi-sub">Saídas militares ofensivas</div>
+                        <div class="tw-kpi-sub">Saídas ofensivas a players</div>
                     </div>
                     <div class="tw-kpi-card tw-kpi-purple">
                         <div class="tw-kpi-label">TROPAS A REGRESSAR <span>↩️</span></div>
@@ -6729,7 +6753,7 @@
                     <div class="tw-kpi-card tw-kpi-gold">
                         <div class="tw-kpi-label">SAQUES / FARMS <span>🌾</span></div>
                         <div class="tw-kpi-value" id="tw-kpi-cmd-farms">${farmCmds}</div>
-                        <div class="tw-kpi-sub">Farm e pilhagem</div>
+                        <div class="tw-kpi-sub">Farm automático</div>
                     </div>
                     <div class="tw-kpi-card tw-kpi-blue">
                         <div class="tw-kpi-label">APOIOS / SUPORTES <span>🛡️</span></div>
@@ -6742,12 +6766,13 @@
                 <div style="display:flex; justify-content:space-between; align-items:center; background:#1e293b; padding:8px 12px; border-radius:6px; border:1px solid #334155; flex-wrap:wrap; gap:8px;">
                     <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;" id="tw-cmd-filter-pills">
                         <span style="font-size:11px; color:#94a3b8; font-weight:bold; margin-right:4px;">FILTRO:</span>
-                        <div class="tw-pill ${commandsFilter==='all'?'active':''}" data-cf="all">Todos (<span id="tw-cf-cnt-all">${totalCmds}</span>)</div>
+                        <div class="tw-pill ${commandsFilter==='players'?'active':''}" data-cf="players">🎯 Jogadores (<span id="tw-cf-cnt-players">${playerCmds}</span>)</div>
                         <div class="tw-pill ${commandsFilter==='attack'?'active':''}" data-cf="attack">⚔️ Ataques (<span id="tw-cf-cnt-attack">${attackCmds}</span>)</div>
                         <div class="tw-pill ${commandsFilter==='return'?'active':''}" data-cf="return">↩️ Retornos (<span id="tw-cf-cnt-return">${returnCmds}</span>)</div>
                         <div class="tw-pill ${commandsFilter==='snob'?'active':''}" data-cf="snob">👑 Com Nobre (<span id="tw-cf-cnt-snob">${snobCmds}</span>)</div>
                         <div class="tw-pill ${commandsFilter==='farm'?'active':''}" data-cf="farm">🌾 Saques (<span id="tw-cf-cnt-farm">${farmCmds}</span>)</div>
                         <div class="tw-pill ${commandsFilter==='support'?'active':''}" data-cf="support">🛡️ Apoios (<span id="tw-cf-cnt-support">${supportCmds}</span>)</div>
+                        <div class="tw-pill ${commandsFilter==='all'?'active':''}" data-cf="all">Todos (<span id="tw-cf-cnt-all">${totalCmds}</span>)</div>
                     </div>
 
                     <div style="display:flex; gap:6px; align-items:center;">
@@ -6852,13 +6877,16 @@
         if (!tbody) return;
 
         const totalCmds = allParsedCommands.length;
-        const attackCmds = allParsedCommands.filter(c => c.isAttack).length;
+        const playerCmds = allParsedCommands.filter(c => c.isPlayerTarget).length;
+        const attackCmds = allParsedCommands.filter(c => c.isAttack && c.isPlayerTarget).length;
         const returnCmds = allParsedCommands.filter(c => c.isReturn).length;
         const snobCmds = allParsedCommands.filter(c => c.hasSnob).length;
         const farmCmds = allParsedCommands.filter(c => c.isFarm).length;
         const supportCmds = allParsedCommands.filter(c => c.isSupport).length;
 
         // Sync KPI cards if present
+        const kpiPlayers = document.getElementById('tw-kpi-cmd-players');
+        if (kpiPlayers) kpiPlayers.textContent = playerCmds;
         const kpiTotal = document.getElementById('tw-kpi-cmd-total');
         if (kpiTotal) kpiTotal.textContent = totalCmds;
         const kpiAttacks = document.getElementById('tw-kpi-cmd-attacks');
@@ -6873,6 +6901,8 @@
         if (kpiSupports) kpiSupports.textContent = supportCmds;
 
         // Sync filter pills if present
+        const cfPlayers = document.getElementById('tw-cf-cnt-players');
+        if (cfPlayers) cfPlayers.textContent = playerCmds;
         const cfAll = document.getElementById('tw-cf-cnt-all');
         if (cfAll) cfAll.textContent = totalCmds;
         const cfAttack = document.getElementById('tw-cf-cnt-attack');
@@ -6888,7 +6918,8 @@
 
         let filtered = [...allParsedCommands];
 
-        if (commandsFilter === 'attack') filtered = filtered.filter(c => c.isAttack);
+        if (commandsFilter === 'players') filtered = filtered.filter(c => c.isPlayerTarget);
+        else if (commandsFilter === 'attack') filtered = filtered.filter(c => c.isAttack && !c.isFarm);
         else if (commandsFilter === 'return') filtered = filtered.filter(c => c.isReturn);
         else if (commandsFilter === 'snob') filtered = filtered.filter(c => c.hasSnob);
         else if (commandsFilter === 'farm') filtered = filtered.filter(c => c.isFarm);
@@ -6959,6 +6990,7 @@
             let badges = '';
             if (c.hasSnob) badges += '<span class="tw-badge-cmd-snob" title="Comando com Nobre!">👑 Nobre</span> ';
             if (c.hasPaladin) badges += '<span class="tw-badge-paladino" style="font-size:9.5px; padding:1px 5px;" title="Comando com Paladino">🛡️ Paladino</span> ';
+            if (c.isPlayerTarget && !c.hasSnob) badges += '<span class="tw-pill" style="font-size:9.5px; padding:1px 5px; background:rgba(56,189,248,0.15); color:#38bdf8; border:1px solid rgba(56,189,248,0.3);" title="Alvo de Jogador">🎯 Player</span> ';
             if (c.isFarm) badges += '<span class="tw-badge-cmd-farm" title="Saque / Farm">🌾 Saque</span> ';
             if (c.hasSpy) badges += '<span class="tw-pill" style="font-size:9.5px; padding:1px 5px; background:#1e293b; color:#94a3b8;" title="Batedores">🏹 Batedores</span> ';
             if (c.isLarge) badges += '<span class="tw-badge-nuke" style="font-size:9.5px; padding:1px 5px;" title="Ataque Grande (5k+ tropas)">🔥 5k+ Tropas</span> ';
@@ -6992,11 +7024,12 @@
                     </td>
                     <td style="text-align:left;">
                         <div style="font-weight:600; color:#f8fafc; font-size:11.5px; max-width:240px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
-                            <a href="javascript:void(0);" class="tw-cmd-copy-coord" data-coord="${targetCoords}" style="color:#f8fafc; text-decoration:none;" title="Copiar coordenadas">${escapeHtml(targetName)}</a>
+                            <a href="javascript:void(0);" class="tw-cmd-copy-coord" data-coord="${targetCoords}" style="color:${c.isPlayerTarget ? '#38bdf8' : '#f8fafc'}; text-decoration:none;" title="Copiar coordenadas">${escapeHtml(targetName)}</a>
                         </div>
                         <div style="font-size:11px; color:#94a3b8; margin-top:2px;">
                             <span>(${targetCoords})</span>
                             ${dist ? `<span style="font-size:10.5px; color:#64748b; margin-left:4px;">(${dist} campos)</span>` : ''}
+                            ${c.isPlayerTarget ? `<span style="font-size:9.5px; color:#38bdf8; margin-left:4px; font-weight:bold;">[Player]</span>` : ''}
                         </div>
                     </td>
                     <td style="color:#cbd5e1; font-size:11.5px; font-weight:500;">
