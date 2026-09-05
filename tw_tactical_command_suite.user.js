@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW Tactical Command Suite
 // @namespace    https://tribalwars.com.pt/
-// @version      3.0.9
+// @version      3.1.0
 // @description  Suite militar avançada para Tribal Wars PT: Módulo Tático de Comandos (Ataques & Retornos de tropas com filtros e timers em tempo real), Rastreio de Nobres a Caminho & em Retorno de Comandos + Treino na Academia, Validação Precisa de Envio & Horário Mínimo de Ataque (⚡ com 5m folga e seleção do Nuke Full mais perto), Suporte Automático a Modelos NT (NT 33% para 3 nobres, NT 25% para 4 nobres), Bunkers Desligados por Default, Alvo Cats do Nuke Muralha por Default, Fakes Inteligentes 1% Dinâmico, Arsenal Tático de Fakes, UI de Limpezas/Nobres/Demolição, e Planeador Tático.
 // @author       Diogo & Antigravity
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -12,7 +12,7 @@
 // ==/UserScript==
 
 (async function () {
-    const SCRIPT_VERSION = '3.0.9';
+    const SCRIPT_VERSION = '3.1.0';
 
     // Auto-selecionar alvo de catapulta na confirmação de ataque na Praça de Reunião se especificado no URL
     try {
@@ -641,12 +641,15 @@
     function parseTwDateTime(str, serverTimeObj = new Date()) {
         if (!str) return null;
         str = str.trim().toLowerCase();
-        const timeMatch = str.match(/(\d{1,2}):(\d{2}):(\d{2})/);
+        const timeMatch = str.match(/(\d{1,2}):(\d{2}):(\d{2})(?::(\d{1,3}))?/);
         if (!timeMatch) return null;
-        const [, h, m, s] = timeMatch.map(Number);
+        const h = parseInt(timeMatch[1], 10);
+        const m = parseInt(timeMatch[2], 10);
+        const s = parseInt(timeMatch[3], 10);
+        const ms = timeMatch[4] ? parseInt(timeMatch[4].padEnd(3, '0').slice(0, 3), 10) : 0;
         
         const d = new Date(serverTimeObj.getTime());
-        d.setHours(h, m, s, 0);
+        d.setHours(h, m, s, ms);
 
         if (str.includes('amanhã') || str.includes('tomorrow')) {
             d.setDate(d.getDate() + 1);
@@ -731,6 +734,7 @@
 
         const results = [];
         const seenCommandIds = new Set();
+        const fetchedUrls = new Set();
 
         const extractIds = (html) => {
             if (!html) return [];
@@ -741,61 +745,132 @@
             return [...new Set([...m1, ...m2, ...m3, ...m4])];
         };
 
-        const fetchPagedType = async (typeParam) => {
-            for (let page = 0; page <= 8; page++) {
-                const urls = [
-                    typeof mkUrl === 'function' ? mkUrl(`overview_villages&mode=commands${typeParam}&group=0&page=${page}`) : '',
-                    typeof mkUrl === 'function' ? mkUrl(`overview_villages&mode=commands${typeParam}&page=${page}`) : '',
-                    `/game.php?screen=overview_villages&mode=commands${typeParam}&group=0&page=${page}`,
-                    `/game.php?screen=overview_villages&mode=commands${typeParam}&page=${page}`
+        const extractPageUrls = (html) => {
+            if (!html) return [];
+            const found = [];
+            // 1. Links com paged-nav-item
+            const navMatches = Array.from(html.matchAll(/class="[^"]*paged-nav-item[^"]*"[^>]*href="([^"]+)"/gi))
+                .concat(Array.from(html.matchAll(/href="([^"]+)"[^>]*class="[^"]*paged-nav-item[^"]*"/gi)));
+            navMatches.forEach(m => found.push(m[1]));
+
+            // 2. Opções de select de paginação
+            const optMatches = Array.from(html.matchAll(/<option[^>]*value="([^"]*(?:overview_villages|mode=commands|page=\d+)[^"]*)"/gi));
+            optMatches.forEach(m => found.push(m[1]));
+
+            // 3. Qualquer link que contenha mode=commands e page=
+            const pageMatches = Array.from(html.matchAll(/href="([^"]*(?:mode=commands|overview_villages)[^"]*page=\d+[^"]*)"/gi));
+            pageMatches.forEach(m => found.push(m[1]));
+
+            return [...new Set(found.map(u => u.replace(/&amp;/g, '&')).filter(u => u && !u.includes('page=-1')))];
+        };
+
+        const fetchSingleUrl = async (url) => {
+            if (!url || fetchedUrls.has(url)) return null;
+            fetchedUrls.add(url);
+            try {
+                const res = await doFetch(url, {}, 2);
+                if (res && (
+                    res.includes('commands_table') ||
+                    res.includes('screen=info_command') ||
+                    res.includes('data-command-id') ||
+                    res.includes('command_hover_details') ||
+                    (res.includes('overview_table') && res.includes('mode=commands'))
+                )) {
+                    return res;
+                }
+            } catch (_) {}
+            return null;
+        };
+
+        const processPageHtml = (html) => {
+            if (!html) return 0;
+            const ids = extractIds(html);
+            const newIds = ids.filter(id => !seenCommandIds.has(id));
+            if (results.length === 0 || newIds.length > 0) {
+                results.push(html);
+                ids.forEach(id => seenCommandIds.add(id));
+            }
+            return newIds.length;
+        };
+
+        const fetchAllPagesForType = async (typeParam) => {
+            // Passo 1: Obter a página inicial
+            const baseCandidates = [
+                typeof mkUrl === 'function' ? mkUrl(`overview_villages&mode=commands${typeParam}&group=0`) : '',
+                typeof mkUrl === 'function' ? mkUrl(`overview_villages&mode=commands${typeParam}`) : '',
+                `/game.php?screen=overview_villages&mode=commands${typeParam}&group=0`,
+                `/game.php?screen=overview_villages&mode=commands${typeParam}`
+            ].filter(Boolean);
+
+            let firstPageHtml = null;
+            for (const cand of baseCandidates) {
+                firstPageHtml = await fetchSingleUrl(cand);
+                if (firstPageHtml) break;
+            }
+
+            if (!firstPageHtml) return;
+            processPageHtml(firstPageHtml);
+
+            // Passo 2: Seguir links reais de paginação descobertos no HTML
+            const discoveredLinks = extractPageUrls(firstPageHtml);
+            for (const pLink of discoveredLinks) {
+                const pRes = await fetchSingleUrl(pLink);
+                if (pRes) {
+                    processPageHtml(pRes);
+                    const deepLinks = extractPageUrls(pRes);
+                    for (const dLink of deepLinks) {
+                        if (!fetchedUrls.has(dLink)) {
+                            const dRes = await fetchSingleUrl(dLink);
+                            if (dRes) processPageHtml(dRes);
+                        }
+                    }
+                }
+            }
+
+            // Passo 3: Varredura numérica ativa com tolerância a 1 página repetida (cobre paginação 0-based e 1-based)
+            let consecutiveEmpty = 0;
+            for (let pageNum = 1; pageNum <= 10; pageNum++) {
+                const pageCandidates = [
+                    typeof mkUrl === 'function' ? mkUrl(`overview_villages&mode=commands${typeParam}&group=0&page=${pageNum}`) : '',
+                    typeof mkUrl === 'function' ? mkUrl(`overview_villages&mode=commands${typeParam}&page=${pageNum}`) : '',
+                    `/game.php?screen=overview_villages&mode=commands${typeParam}&group=0&page=${pageNum}`,
+                    `/game.php?screen=overview_villages&mode=commands${typeParam}&page=${pageNum}`
                 ].filter(Boolean);
 
-                let pageHtml = '';
-                for (const url of urls) {
-                    try {
-                        const res = await doFetch(url, {}, 2);
-                        if (res && (
-                            res.includes('commands_table') ||
-                            res.includes('screen=info_command') ||
-                            res.includes('data-command-id') ||
-                            res.includes('command_hover_details') ||
-                            (res.includes('overview_table') && res.includes('mode=commands'))
-                        )) {
-                            pageHtml = res;
-                            break;
-                        }
-                    } catch (_) {}
+                let fetchedPage = null;
+                for (const u of pageCandidates) {
+                    if (fetchedUrls.has(u)) continue;
+                    fetchedPage = await fetchSingleUrl(u);
+                    if (fetchedPage) break;
                 }
 
-                if (!pageHtml) break;
+                if (!fetchedPage) {
+                    consecutiveEmpty++;
+                    if (consecutiveEmpty >= 2) break;
+                    continue;
+                }
 
-                const ids = extractIds(pageHtml);
-                if (page === 0) {
-                    results.push(pageHtml);
-                    ids.forEach(id => seenCommandIds.add(id));
-                    if (ids.length === 0 && !pageHtml.includes('class="nowrap"')) break;
+                const newCount = processPageHtml(fetchedPage);
+                if (newCount === 0) {
+                    consecutiveEmpty++;
+                    if (consecutiveEmpty >= 2) break;
                 } else {
-                    const newIds = ids.filter(id => !seenCommandIds.has(id));
-                    if (ids.length === 0 || newIds.length === 0) {
-                        break;
-                    }
-                    ids.forEach(id => seenCommandIds.add(id));
-                    results.push(pageHtml);
+                    consecutiveEmpty = 0;
                 }
             }
         };
 
         // 1. Obter comandos a sair (ataques, apoios, fakes) em todas as páginas
-        await fetchPagedType('');
+        await fetchAllPagesForType('');
         if (results.length === 0) {
-            await fetchPagedType('&type=all');
+            await fetchAllPagesForType('&type=all');
         }
         if (results.length === 0) {
-            await fetchPagedType('&type=out');
+            await fetchAllPagesForType('&type=out');
         }
 
         // 2. Obter comandos em retorno (tropas e nobres regressando)
-        await fetchPagedType('&type=return');
+        await fetchAllPagesForType('&type=return');
 
         console.log(`[TW Tactical] Comandos recolhidos de ${results.length} páginas (${seenCommandIds.size} comandos únicos detetados).`);
 
@@ -1000,7 +1075,14 @@
                               row.match(/(\d{1,2}:\d{2}:\d{2}:\d{3})/i);
             if (timeMatch) {
                 completionStr = timeMatch[0];
-                if (!readyAtMs) readyAtMs = parseTwDateTime(completionStr);
+                const parsedMs = parseTwDateTime(completionStr);
+                if (parsedMs) {
+                    if (completionStr.includes(':') && completionStr.split(':').length >= 4) {
+                        readyAtMs = parsedMs;
+                    } else if (!readyAtMs) {
+                        readyAtMs = parsedMs;
+                    }
+                }
             }
 
             if (!readyAtMs && remainingSec > 0) {
@@ -1579,7 +1661,7 @@
             const addAllCmds = (list) => {
                 list.forEach(c => {
                     if (!c) return;
-                    const k = c.commandId ? String(c.commandId) : `${c.originCoords}_${c.targetCoords}_${c.readyAtMs}_${c.type}`;
+                    const k = c.commandId ? String(c.commandId) : `${c.originCoords}_${c.targetCoords}_${c.readyAtMs}_${c.completionStr || ''}_${c.type}`;
                     if (!cmdMap.has(k)) {
                         cmdMap.set(k, c);
                     } else {
@@ -6482,7 +6564,7 @@
             const addAllCmds = (list) => {
                 list.forEach(c => {
                     if (!c) return;
-                    const k = c.commandId ? String(c.commandId) : `${c.originCoords}_${c.targetCoords}_${c.readyAtMs}_${c.type}`;
+                    const k = c.commandId ? String(c.commandId) : `${c.originCoords}_${c.targetCoords}_${c.readyAtMs}_${c.completionStr || ''}_${c.type}`;
                     if (!cmdMap.has(k)) {
                         cmdMap.set(k, c);
                     } else {
