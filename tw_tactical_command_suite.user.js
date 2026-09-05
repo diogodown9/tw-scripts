@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TW Tactical Command Suite
 // @namespace    https://tribalwars.com.pt/
-// @version      3.2.5
-// @description  Suite militar avançada para Tribal Wars PT: Módulo Tático de Comandos (Ataques & Retornos de tropas com filtros e timers em tempo real, agrupamento por alvos), Rastreio de Nobres a Caminho & em Retorno de Comandos + Treino na Academia, Validação Precisa de Envio & Horário Mínimo de Ataque (⚡ com 5m folga e seleção do Nuke Full mais perto), Suporte Automático a Modelos NT (NT 33% para 3 nobres, NT 25% para 4 nobres), Bunkers Desligados por Default, Alvo Cats do Nuke Muralha por Default, Fakes Inteligentes 1% Dinâmico, Arsenal Tático de Fakes, UI de Limpezas/Nobres/Demolição, e Planeador Tático.
+// @version      3.2.6
+// @description  Suite militar avançada para Tribal Wars PT: Módulo Tático de Comandos (Ataques & Retornos com filtros, agrupamento por alvos, purga automática de comandos expirados/concluídos e timers sincronizados com o servidor), Rastreio de Nobres a Caminho & em Retorno de Comandos + Treino na Academia, Validação Precisa de Envio & Horário Mínimo de Ataque (⚡ com 5m folga e seleção do Nuke Full mais perto), Suporte Automático a Modelos NT (NT 33% para 3 nobres, NT 25% para 4 nobres), Bunkers Desligados por Default, Alvo Cats do Nuke Muralha por Default, Fakes Inteligentes 1% Dinâmico, Arsenal Tático de Fakes, UI de Limpezas/Nobres/Demolição, e Planeador Tático.
 // @author       Diogo & Antigravity
 // @match        https://*.tribalwars.com.pt/game.php*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=tribalwars.com.pt
@@ -12,7 +12,7 @@
 // ==/UserScript==
 
 (async function () {
-    const SCRIPT_VERSION = '3.2.5';
+    const SCRIPT_VERSION = '3.2.6';
 
     // Auto-selecionar alvo de catapulta na confirmação de ataque na Praça de Reunião se especificado no URL
     try {
@@ -750,8 +750,25 @@
         return 0;
     }
 
-    function parseTwDateTime(str, serverTimeObj = new Date()) {
+    function getTwServerTimeMs() {
+        try {
+            if (typeof Timing !== 'undefined' && typeof Timing.getCurrentServerTime === 'function') {
+                const t = Timing.getCurrentServerTime();
+                if (t && !isNaN(t) && t > 1000000) return t;
+            }
+        } catch (_) {}
+        try {
+            if (typeof game_data !== 'undefined' && game_data.time) {
+                const t = parseInt(game_data.time, 10);
+                if (t && !isNaN(t)) return t * 1000;
+            }
+        } catch (_) {}
+        return Date.now();
+    }
+
+    function parseTwDateTime(str, serverTimeObj = null) {
         if (!str) return null;
+        if (!serverTimeObj) serverTimeObj = new Date(getTwServerTimeMs());
         str = str.trim();
         const cleanStr = str.replace(/<[^>]+>/g, '').trim().toLowerCase();
         const timeMatch = cleanStr.match(/(\d{1,2}):(\d{2}):(\d{2})(?:[:\.](\d{1,3}))?/);
@@ -872,21 +889,22 @@
 
         const doFetch = async (url) => {
             if (!url) return '';
+            const cacheBusterUrl = url + (url.includes('?') ? '&' : '?') + `_tw_ts=${Date.now()}`;
             if (typeof customSafeFetch === 'function') {
                 try {
-                    const r = await customSafeFetch(url);
+                    const r = await customSafeFetch(cacheBusterUrl);
                     if (r && r.length > 50) return r;
                 } catch (_) {}
             }
             for (let attempt = 1; attempt <= 2; attempt++) {
                 try {
-                    const res = await fetch(url);
+                    const res = await fetch(cacheBusterUrl, { cache: 'no-store' });
                     if (res.ok) {
                         const txt = await res.text();
                         if (txt && txt.length > 50) return txt;
                     }
                 } catch (e) {
-                    if (attempt === 2) console.warn('[TW Tactical] Falha de fetch:', url, e);
+                    if (attempt === 2) console.warn('[TW Tactical] Falha de fetch:', cacheBusterUrl, e);
                 }
                 if (attempt < 2) await new Promise(r => setTimeout(r, 200));
             }
@@ -2214,8 +2232,11 @@
             // 8. Extração completa de Comandos & Retornos
             const cmdMap = new Map();
             const addAllCmds = (list) => {
+                const now = getTwServerTimeMs();
                 list.forEach(c => {
                     if (!c) return;
+                    // Ignorar comandos que já chegaram / expiraram
+                    if (c.readyAtMs && c.readyAtMs <= (now - 2000)) return;
                     const k = c.commandId ? String(c.commandId) : `${c.originCoords}_${c.targetCoords}_${c.readyAtMs}_${c.completionStr || ''}_${c.type}`;
                     if (!cmdMap.has(k)) {
                         cmdMap.set(k, c);
@@ -2241,7 +2262,10 @@
             if (currentDocHtml) addAllCmds(parseAllAccountCommands(currentDocHtml, currentVId, currentVCoords, currentVName));
             if (rVillageOverview) addAllCmds(parseAllAccountCommands(rVillageOverview, currentVId, currentVCoords, currentVName));
 
-            allParsedCommands = Array.from(cmdMap.values()).sort((a, b) => a.readyAtMs - b.readyAtMs);
+            const nowCmds = getTwServerTimeMs();
+            allParsedCommands = Array.from(cmdMap.values())
+                .filter(c => !c.readyAtMs || c.readyAtMs > (nowCmds - 2000))
+                .sort((a, b) => a.readyAtMs - b.readyAtMs);
 
             // Sincronizar todos os retornos com nobre para enriquecer a deteção militar
             allParsedCommands.forEach(c => {
@@ -6774,24 +6798,54 @@
     // ==========================================
     // ABA 5: MÓDULO TÁTICO DE COMANDOS & RETORNOS
     // ==========================================
+    let commandsAutoRefreshTimeout = null;
+
     function updateCommandsTimers() {
         const timerEls = document.querySelectorAll('.tw-cmd-timer[data-endtime-ms]');
         if (!timerEls.length) return;
-        const now = Date.now();
+        const now = getTwServerTimeMs();
+        let expiredFound = false;
+
         timerEls.forEach(el => {
             const endMs = parseInt(el.getAttribute('data-endtime-ms'), 10);
-            if (isNaN(endMs)) return;
+            if (isNaN(endMs) || endMs <= 0) return;
             const diffSec = Math.floor((endMs - now) / 1000);
-            if (diffSec <= 0) {
-                el.textContent = '00:00:00';
-                el.style.color = '#ef4444';
+
+            if (diffSec <= -4) {
+                el.textContent = '💥 Chegou!';
+                el.style.color = '#10b981';
+                expiredFound = true;
+            } else if (diffSec <= 0) {
+                el.textContent = '💥 Impacto!';
+                el.style.color = '#f59e0b';
             } else {
                 const h = String(Math.floor(diffSec / 3600)).padStart(2, '0');
                 const m = String(Math.floor((diffSec % 3600) / 60)).padStart(2, '0');
                 const s = String(diffSec % 60).padStart(2, '0');
                 el.textContent = `${h}:${m}:${s}`;
+                if (diffSec < 60) {
+                    el.style.color = '#f87171';
+                } else if (diffSec < 300) {
+                    el.style.color = '#fde047';
+                } else {
+                    el.style.color = '#38bdf8';
+                }
             }
         });
+
+        // Quando um comando termina no ecrã, purga após pequena folga e sincroniza silenciosamente
+        if (expiredFound && !commandsAutoRefreshTimeout) {
+            commandsAutoRefreshTimeout = setTimeout(() => {
+                commandsAutoRefreshTimeout = null;
+                const freshNow = getTwServerTimeMs();
+                const prevCount = allParsedCommands.length;
+                allParsedCommands = allParsedCommands.filter(c => !c.readyAtMs || c.readyAtMs > (freshNow - 2000));
+                if (allParsedCommands.length !== prevCount) {
+                    renderCommandsTable();
+                }
+                refreshCommands();
+            }, 2000);
+        }
     }
 
     async function refreshCommands() {
@@ -6812,9 +6866,10 @@
 
             const safeFetchCmd = async (url) => {
                 if (!url) return '';
+                const cacheBusterUrl = url + (url.includes('?') ? '&' : '?') + `_tw_ts=${Date.now()}`;
                 for (let i = 0; i < 3; i++) {
                     try {
-                        const r = await fetch(url);
+                        const r = await fetch(cacheBusterUrl, { cache: 'no-store' });
                         if (r.ok) {
                             const text = await r.text();
                             if (text && text.length > 50) return text;
@@ -6845,11 +6900,13 @@
                 fetchWorldData()
             ]);
 
-            const currentDocHtml = (typeof document !== 'undefined' && document.body) ? document.body.innerHTML : '';
             const cmdMap = new Map();
             const addAllCmds = (list) => {
+                const now = getTwServerTimeMs();
                 list.forEach((c, idx) => {
                     if (!c) return;
+                    // Filtro estrito: descartar qualquer comando cujo tempo de chegada já tenha passado
+                    if (c.readyAtMs && c.readyAtMs <= (now - 2000)) return;
                     const k = c.commandId ? String(c.commandId) : `${c.originCoords}_${c.targetCoords}_${c.readyAtMs}_${c.completionStr || ''}_${c.type}_${idx}`;
                     if (!cmdMap.has(k)) {
                         cmdMap.set(k, c);
@@ -6871,10 +6928,13 @@
                 const vName = r.name || currentVName;
                 addAllCmds(parseAllAccountCommands(rawHtml, vId, vCoords, vName));
             });
-            if (currentDocHtml) addAllCmds(parseAllAccountCommands(currentDocHtml, currentVId, currentVCoords, currentVName));
+            // NOTA: Intencionalmente NÃO lemos currentDocHtml aqui, pois document.body.innerHTML é estático da abertura da aba e conteria comandos expirados
             if (rVillageOverview) addAllCmds(parseAllAccountCommands(rVillageOverview, currentVId, currentVCoords, currentVName));
 
-            allParsedCommands = Array.from(cmdMap.values()).sort((a, b) => a.readyAtMs - b.readyAtMs);
+            const nowCmds = getTwServerTimeMs();
+            allParsedCommands = Array.from(cmdMap.values())
+                .filter(c => !c.readyAtMs || c.readyAtMs > (nowCmds - 2000))
+                .sort((a, b) => a.readyAtMs - b.readyAtMs);
 
             allParsedCommands.forEach(c => {
                 if (c.originCoords && !c.originName) {
@@ -7144,7 +7204,8 @@
         const cfSupport = document.getElementById('tw-cf-cnt-support');
         if (cfSupport) cfSupport.textContent = supportCmds;
 
-        let filtered = [...allParsedCommands];
+        const nowFilter = getTwServerTimeMs();
+        let filtered = allParsedCommands.filter(c => !c.readyAtMs || c.readyAtMs > (nowFilter - 2500));
 
         if (commandsFilter === 'players') filtered = filtered.filter(c => c.isPlayerTarget);
         else if (commandsFilter === 'attack') filtered = filtered.filter(c => c.isAttack && !c.isFarm);
