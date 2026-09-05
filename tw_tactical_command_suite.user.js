@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TW Tactical Command Suite
 // @namespace    https://tribalwars.com.pt/
-// @version      2.8.6
-// @description  Suite militar avançada para Tribal Wars PT: Rastreio de Nobres a Caminho & em Retorno de Comandos + Treino na Academia, Calculadora de Horário Mínimo de Ataque (⚡ com 5m folga e seleção do Nuke Full mais perto), Fakes Inteligentes 1% Dinâmico, Arsenal Tático de Fakes, UI de Limpezas/Nobres/Demolição, e Planeador Tático.
+// @version      2.8.7
+// @description  Suite militar avançada para Tribal Wars PT: Rastreio de Nobres a Caminho & em Retorno de Comandos + Treino na Academia, Calculadora de Horário Mínimo de Ataque (⚡ com 5m folga e seleção do Nuke Full mais perto), Suporte Automático a Modelos NT (NT 33% para 3 nobres, NT 25% para 4 nobres), Fakes Inteligentes 1% Dinâmico, Arsenal Tático de Fakes, UI de Limpezas/Nobres/Demolição, e Planeador Tático.
 // @author       Diogo & Antigravity
 // @match        https://*.tribalwars.com.pt/game.php*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=tribalwars.com.pt
@@ -12,7 +12,7 @@
 // ==/UserScript==
 
 (async function () {
-    const SCRIPT_VERSION = '2.8.6';
+    const SCRIPT_VERSION = '2.8.7';
 
     // Auto-selecionar alvo de catapulta na confirmação de ataque na Praça de Reunião se especificado no URL
     try {
@@ -3091,11 +3091,16 @@
                 modelSnobInput.disabled = !hasNobles;
                 modelSnobInput.style.opacity = hasNobles ? '1' : '0.4';
                 if (isBateVolta) {
-                    if (modelSnobInput.value === 'NT 25%' || modelSnobInput.value === 'NT - 2 - 50%') modelSnobInput.value = 'Nobre';
+                    if (['NT 25%', 'NT 33%', 'NT - 2 - 50%', 'NT 50%'].includes(modelSnobInput.value)) modelSnobInput.value = 'Nobre';
                 } else if (isSplit) {
-                    if (modelSnobInput.value === 'NT 25%' || modelSnobInput.value === 'Nobre') modelSnobInput.value = 'NT - 2 - 50%';
+                    if (['NT 25%', 'NT 33%', 'Nobre'].includes(modelSnobInput.value)) modelSnobInput.value = 'NT - 2 - 50%';
                 } else if (hasNobles) {
-                    if (modelSnobInput.value === 'NT - 2 - 50%') modelSnobInput.value = (nobleCount === 1 ? 'Nobre' : 'NT 25%');
+                    if (['NT 25%', 'NT 33%', 'NT - 2 - 50%', 'NT 50%', 'Nobre'].includes(modelSnobInput.value)) {
+                        if (nobleCount === 1) modelSnobInput.value = 'Nobre';
+                        else if (nobleCount === 2) modelSnobInput.value = 'NT - 2 - 50%';
+                        else if (nobleCount === 3) modelSnobInput.value = 'NT 33%';
+                        else if (nobleCount >= 4) modelSnobInput.value = 'NT 25%';
+                    }
                 }
             }
 
@@ -4205,7 +4210,7 @@
 
             const modelNuke = document.getElementById('tw-nt-model-nuke').value.trim() || 'Ataque Full';
             const modelAnti = document.getElementById('tw-nt-model-anti').value.trim() || 'Ataque Full';
-            const modelSnob = document.getElementById('tw-nt-model-snob').value.trim() || 'NT 25%';
+            const modelSnob = document.getElementById('tw-nt-model-snob').value.trim() || (nobleCount === 3 ? 'NT 33%' : (nobleCount === 2 ? 'NT - 2 - 50%' : (nobleCount === 1 ? 'Nobre' : 'NT 25%')));
             const catTargetBuilding = document.getElementById('tw-nt-cat-target-building').value;
             const nukeCatTarget = document.getElementById('tw-nt-nuke-cat-target') ? document.getElementById('tw-nt-nuke-cat-target').value : 'place';
             const antiCatTarget = document.getElementById('tw-nt-anti-cat-target') ? document.getElementById('tw-nt-anti-cat-target').value : 'none';
@@ -4846,7 +4851,7 @@
         const paladinChoice = document.getElementById('tw-nt-paladin-choice') ? document.getElementById('tw-nt-paladin-choice').value : 'auto';
         const modelNuke = document.getElementById('tw-nt-model-nuke').value.trim() || 'Ataque Full';
         const modelAnti = document.getElementById('tw-nt-model-anti').value.trim() || 'Ataque Full';
-        const modelSnob = document.getElementById('tw-nt-model-snob').value.trim() || 'NT 25%';
+        const modelSnob = document.getElementById('tw-nt-model-snob').value.trim() || (needed1 === 3 ? 'NT 33%' : (needed1 === 2 ? 'NT - 2 - 50%' : (needed1 === 1 ? 'Nobre' : 'NT 25%')));
         const catTargetBuilding = document.getElementById('tw-nt-cat-target-building').value;
         const nukeCatTarget = document.getElementById('tw-nt-nuke-cat-target') ? document.getElementById('tw-nt-nuke-cat-target').value : 'place';
         const antiCatTarget = document.getElementById('tw-nt-anti-cat-target') ? document.getElementById('tw-nt-anti-cat-target').value : 'none';
