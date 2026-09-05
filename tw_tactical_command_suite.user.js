@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TW Tactical Command Suite
 // @namespace    https://tribalwars.com.pt/
-// @version      2.8.2
-// @description  Suite militar avançada para Tribal Wars PT: Rastreio de Nobres a Caminho & em Treino na Academia, Calculadora de Horário Mínimo de Ataque (⚡ com 5m folga), Fakes Inteligentes 1% Dinâmico, Arsenal Tático de Fakes, UI de Limpezas/Nobres/Demolição, e Planeador Tático.
+// @version      2.8.3
+// @description  Suite militar avançada para Tribal Wars PT: Rastreio de Nobres a Caminho & em Treino na Academia, Calculadora de Horário Mínimo de Ataque (⚡ com 5m folga e alinhamento perfeito de Limpezas Full), Fakes Inteligentes 1% Dinâmico, Arsenal Tático de Fakes, UI de Limpezas/Nobres/Demolição, e Planeador Tático.
 // @author       Diogo & Antigravity
 // @match        https://*.tribalwars.com.pt/game.php*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=tribalwars.com.pt
@@ -12,7 +12,7 @@
 // ==/UserScript==
 
 (async function () {
-    const SCRIPT_VERSION = '2.8.2';
+    const SCRIPT_VERSION = '2.8.3';
 
     // Auto-selecionar alvo de catapulta na confirmação de ataque na Praça de Reunião se especificado no URL
     try {
@@ -801,6 +801,68 @@
         };
     }
 
+    function getSortedOffVillages(target, excludedIds = []) {
+        if (!/^\d{3}\|\d{3}$/.test(target)) return [];
+
+        const excludeCommitted = document.getElementById('tw-nt-exclude-committed') ? document.getElementById('tw-nt-exclude-committed').checked : true;
+        const committedMap = (typeof getCommittedSchedules === 'function') ? getCommittedSchedules() : {};
+
+        let offPool = allVillages.filter(v => v.rowClass === 'tw-row-off' && !excludedIds.includes(v.id));
+        if (excludeCommitted) {
+            offPool = offPool.filter(v => !committedMap[v.id]);
+        }
+
+        const chkPreferFull = document.getElementById('tw-nt-prefer-full-nukes');
+        const preferFull = chkPreferFull ? chkPreferFull.checked : true;
+        const reqPaladinNuke = document.getElementById('tw-nt-req-paladin-nuke') ? document.getElementById('tw-nt-req-paladin-nuke').checked : true;
+        const palChoice = document.getElementById('tw-nt-paladin-choice') ? document.getElementById('tw-nt-paladin-choice').value : 'auto';
+        const ramSpeedMin = unitSpeedMinutes.ram || 30;
+
+        return offPool.map(v => {
+            const dist = calcDistance(v.coords, target);
+            const sec = dist * ramSpeedMin * 60;
+            const isComm = !!committedMap[v.id];
+            const isFull = (v.farm && v.farm.used >= 20000) || (v.roleTag && v.roleTag.label && v.roleTag.label.includes('Full Nuke'));
+            const pal = v.paladin;
+            const hasKnight = pal ? pal.isHome : ((v.knightAvailable || (v.homeTroopsDict && v.homeTroopsDict.knight) || 0) >= 1);
+            let hasMatchingPaladin = false;
+            if (palChoice === 'auto') {
+                hasMatchingPaladin = pal ? (pal.isOffense && pal.isHome) : hasKnight;
+            } else {
+                hasMatchingPaladin = pal ? (String(pal.id) === String(palChoice) && pal.isHome) : false;
+            }
+            const hasOffPaladin = pal ? (pal.isOffense && pal.isHome) : hasKnight;
+            return {
+                village: v,
+                dist,
+                sec,
+                timeStr: formatDuration(sec),
+                isComm,
+                isFull,
+                isFullNuke: isFull,
+                hasKnight,
+                hasOffPaladin,
+                hasMatchingPaladin,
+                paladin: pal,
+                hasTroopsAway: v.hasTroopsAway
+            };
+        }).sort((a, b) => {
+            if (reqPaladinNuke) {
+                if (a.hasMatchingPaladin && !b.hasMatchingPaladin) return -1;
+                if (!a.hasMatchingPaladin && b.hasMatchingPaladin) return 1;
+            }
+            if (preferFull) {
+                if (a.isFull && !b.isFull) return -1;
+                if (!a.isFull && b.isFull) return 1;
+                const aReady = !a.village.hasTroopsAway;
+                const bReady = !b.village.hasTroopsAway;
+                if (aReady && !bReady) return -1;
+                if (!aReady && bReady) return 1;
+            }
+            return a.dist - b.dist;
+        });
+    }
+
     function calculateEarliestViableLandTime() {
         const targetInput = (plannerMode === 'single') ? document.getElementById('tw-nt-target') : document.getElementById('tw-nt-targets-multi');
         let target = '';
@@ -882,26 +944,30 @@
             if (nobleV) excludedIds.push(nobleV.id);
             if (selNoble2 && selNoble2.value) excludedIds.push(selNoble2.value);
 
-            let nukeVillages = [];
+            const sortedOff = getSortedOffVillages(target, excludedIds);
+            let nukeItems = [];
+
             if (selNuke.value && selNuke.value !== 'auto' && villagesById[selNuke.value]) {
-                nukeVillages.push(villagesById[selNuke.value]);
-            } else {
-                const offPool = allVillages.filter(v => v.rowClass === 'tw-row-off' && !excludedIds.includes(v.id));
-                if (offPool.length > 0) {
-                    offPool.sort((a, b) => calcDistance(a.coords, target) - calcDistance(b.coords, target));
-                    nukeVillages = offPool.slice(0, Math.min(leadNukesCount, offPool.length));
+                const found = sortedOff.find(i => i.village.id === selNuke.value);
+                if (found) {
+                    nukeItems.push(found);
+                } else {
+                    const v = villagesById[selNuke.value];
+                    const dist = calcDistance(v.coords, target);
+                    nukeItems.push({ village: v, dist, sec: dist * (unitSpeedMinutes.ram || 30) * 60 });
                 }
+            } else if (sortedOff.length > 0) {
+                nukeItems = sortedOff.slice(0, Math.min(leadNukesCount, sortedOff.length));
             }
 
-            for (const nukeV of nukeVillages) {
-                const distN = calcDistance(nukeV.coords, target);
-                const nukeTravelSec = distN * (unitSpeedMinutes.ram || 30) * 60;
+            for (const item of nukeItems) {
+                const nukeTravelSec = item.sec;
                 const minLaunchNuke = now + MARGIN_MS;
                 const minLandNuke = minLaunchNuke + Math.round(nukeTravelSec * 1000);
 
                 if (minLandNuke > minViableLandMs) {
                     minViableLandMs = minLandNuke;
-                    reasons.push(`Limpeza: ${cleanVillageDisplayName(nukeV)} (${formatDuration(nukeTravelSec)} viagem + 5m folga)`);
+                    reasons.push(`Limpeza: ${cleanVillageDisplayName(item.village)} (${formatDuration(nukeTravelSec)} viagem + 5m folga)`);
                 }
             }
         }
@@ -3622,46 +3688,12 @@
             }
 
             // Alvo válido
-            const ramSpeedMin = unitSpeedMinutes.ram || 30;
-            const listWithDist = offPool.map(v => {
-                const dist = calcDistance(v.coords, target);
-                const sec = dist * ramSpeedMin * 60;
-                const isComm = !!committedMap[v.id];
-                const isFull = (v.farm && v.farm.used >= 20000) || (v.roleTag && v.roleTag.label && v.roleTag.label.includes('Full Nuke'));
-                const pal = v.paladin;
-                const hasKnight = pal ? pal.isHome : ((v.knightAvailable || (v.homeTroopsDict && v.homeTroopsDict.knight) || 0) >= 1);
-                let hasMatchingPaladin = false;
-                if (palChoice === 'auto') {
-                    hasMatchingPaladin = pal ? (pal.isOffense && pal.isHome) : hasKnight;
-                } else {
-                    hasMatchingPaladin = pal ? (String(pal.id) === String(palChoice) && pal.isHome) : false;
-                }
-                return {
-                    village: v,
-                    dist,
-                    sec,
-                    timeStr: formatDuration(sec),
-                    isComm,
-                    isFull,
-                    hasMatchingPaladin
-                };
-            }).sort((a, b) => {
-                if (reqPaladinNuke) {
-                    if (a.hasMatchingPaladin && !b.hasMatchingPaladin) return -1;
-                    if (!a.hasMatchingPaladin && b.hasMatchingPaladin) return 1;
-                }
-                if (preferFull) {
-                    if (a.isFull && !b.isFull) return -1;
-                    if (!a.isFull && b.isFull) return 1;
-                    // Dar prioridade a aldeias cujas tropas estão em casa sobre as que estão fora a farmar
-                    const aReady = !a.village.hasTroopsAway;
-                    const bReady = !b.village.hasTroopsAway;
-                    if (aReady && !bReady) return -1;
-                    if (!aReady && bReady) return 1;
-                }
-                return a.dist - b.dist;
-            });
-
+            const listWithDist = getSortedOffVillages(target, excludedIds);
+            if (listWithDist.length === 0) {
+                selNuke.innerHTML = '<option value="auto">❌ Nenhuma aldeia de ataque disponível</option>';
+                if (hintBox) hintBox.innerHTML = '❌ <b style="color:#ef4444;">Sem aldeias de ataque disponíveis.</b>';
+                return;
+            }
             const bestAuto = listWithDist[0];
 
             let optionsHtml = '<option value="auto">⚡ Auto (Melhor Nuke Mais Perto)</option>';
@@ -4773,46 +4805,15 @@
         if (nobleVillage1) excludedIds.push(nobleVillage1.id);
         if (nobleVillage2) excludedIds.push(nobleVillage2.id);
 
-        let offPool = allVillages.filter(v => v.rowClass === 'tw-row-off' && !excludedIds.includes(v.id));
         let defPool = allVillages.filter(v => v.rowClass === 'tw-row-def' && !excludedIds.includes(v.id));
-
         if (excludeCommitted) {
-            offPool = offPool.filter(v => !committedMap[v.id]);
             defPool = defPool.filter(v => !committedMap[v.id]);
         }
 
         const preferFullNukes = document.getElementById('tw-nt-prefer-full-nukes') ? document.getElementById('tw-nt-prefer-full-nukes').checked : true;
         const preferredLeadNukeId = document.getElementById('tw-nt-lead-nuke-village') ? document.getElementById('tw-nt-lead-nuke-village').value : 'auto';
 
-        const sortedOff = offPool.map(v => {
-            const dist = calcDistance(v.coords, target);
-            const pal = v.paladin;
-            const hasKnight = pal ? pal.isHome : ((v.knightAvailable || (v.homeTroopsDict && v.homeTroopsDict.knight) || 0) >= 1);
-            let hasMatchingPaladin = false;
-            if (paladinChoice === 'auto') {
-                hasMatchingPaladin = pal ? (pal.isOffense && pal.isHome) : hasKnight;
-            } else {
-                hasMatchingPaladin = pal ? (String(pal.id) === String(paladinChoice) && pal.isHome) : false;
-            }
-            const hasOffPaladin = pal ? (pal.isOffense && pal.isHome) : hasKnight;
-            const isFullNuke = (v.farm && v.farm.used >= 20000) || (v.roleTag && v.roleTag.label && v.roleTag.label.includes('Full Nuke'));
-            return { village: v, dist, sec: dist * unitSpeedMinutes.ram * 60, hasKnight, hasOffPaladin, hasMatchingPaladin, paladin: pal, isFullNuke, hasTroopsAway: v.hasTroopsAway };
-        }).sort((a,b) => {
-            if (reqPaladinNuke) {
-                if (a.hasMatchingPaladin && !b.hasMatchingPaladin) return -1;
-                if (!a.hasMatchingPaladin && b.hasMatchingPaladin) return 1;
-            }
-            if (preferFullNukes) {
-                if (a.isFullNuke && !b.isFullNuke) return -1;
-                if (!a.isFullNuke && b.isFullNuke) return 1;
-                // Dar prioridade a aldeias cujas tropas estão em casa sobre as que estão fora a farmar
-                const aReady = !a.village.hasTroopsAway;
-                const bReady = !b.village.hasTroopsAway;
-                if (aReady && !bReady) return -1;
-                if (!aReady && bReady) return 1;
-            }
-            return a.dist - b.dist;
-        });
+        const sortedOff = getSortedOffVillages(target, excludedIds);
 
         const sortedDef = defPool.map(v => {
             const dist = calcDistance(v.coords, target);
