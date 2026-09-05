@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TW Tactical Command Suite
 // @namespace    https://tribalwars.com.pt/
-// @version      3.2.10
-// @description  Suite militar avançada para Tribal Wars PT: Módulo Tático de Comandos (Ataques & Retornos com filtros, agrupamento por alvos, ordenação interativa por clique nos cabeçalhos de coluna, exclusão opcional de micro-saques Modo Turbo para velocidade máxima, purga automática de comandos expirados e timers sincronizados com o servidor), Rastreio em Tempo Real de Nobres a Caminho & em Retorno de Comandos + Treino na Academia, Deduplicação Rigorosa de Nobres & Teto Físico de Tropas Fora, Sincronização Server-Live sem Cache, Validação Precisa de Envio & Horário Mínimo de Ataque à Prova de Falhas (⚡ com 5m folga, cálculo inteligente de nobres a regressar e seleção do Nuke Full mais perto), Suporte Automático a Modelos NT (NT 33% para 3 nobres, NT 25% para 4 nobres), Bunkers Desligados por Default, Alvo Cats do Nuke Muralha por Default, Fakes Inteligentes 1% Dinâmico, Arsenal Tático de Fakes, UI de Limpezas/Nobres/Demolição, e Planeador Tático.
+// @version      3.2.11
+// @description  Suite militar avançada para Tribal Wars PT: Módulo Tático de Comandos (Ataques & Retornos com filtros, agrupamento por alvos, ordenação interativa por clique nos cabeçalhos de coluna, exclusão opcional de micro-saques Modo Turbo para velocidade máxima, purga automática de comandos expirados e timers sincronizados com o servidor), Rastreio em Tempo Real de Nobres a Caminho & em Retorno de Comandos + Treino na Academia, Deteção Fiel de 0 Nobres em Casa via Server-Live, Deduplicação Rigorosa de Nobres & Teto Físico de Tropas Fora, Sincronização Server-Live sem Cache, Validação Precisa de Envio & Horário Mínimo de Ataque à Prova de Falhas (⚡ com 5m folga, cálculo inteligente de nobres a regressar e seleção do Nuke Full mais perto), Suporte Automático a Modelos NT (NT 33% para 3 nobres, NT 25% para 4 nobres), Bunkers Desligados por Default, Alvo Cats do Nuke Muralha por Default, Fakes Inteligentes 1% Dinâmico, Arsenal Tático de Fakes, UI de Limpezas/Nobres/Demolição, e Planeador Tático.
 // @author       Diogo & Antigravity
 // @match        https://*.tribalwars.com.pt/game.php*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=tribalwars.com.pt
@@ -12,7 +12,7 @@
 // ==/UserScript==
 
 (async function () {
-    const SCRIPT_VERSION = '3.2.10';
+    const SCRIPT_VERSION = '3.2.11';
 
     // Auto-selecionar alvo de catapulta na confirmação de ataque na Praça de Reunião se especificado no URL
     try {
@@ -2014,11 +2014,20 @@
                                       ovHtml.match(/<tr[^>]*class="[^"]*(?:home_unit|all_unit)[^"]*"[^>]*>[\s\S]*?<strong[^>]*data-count="snob">(\d+)<\/strong>/i);
                 if (homeSnobMatch) {
                     v.snobsHome = parseInt(homeSnobMatch[1], 10);
+                } else {
+                    // SE NÃO HÁ NOBRES NA TABELA DE UNIDADES EM CASA, SÃO 0 NOBRES EM CASA!
+                    v.snobsHome = 0;
                 }
+
                 const movingSnobMatch = ovHtml.match(/<tr[^>]*class="[^"]*moving_unit[^"]*"[^>]*>[\s\S]*?data-unit="snob"[\s\S]*?<strong[^>]*data-count="snob">(\d+)<\/strong>/i);
                 if (movingSnobMatch) {
                     v.snobsOutside = parseInt(movingSnobMatch[1], 10);
+                } else {
+                    // Se a tabela moving_unit não tiver linha de snob, verificar comandos ativos desta aldeia
+                    const activeSnobCmds = allParsedCommands.filter(c => c.originCoords === v.coords && c.hasSnob && (!c.readyAtMs || c.readyAtMs > (ts - 2000))).length;
+                    v.snobsOutside = activeSnobCmds;
                 }
+                v.snobsTotal = (v.snobsHome || 0) + (v.snobsOutside || 0);
             }
 
             // 2. Extrair produções na academia
@@ -2035,38 +2044,11 @@
             if (ovHtml) {
                 const newReturns = parseCommandsNobleReturns(ovHtml, v.id, v.coords);
                 newReturns.forEach(ret => {
-                    if (!allNobleReturns.some(existing => existing.commandId && ret.commandId && String(existing.commandId) === String(ret.commandId))) {
-                        allNobleReturns.push(ret);
-                    }
+                    allNobleReturns.push(ret);
                 });
             }
 
-            // 4. Se algum comando com nobre já expirou/chegou a casa, promover as tropas
-            const now = Date.now();
-            let arrivedCount = 0;
-            const snobSpeedMin = (typeof unitSpeedMinutes !== 'undefined' && unitSpeedMinutes.snob) ? unitSpeedMinutes.snob : 35;
-            allParsedCommands.forEach(c => {
-                if (c.originCoords === v.coords && c.hasSnob) {
-                    if (c.isReturn) {
-                        if (c.readyAtMs && c.readyAtMs <= now) {
-                            arrivedCount++;
-                        }
-                    } else if (c.isAttack || c.type === 'attack') {
-                        const dist = (c.originCoords && c.targetCoords && typeof calcDistance === 'function') ? calcDistance(c.originCoords, c.targetCoords) : 0;
-                        const travelSec = Math.round(dist * snobSpeedMin * 60);
-                        const returnHomeMs = (c.readyAtMs || now) + (travelSec * 1000);
-                        if (returnHomeMs <= now) {
-                            arrivedCount++;
-                        }
-                    }
-                }
-            });
-            if (arrivedCount > 0 && v.snobsHome < arrivedCount) {
-                v.snobsHome = Math.min(v.snobsTotal || 4, arrivedCount);
-                v.snobsOutside = Math.max(0, (v.snobsOutside || 0) - arrivedCount);
-            }
-
-            // 5. Sincronizar eventos por todas as aldeias
+            // 4. Sincronizar eventos por todas as aldeias e atualizar HUD
             syncNobleEventsAcrossVillages();
             updateNobleProximityHUD(v.id, false);
         } catch (e) {
@@ -4774,10 +4756,10 @@
                 const bestPal = (bestV.paladin && bestV.paladin.isHome) ? bestV.paladin : null;
                 const bestPalTag = bestPal ? ` • <span style="color:#c084fc;">[${bestPal.name}${bestPal.name === 'QuimConquista' ? ' ⚔️ Persuasão' : ''}]</span>` : '';
 
-                // Sincronização inteligente e em tempo real para a aldeia selecionada se houver nobres em viagem ou treino
-                if (selV && (selV.snobsHome < reqNobles || selV.snobsOutside > 0)) {
+                // Sincronização inteligente e em tempo real para a aldeia selecionada
+                if (selV) {
                     const nowTs = Date.now();
-                    if (!selV._lastLiveSyncTs || (nowTs - selV._lastLiveSyncTs) > 15000) {
+                    if (!selV._lastLiveSyncTs || (nowTs - selV._lastLiveSyncTs) > 8000) {
                         selV._lastLiveSyncTs = nowTs;
                         syncVillageLiveTroopsAndCommands(selV);
                     }
