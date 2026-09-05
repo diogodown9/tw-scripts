@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TW Tactical Command Suite
 // @namespace    https://tribalwars.com.pt/
-// @version      2.8.9
-// @description  Suite militar avançada para Tribal Wars PT: Rastreio de Nobres a Caminho & em Retorno de Comandos + Treino na Academia, Calculadora de Horário Mínimo de Ataque (⚡ com 5m folga e seleção do Nuke Full mais perto), Suporte Automático a Modelos NT (NT 33% para 3 nobres, NT 25% para 4 nobres), Bunkers Desligados por Default, Alvo Cats do Nuke Muralha por Default, Fakes Inteligentes 1% Dinâmico, Arsenal Tático de Fakes, UI de Limpezas/Nobres/Demolição, e Planeador Tático.
+// @version      2.9.0
+// @description  Suite militar avançada para Tribal Wars PT: Rastreio de Nobres a Caminho & em Retorno de Comandos + Treino na Academia, Validação Precisa de Envio & Horário Mínimo de Ataque (⚡ com 5m folga e seleção do Nuke Full mais perto), Suporte Automático a Modelos NT (NT 33% para 3 nobres, NT 25% para 4 nobres), Bunkers Desligados por Default, Alvo Cats do Nuke Muralha por Default, Fakes Inteligentes 1% Dinâmico, Arsenal Tático de Fakes, UI de Limpezas/Nobres/Demolição, e Planeador Tático.
 // @author       Diogo & Antigravity
 // @match        https://*.tribalwars.com.pt/game.php*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=tribalwars.com.pt
@@ -12,7 +12,7 @@
 // ==/UserScript==
 
 (async function () {
-    const SCRIPT_VERSION = '2.8.9';
+    const SCRIPT_VERSION = '2.9.0';
 
     // Auto-selecionar alvo de catapulta na confirmação de ataque na Praça de Reunião se especificado no URL
     try {
@@ -4856,8 +4856,8 @@
         const antiCatTarget = document.getElementById('tw-nt-anti-cat-target') ? document.getElementById('tw-nt-anti-cat-target').value : 'none';
 
         const now = Date.now();
-        const MARGIN_MS = 5 * 60 * 1000;
-        const minLaunchMs = now + MARGIN_MS;
+        const EXEC_MARGIN_MS = 45 * 1000; // 45s de margem mínima para o jogador conseguir enviar manualmente
+        const minLaunchMs = now + EXEC_MARGIN_MS;
 
         const bvAnchor = document.getElementById('tw-nt-bv-anchor') ? document.getElementById('tw-nt-bv-anchor').value : 'first';
         let snobDist1 = 0, snobSec1 = 0, nobleLaunchMs1 = 0, trip1AnchorLandMs = baseLandTime;
@@ -4875,18 +4875,21 @@
 
             const needed1 = (architecture === 'split_2x2' && attackMode === 'split_2x2') ? 2 : (attackMode === 'snob_solo' ? 1 : nobleCount);
             const readiness1 = calculateEarliestViableNobleTime(nobleVillage1, needed1);
-            const minAllowedLaunchMs1 = Math.max(minLaunchMs, readiness1.isFullyReadyNow ? minLaunchMs : (readiness1.readyAtMs + MARGIN_MS));
+            const minAllowedLaunchMs1 = Math.max(minLaunchMs, readiness1.isFullyReadyNow ? minLaunchMs : readiness1.readyAtMs);
 
             if (nobleLaunchMs1 < minAllowedLaunchMs1) {
                 const calc = calculateEarliestViableLandTime();
                 let reasonMsg = '';
-                if (!readiness1.isFullyReadyNow && nobleLaunchMs1 < (readiness1.readyAtMs + MARGIN_MS)) {
+                if (!readiness1.isFullyReadyNow && nobleLaunchMs1 < readiness1.readyAtMs) {
                     const readyTimeStr = new Date(readiness1.readyAtMs).toLocaleTimeString('pt-PT');
                     reasonMsg = `Os nobres de "${cleanVillageDisplayName(nobleVillage1)}" só estarão disponíveis às ${readyTimeStr} (${readiness1.summary}).\nPara a chegada às ${new Date(baseLandTime).toLocaleTimeString('pt-PT')}, o envio teria de ser às ${new Date(nobleLaunchMs1).toLocaleTimeString('pt-PT')}.`;
-                } else if (attackMode === 'snob_solo' && bvAnchor === 'final') {
+                } else if (attackMode === 'snob_solo' && bvAnchor === 'final' && nobleLaunchMs1 < now) {
                     reasonMsg = `Para a última viagem de bate-e-volta chegar à hora definida, o 1º envio teria de ter sido no passado (${new Date(nobleLaunchMs1).toLocaleTimeString('pt-PT')}).`;
-                } else {
+                } else if (nobleLaunchMs1 < now) {
                     reasonMsg = `A aldeia "${cleanVillageDisplayName(nobleVillage1)}" fica a ${snobDist1.toFixed(1)}c (${formatDuration(snobSec1)}) do alvo e a hora de envio necessária já passou (${new Date(nobleLaunchMs1).toLocaleTimeString('pt-PT')}).`;
+                } else {
+                    const leftSec = Math.max(1, Math.round((nobleLaunchMs1 - now) / 1000));
+                    reasonMsg = `A aldeia "${cleanVillageDisplayName(nobleVillage1)}" requer envio às ${new Date(nobleLaunchMs1).toLocaleTimeString('pt-PT')} (em apenas ${leftSec}s), tempo insuficiente para preparar o envio.`;
                 }
 
                 if (calc) {
@@ -4895,13 +4898,7 @@
                     const promptMsg = `⚠️ HORÁRIO DE IMPACTO INVIÁVEL!\n\n${reasonMsg}\n\n⚡ Horário Mínimo de Chegada Recomendado (com 5m de margem): ${recLandStr}\n\nDesejas ajustar automaticamente a hora de chegada para ${recLandStr} e continuar a gerar o plano?`;
                     if (confirm(promptMsg)) {
                         applyMinimumViableLandTime();
-                        baseLandTime = recLandDate.getTime();
-                        trip1AnchorLandMs = baseLandTime;
-                        if (attackMode === 'snob_solo' && bvAnchor === 'final') {
-                            const totalCycleMs = (2 * travelMs1) + 2000;
-                            trip1AnchorLandMs = baseLandTime - ((numTrips - 1) * totalCycleMs);
-                        }
-                        nobleLaunchMs1 = trip1AnchorLandMs - travelMs1;
+                        return buildMasterOPPlan();
                     } else {
                         return;
                     }
@@ -4924,16 +4921,19 @@
             nobleLaunchMs2 = nobleLandMs2 - (snobSec2 * 1000);
 
             const readiness2 = calculateEarliestViableNobleTime(nobleVillage2, 2);
-            const minAllowedLaunchMs2 = Math.max(minLaunchMs, readiness2.isFullyReadyNow ? minLaunchMs : (readiness2.readyAtMs + MARGIN_MS));
+            const minAllowedLaunchMs2 = Math.max(minLaunchMs, readiness2.isFullyReadyNow ? minLaunchMs : readiness2.readyAtMs);
 
             if (nobleLaunchMs2 < minAllowedLaunchMs2) {
                 const calc = calculateEarliestViableLandTime();
                 let reasonMsg = '';
-                if (!readiness2.isFullyReadyNow && nobleLaunchMs2 < (readiness2.readyAtMs + MARGIN_MS)) {
+                if (!readiness2.isFullyReadyNow && nobleLaunchMs2 < readiness2.readyAtMs) {
                     const readyTimeStr = new Date(readiness2.readyAtMs).toLocaleTimeString('pt-PT');
                     reasonMsg = `Os nobres da 2ª aldeia "${cleanVillageDisplayName(nobleVillage2)}" só estarão disponíveis às ${readyTimeStr} (${readiness2.summary}).`;
-                } else {
+                } else if (nobleLaunchMs2 < now) {
                     reasonMsg = `A 2ª aldeia "${cleanVillageDisplayName(nobleVillage2)}" fica a ${snobDist2.toFixed(1)}c (${formatDuration(snobSec2)}) do alvo e a hora de envio necessária já passou.`;
+                } else {
+                    const leftSec = Math.max(1, Math.round((nobleLaunchMs2 - now) / 1000));
+                    reasonMsg = `A 2ª aldeia "${cleanVillageDisplayName(nobleVillage2)}" requer envio às ${new Date(nobleLaunchMs2).toLocaleTimeString('pt-PT')} (em apenas ${leftSec}s), tempo insuficiente para preparar o envio.`;
                 }
 
                 if (calc) {
@@ -4941,14 +4941,7 @@
                     const recLandStr = `${recLandDate.toLocaleDateString('pt-PT')} às ${recLandDate.toLocaleTimeString('pt-PT')}`;
                     if (confirm(`⚠️ HORÁRIO DE IMPACTO INVIÁVEL (2ª Aldeia)!\n\n${reasonMsg}\n\n⚡ Horário Mínimo de Chegada Recomendado (com 5m de margem): ${recLandStr}\n\nDesejas ajustar automaticamente a hora de chegada para ${recLandStr} e continuar?`)) {
                         applyMinimumViableLandTime();
-                        baseLandTime = recLandDate.getTime();
-                        if (nobleVillage1) {
-                            const travelMs1 = Math.round(snobSec1 * 1000);
-                            trip1AnchorLandMs = baseLandTime;
-                            nobleLaunchMs1 = trip1AnchorLandMs - travelMs1;
-                        }
-                        nobleLandMs2 = baseLandTime + (2 * msStep);
-                        nobleLaunchMs2 = nobleLandMs2 - (snobSec2 * 1000);
+                        return buildMasterOPPlan();
                     } else {
                         return;
                     }
@@ -4997,23 +4990,17 @@
                     if (calc) {
                         const recLandDate = calc.earliestLandDate;
                         const recLandStr = `${recLandDate.toLocaleDateString('pt-PT')} às ${recLandDate.toLocaleTimeString('pt-PT')}`;
-                        const promptMsg = `⚠️ HORÁRIO DE IMPACTO INVIÁVEL (Limpeza)!\n\nA aldeia de limpeza "${cleanVillageDisplayName(leadNukeCand.village)}" fica a ${leadNukeCand.dist.toFixed(1)}c (${formatDuration(leadNukeCand.sec)}) do alvo e a hora de envio necessária já passou (${new Date(nukeLaunchMs).toLocaleTimeString('pt-PT')}).\n\n⚡ Horário Mínimo de Chegada Recomendado (com 5m de margem): ${recLandStr}\n\nDesejas ajustar automaticamente a hora de chegada para ${recLandStr} e continuar a gerar o plano?`;
+                        let nukeReason = '';
+                        if (nukeLaunchMs < now) {
+                            nukeReason = `A aldeia de limpeza "${cleanVillageDisplayName(leadNukeCand.village)}" fica a ${leadNukeCand.dist.toFixed(1)}c (${formatDuration(leadNukeCand.sec)}) do alvo e a hora de envio necessária já passou (${new Date(nukeLaunchMs).toLocaleTimeString('pt-PT')}).`;
+                        } else {
+                            const leftSec = Math.max(1, Math.round((nukeLaunchMs - now) / 1000));
+                            nukeReason = `A aldeia de limpeza "${cleanVillageDisplayName(leadNukeCand.village)}" requer envio às ${new Date(nukeLaunchMs).toLocaleTimeString('pt-PT')} (em apenas ${leftSec}s), tempo insuficiente para preparar o comando.`;
+                        }
+                        const promptMsg = `⚠️ HORÁRIO DE IMPACTO INVIÁVEL (Limpeza)!\n\n${nukeReason}\n\n⚡ Horário Mínimo de Chegada Recomendado (com 5m de margem): ${recLandStr}\n\nDesejas ajustar automaticamente a hora de chegada para ${recLandStr} e continuar a gerar o plano?`;
                         if (confirm(promptMsg)) {
                             applyMinimumViableLandTime();
-                            baseLandTime = recLandDate.getTime();
-                            trip1AnchorLandMs = baseLandTime;
-                            if (nobleVillage1) {
-                                const travelMs1 = Math.round(snobSec1 * 1000);
-                                if (attackMode === 'snob_solo' && bvAnchor === 'final') {
-                                    const totalCycleMs = (2 * travelMs1) + 2000;
-                                    trip1AnchorLandMs = baseLandTime - ((numTrips - 1) * totalCycleMs);
-                                }
-                                nobleLaunchMs1 = trip1AnchorLandMs - travelMs1;
-                            }
-                            if (nobleVillage2 && architecture === 'split_2x2') {
-                                nobleLandMs2 = baseLandTime + (2 * msStep);
-                                nobleLaunchMs2 = nobleLandMs2 - (snobSec2 * 1000);
-                            }
+                            return buildMasterOPPlan();
                         } else {
                             return;
                         }
@@ -5043,9 +5030,13 @@
                         if (calc) {
                             const recLandDate = calc.earliestLandDate;
                             const recLandStr = `${recLandDate.toLocaleDateString('pt-PT')} às ${recLandDate.toLocaleTimeString('pt-PT')}`;
-                            if (confirm(`⚠️ HORÁRIO DE IMPACTO INVIÁVEL (Limpeza)!\n\nA aldeia "${cleanVillageDisplayName(cand.village)}" demora ${formatDuration(travelSec)} e o envio já passou (${new Date(launchMs).toLocaleTimeString('pt-PT')}).\n\n⚡ Horário Mínimo Recomendado (com 5m de margem): ${recLandStr}\n\nDesejas ajustar para ${recLandStr} e continuar?`)) {
+                            const isPast = (launchMs < now);
+                            const nukeReason = isPast
+                                ? `A aldeia "${cleanVillageDisplayName(cand.village)}" demora ${formatDuration(travelSec)} e o envio já passou (${new Date(launchMs).toLocaleTimeString('pt-PT')}).`
+                                : `A aldeia "${cleanVillageDisplayName(cand.village)}" requer envio às ${new Date(launchMs).toLocaleTimeString('pt-PT')} (em menos de 45s), tempo insuficiente.`;
+                            if (confirm(`⚠️ HORÁRIO DE IMPACTO INVIÁVEL (Limpeza)!\n\n${nukeReason}\n\n⚡ Horário Mínimo Recomendado (com 5m de margem): ${recLandStr}\n\nDesejas ajustar para ${recLandStr} e continuar?`)) {
                                 applyMinimumViableLandTime();
-                                return setTimeout(() => buildMasterOPPlan(), 50);
+                                return buildMasterOPPlan();
                             } else {
                                 return;
                             }
