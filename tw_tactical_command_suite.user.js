@@ -6,6 +6,8 @@
 // @author       Diogo & Antigravity
 // @match        https://*.tribalwars.com.pt/game.php*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=tribalwars.com.pt
+// @updateURL    https://raw.githubusercontent.com/diogodown9/tw-scripts/main/tw_tactical_command_suite.user.js
+// @downloadURL  https://raw.githubusercontent.com/diogodown9/tw-scripts/main/tw_tactical_command_suite.user.js
 // @grant        none
 // ==/UserScript==
 
