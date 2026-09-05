@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TW Tactical Command Suite
 // @namespace    https://tribalwars.com.pt/
-// @version      3.2.9
-// @description  Suite militar avançada para Tribal Wars PT: Módulo Tático de Comandos (Ataques & Retornos com filtros, agrupamento por alvos, ordenação interativa por clique nos cabeçalhos de coluna, exclusão opcional de micro-saques Modo Turbo para velocidade máxima, purga automática de comandos expirados e timers sincronizados com o servidor), Rastreio em Tempo Real de Nobres a Caminho & em Retorno de Comandos + Treino na Academia, Sincronização Server-Live sem Cache, Validação Precisa de Envio & Horário Mínimo de Ataque à Prova de Falhas (⚡ com 5m folga, cálculo inteligente de nobres a regressar e seleção do Nuke Full mais perto), Suporte Automático a Modelos NT (NT 33% para 3 nobres, NT 25% para 4 nobres), Bunkers Desligados por Default, Alvo Cats do Nuke Muralha por Default, Fakes Inteligentes 1% Dinâmico, Arsenal Tático de Fakes, UI de Limpezas/Nobres/Demolição, e Planeador Tático.
+// @version      3.2.10
+// @description  Suite militar avançada para Tribal Wars PT: Módulo Tático de Comandos (Ataques & Retornos com filtros, agrupamento por alvos, ordenação interativa por clique nos cabeçalhos de coluna, exclusão opcional de micro-saques Modo Turbo para velocidade máxima, purga automática de comandos expirados e timers sincronizados com o servidor), Rastreio em Tempo Real de Nobres a Caminho & em Retorno de Comandos + Treino na Academia, Deduplicação Rigorosa de Nobres & Teto Físico de Tropas Fora, Sincronização Server-Live sem Cache, Validação Precisa de Envio & Horário Mínimo de Ataque à Prova de Falhas (⚡ com 5m folga, cálculo inteligente de nobres a regressar e seleção do Nuke Full mais perto), Suporte Automático a Modelos NT (NT 33% para 3 nobres, NT 25% para 4 nobres), Bunkers Desligados por Default, Alvo Cats do Nuke Muralha por Default, Fakes Inteligentes 1% Dinâmico, Arsenal Tático de Fakes, UI de Limpezas/Nobres/Demolição, e Planeador Tático.
 // @author       Diogo & Antigravity
 // @match        https://*.tribalwars.com.pt/game.php*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=tribalwars.com.pt
@@ -12,7 +12,7 @@
 // ==/UserScript==
 
 (async function () {
-    const SCRIPT_VERSION = '3.2.9';
+    const SCRIPT_VERSION = '3.2.10';
 
     // Auto-selecionar alvo de catapulta na confirmação de ataque na Praça de Reunião se especificado no URL
     try {
@@ -1554,8 +1554,8 @@
         const readyNow = village.snobsHome || 0;
         const events = (village.noblePendingEvents || []).slice().sort((a, b) => a.readyAtMs - b.readyAtMs);
         const inProdCount = events.filter(e => e.type === 'production').length;
-        const inReturnCount = events.filter(e => e.type === 'return').length;
-        const availableEvents = readyNow + events.length;
+        const inReturnCount = Math.min(events.filter(e => e.type === 'return').length, (village.snobsOutside || 0));
+        const availableEvents = readyNow + inProdCount + inReturnCount;
 
         if (readyNow >= neededNobles) {
             return {
@@ -1837,6 +1837,56 @@
         };
     }
 
+    function getBaseCommandId(id) {
+        if (!id) return '';
+        return String(id).replace(/_(?:ret_est|atk|ret|attack_ret|dup).*$/, '').trim();
+    }
+
+    function deduplicateNobleReturnsList(returnsList) {
+        if (!Array.isArray(returnsList)) return [];
+        // 1. Priorizar comandos com ID numérico real do jogo
+        const realCmds = [];
+        const seenRealIds = new Set();
+        returnsList.forEach(r => {
+            if (!r) return;
+            const baseId = getBaseCommandId(r.commandId);
+            if (/^\d{5,}$/.test(baseId)) {
+                if (!seenRealIds.has(baseId)) {
+                    seenRealIds.add(baseId);
+                    realCmds.push(r);
+                }
+            }
+        });
+
+        // 2. Comandos sintéticos (sem ID real): apenas aceitar se não duplicarem comandos reais do mesmo lote
+        const finalReturns = [...realCmds];
+        returnsList.forEach(r => {
+            if (!r) return;
+            const baseId = getBaseCommandId(r.commandId);
+            if (/^\d{5,}$/.test(baseId)) return; // já processado nos reais
+
+            const realBatchCount = realCmds.filter(ex => 
+                ex.coords === r.coords && 
+                ex.remoteCoords === r.remoteCoords && 
+                Math.abs(ex.readyAtMs - r.readyAtMs) < 4000
+            ).length;
+
+            if (realBatchCount > 0) {
+                // Já temos os comandos reais com precisão para este lote
+                return;
+            }
+
+            const synKey = `${r.coords}_${r.remoteCoords}_${Math.round((r.readyAtMs || 0) / 4000)}`;
+            const existsSyn = finalReturns.some(ex => `${ex.coords}_${ex.remoteCoords}_${Math.round((ex.readyAtMs || 0) / 4000)}` === synKey);
+            if (!existsSyn) {
+                finalReturns.push(r);
+            }
+        });
+
+        finalReturns.sort((a, b) => a.readyAtMs - b.readyAtMs);
+        return finalReturns;
+    }
+
     function syncNobleEventsAcrossVillages() {
         if (!Array.isArray(allVillages) || allVillages.length === 0) return;
         const now = Date.now();
@@ -1844,6 +1894,7 @@
         const currentVCoords = (typeof game_data !== 'undefined' && game_data.village) ? game_data.village.coord : '';
         const snobSpeedMin = (typeof unitSpeedMinutes !== 'undefined' && unitSpeedMinutes.snob) ? unitSpeedMinutes.snob : 35;
 
+        // Recolher comandos de retorno e ataques de ida a partir de allParsedCommands
         allParsedCommands.forEach(c => {
             if (c.hasSnob) {
                 if (c.isReturn) {
@@ -1862,9 +1913,7 @@
                         readyAtMs: c.readyAtMs,
                         note: 'Regresso a casa'
                     };
-                    if (!allNobleReturns.some(e => e.commandId && retObj.commandId && String(e.commandId) === String(retObj.commandId))) {
-                        allNobleReturns.push(retObj);
-                    }
+                    allNobleReturns.push(retObj);
                 } else if (c.isAttack || c.type === 'attack') {
                     // Nobre em ataque de ida: estimar regresso home = impacto + tempo de viagem
                     const vOrigin = allVillages.find(v => v.coords === c.originCoords);
@@ -1884,7 +1933,7 @@
                     const timeTag = `${String(dRet.getHours()).padStart(2, '0')}:${String(dRet.getMinutes()).padStart(2, '0')}:${String(dRet.getSeconds()).padStart(2, '0')}${dayTag}`;
 
                     const retObj = {
-                        commandId: c.commandId ? `${c.commandId}_ret_est` : `atk_ret_${c.originCoords}_${c.targetCoords}_${returnHomeMs}`,
+                        commandId: c.commandId, // Manter ID original do jogo para deduplicação perfeita!
                         villageId: vOrigin ? vOrigin.id : null,
                         coords: c.originCoords || currentVCoords,
                         remoteCoords: c.targetCoords,
@@ -1898,27 +1947,51 @@
                         readyAtMs: returnHomeMs,
                         note: `Regresso de Ataque a ${c.targetCoords || 'alvo'} (impacto às ${c.completionStr || new Date(hitAtMs).toLocaleTimeString('pt-PT')})`
                     };
-                    if (!allNobleReturns.some(e => e.commandId && retObj.commandId && String(e.commandId) === String(retObj.commandId))) {
-                        allNobleReturns.push(retObj);
-                    }
+                    allNobleReturns.push(retObj);
                 }
             }
         });
 
-        const validReturns = allNobleReturns.filter(e => !e.readyAtMs || e.readyAtMs > (now - 1000));
+        // 1. Filtrar expirados e deduplicar rigorosamente toda a lista global de retornos
+        const validReturns = deduplicateNobleReturnsList(allNobleReturns.filter(e => !e.readyAtMs || e.readyAtMs > (now - 1000)));
+        allNobleReturns.length = 0;
+        allNobleReturns.push(...validReturns);
+
+        // 2. Filtrar produções na academia
         const validProds = allSnobProductions.filter(e => !e.readyAtMs || e.readyAtMs > (now - 1000));
         const allPending = [...validProds, ...validReturns];
 
+        // 3. Atualizar cada aldeia respeitando estritamente o teto de nobres fora
         allVillages.forEach(v => {
             const vEvents = allPending.filter(e => {
                 if (e.coords && v.coords) return e.coords === v.coords;
                 if (!e.coords && e.villageId && v.id) return String(e.villageId) === String(v.id);
                 return false;
             });
-            vEvents.sort((a, b) => a.readyAtMs - b.readyAtMs);
-            v.noblePendingEvents = vEvents;
-            v.snobsInProd = vEvents.filter(e => e.type === 'production').length;
-            v.snobsReturning = vEvents.filter(e => e.type === 'return').length;
+
+            // Produções na academia da aldeia
+            const vProds = [];
+            const seenProdTimes = new Set();
+            vEvents.filter(e => e.type === 'production').forEach(p => {
+                const timeKey = Math.round((p.readyAtMs || 0) / 30000);
+                if (!seenProdTimes.has(timeKey)) {
+                    seenProdTimes.add(timeKey);
+                    vProds.push(p);
+                }
+            });
+
+            // Retornos da aldeia (deduplicados e limitados a snobsOutside)
+            const vRawReturns = vEvents.filter(e => e.type === 'return');
+            const vCleanReturns = deduplicateNobleReturnsList(vRawReturns);
+            vCleanReturns.sort((a, b) => a.readyAtMs - b.readyAtMs);
+
+            // TETO FÍSICO: Uma aldeia nunca pode ter mais nobres a caminho do que o número de nobres fora!
+            const maxOutside = (typeof v.snobsOutside === 'number' && v.snobsOutside >= 0) ? v.snobsOutside : Infinity;
+            const cappedReturns = (maxOutside < Infinity) ? vCleanReturns.slice(0, maxOutside) : vCleanReturns;
+
+            v.snobsInProd = vProds.length;
+            v.snobsReturning = cappedReturns.length;
+            v.noblePendingEvents = [...vProds, ...cappedReturns].sort((a, b) => a.readyAtMs - b.readyAtMs);
             v.hasSnobsAway = (v.snobsOutside > 0) || (v.snobsInProd > 0) || (v.snobsReturning > 0);
         });
     }
