@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW Tactical Command Suite
 // @namespace    https://tribalwars.com.pt/
-// @version      2.8.0
+// @version      2.8.1
 // @description  Suite militar avançada para Tribal Wars PT: Rastreio de Nobres a Caminho & em Treino na Academia, Calculadora de Horário Mínimo de Ataque (⚡), Fakes Inteligentes 1% Dinâmico, Arsenal Tático de Fakes, UI de Limpezas/Nobres/Demolição, e Planeador Tático.
 // @author       Diogo & Antigravity
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -12,7 +12,7 @@
 // ==/UserScript==
 
 (async function () {
-    const SCRIPT_VERSION = '2.8.0';
+    const SCRIPT_VERSION = '2.8.1';
 
     // Auto-selecionar alvo de catapulta na confirmação de ataque na Praça de Reunião se especificado no URL
     try {
@@ -665,7 +665,8 @@
         const rowMatches = html.match(/<tr[^>]*>([\s\S]*?)<\/tr>/gi) || [];
         
         rowMatches.forEach(row => {
-            if (!/nobre|snob/i.test(row)) return;
+            // Suporta referências a nobre, snob ou Academia (ecrã geral da aldeia / snob)
+            if (!/nobre|snob|academia/i.test(row)) return;
             if (/<th/i.test(row)) return;
 
             const vMatch = row.match(/village=(\d+)/);
@@ -713,6 +714,10 @@
             if (!/snob/i.test(row)) return;
             if (/<th/i.test(row)) return;
 
+            // Apenas comandos de regresso/retorno representam tropas que vão chegar a casa
+            const isReturn = /return|retorno|regresso|cancel|cancelar/i.test(row);
+            if (!isReturn) return;
+
             const vMatch = row.match(/village=(\d+)/);
             const vId = vMatch ? vMatch[1] : null;
 
@@ -726,8 +731,6 @@
             const timeMatch = row.match(/(hoje|amanhã|[0-9\.]+)\s*às\s*(\d{1,2}:\d{2}:\d{2})/i);
             const completionStr = timeMatch ? timeMatch[0] : '';
 
-            const isReturn = /return|retorno|regresso/i.test(row);
-
             if (remainingSec > 0 || completionStr) {
                 const now = Date.now();
                 const readyAtMs = remainingSec > 0 ? (now + remainingSec * 1000) : (parseTwDateTime(completionStr) || now);
@@ -735,7 +738,7 @@
                     villageId: vId,
                     coords: originCoord,
                     type: 'return',
-                    isReturn,
+                    isReturn: true,
                     timerStr,
                     remainingSec,
                     completionStr,
@@ -934,43 +937,45 @@
         fetchWorldVillages();
         try {
             const baseUrl = (typeof game_data !== 'undefined' && game_data.link_base_pure) ? game_data.link_base_pure : '/game.php?';
-            const statueUrl = (typeof game_data !== 'undefined' && game_data.village && game_data.village.id)
-                ? `/game.php?village=${game_data.village.id}&screen=statue&mode=overview`
+            const currentVId = (typeof game_data !== 'undefined' && game_data.village) ? game_data.village.id : null;
+            const statueUrl = currentVId
+                ? `/game.php?village=${currentVId}&screen=statue&mode=overview`
                 : (baseUrl.includes('screen=') ? baseUrl + 'statue&mode=overview' : baseUrl + 'screen=statue&mode=overview');
 
-            const snobPopupUrl = (typeof game_data !== 'undefined' && game_data.village && game_data.village.id)
-                ? `/game.php?village=${game_data.village.id}&screen=snob&ajax=production_popup`
+            const snobScreenUrl = currentVId
+                ? `/game.php?village=${currentVId}&screen=snob`
+                : (baseUrl.includes('screen=') ? baseUrl + 'snob' : baseUrl + 'screen=snob');
+            const snobPopupUrl = currentVId
+                ? `/game.php?village=${currentVId}&screen=snob&ajax=production_popup`
                 : (baseUrl.includes('screen=') ? baseUrl + 'snob&ajax=production_popup' : baseUrl + 'screen=snob&ajax=production_popup');
+            const snobTrainUrl = baseUrl.includes('screen=') ? baseUrl + 'snob&mode=train' : baseUrl + 'screen=snob&mode=train';
             const commandsUrl = baseUrl + 'overview_villages&mode=commands&type=all&group=0&page=-1';
 
-            const [rU, rP, rS, rSnobPopup, rCommands] = await Promise.all([
+            const [rU, rP, rS, rSnobDirect, rSnobPopup, rSnobTrain, rCommands] = await Promise.all([
                 fetch(baseUrl + 'overview_villages&mode=units&type=complete&group=0&page=-1').then(r => r.text()),
                 fetch(baseUrl + 'overview_villages&mode=prod&group=0&page=-1').then(r => r.text()),
-                fetch(statueUrl).then(r => r.text()).catch(e => {
-                    console.warn('[TW Suite] Falha ao carregar estátua:', e);
-                    return '';
-                }),
-                fetch(snobPopupUrl, { headers: { 'X-Requested-With': 'XMLHttpRequest' } }).then(r => r.text()).catch(e => {
-                    console.warn('[TW Suite] Falha ao carregar fila da academia:', e);
-                    return '';
-                }),
-                fetch(commandsUrl).then(r => r.text()).catch(e => {
-                    console.warn('[TW Suite] Falha ao carregar comandos:', e);
-                    return '';
-                })
+                fetch(statueUrl).then(r => r.text()).catch(() => ''),
+                fetch(snobScreenUrl).then(r => r.text()).catch(() => ''),
+                fetch(snobPopupUrl, { headers: { 'X-Requested-With': 'XMLHttpRequest' } }).then(r => r.text()).catch(() => ''),
+                fetch(snobTrainUrl).then(r => r.text()).catch(() => ''),
+                fetch(commandsUrl).then(r => r.text()).catch(() => '')
             ]);
 
-            // Deteção de Nobres em Treino na Academia (Popup da conta + página atual caso esteja na Academia)
+            // Deteção de Nobres em Treino na Academia (DOM da página atual + página snob direta + popup + train)
             const currentDocHtml = (typeof document !== 'undefined' && document.body) ? document.body.innerHTML : '';
-            const currentVId = (typeof game_data !== 'undefined' && game_data.village) ? game_data.village.id : null;
-            const snobProdsFromPopup = parseAcademyProduction(rSnobPopup, currentVId);
-            const snobProdsFromDoc = (typeof game_data !== 'undefined' && game_data.screen === 'snob') ? parseAcademyProduction(currentDocHtml, currentVId) : [];
-            const allSnobProductions = [...snobProdsFromPopup];
-            snobProdsFromDoc.forEach(p => {
-                if (!allSnobProductions.some(existing => existing.villageId === p.villageId && Math.abs(existing.readyAtMs - p.readyAtMs) < 5000)) {
-                    allSnobProductions.push(p);
-                }
-            });
+            const allSnobProductions = [];
+            const addSnobProds = (list) => {
+                list.forEach(p => {
+                    if (!allSnobProductions.some(existing => (existing.villageId === p.villageId || (existing.coords && p.coords && existing.coords === p.coords)) && Math.abs(existing.readyAtMs - p.readyAtMs) < 10000)) {
+                        allSnobProductions.push(p);
+                    }
+                });
+            };
+
+            addSnobProds(parseAcademyProduction(currentDocHtml, currentVId));
+            addSnobProds(parseAcademyProduction(rSnobDirect, currentVId));
+            addSnobProds(parseAcademyProduction(rSnobPopup, currentVId));
+            addSnobProds(parseAcademyProduction(rSnobTrain, currentVId));
 
             // Deteção de Nobres em Viagem / Comandos de Retorno
             const allNobleReturns = parseCommandsNobleReturns(rCommands);
@@ -3386,6 +3391,24 @@
                 const bestV = closestWithEnough.village;
                 const bestPal = (bestV.paladin && bestV.paladin.isHome) ? bestV.paladin : null;
                 const bestPalTag = bestPal ? ` • <span style="color:#c084fc;">[${bestPal.name}${bestPal.name === 'QuimConquista' ? ' ⚔️ Persuasão' : ''}]</span>` : '';
+
+                // Se a aldeia selecionada ainda não tiver nobres em treino registados, verificar página da academia em background
+                if (selV && !selV._snobScreenChecked && (!selV.snobsInProd || selV.snobsInProd === 0)) {
+                    selV._snobScreenChecked = true;
+                    fetch(`/game.php?village=${selV.id}&screen=snob`).then(r => r.text()).then(snobHtml => {
+                        const foundProds = parseAcademyProduction(snobHtml, selV.id);
+                        if (foundProds.length > 0) {
+                            foundProds.forEach(p => {
+                                if (!selV.noblePendingEvents.some(e => e.type === 'production' && Math.abs(e.readyAtMs - p.readyAtMs) < 10000)) {
+                                    selV.noblePendingEvents.push(p);
+                                }
+                            });
+                            selV.noblePendingEvents.sort((a, b) => a.readyAtMs - b.readyAtMs);
+                            selV.snobsInProd = selV.noblePendingEvents.filter(e => e.type === 'production').length;
+                            updateNobleProximityHUD(selV.id, false);
+                        }
+                    }).catch(() => {});
+                }
 
                 if (selV.snobsHome < reqNobles) {
                     // ALERTA INTELIGENTE: Nobres fora ou em treino!
