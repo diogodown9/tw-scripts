@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TW Tactical Command Suite
 // @namespace    https://tribalwars.com.pt/
-// @version      2.8.7
-// @description  Suite militar avançada para Tribal Wars PT: Rastreio de Nobres a Caminho & em Retorno de Comandos + Treino na Academia, Calculadora de Horário Mínimo de Ataque (⚡ com 5m folga e seleção do Nuke Full mais perto), Suporte Automático a Modelos NT (NT 33% para 3 nobres, NT 25% para 4 nobres), Fakes Inteligentes 1% Dinâmico, Arsenal Tático de Fakes, UI de Limpezas/Nobres/Demolição, e Planeador Tático.
+// @version      2.8.8
+// @description  Suite militar avançada para Tribal Wars PT: Rastreio de Nobres a Caminho & em Retorno de Comandos + Treino na Academia, Calculadora de Horário Mínimo de Ataque (⚡ com 5m folga e seleção do Nuke Full mais perto), Suporte Automático a Modelos NT (NT 33% para 3 nobres, NT 25% para 4 nobres), Bunkers Desligados por Default, Fakes Inteligentes 1% Dinâmico, Arsenal Tático de Fakes, UI de Limpezas/Nobres/Demolição, e Planeador Tático.
 // @author       Diogo & Antigravity
 // @match        https://*.tribalwars.com.pt/game.php*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=tribalwars.com.pt
@@ -12,7 +12,7 @@
 // ==/UserScript==
 
 (async function () {
-    const SCRIPT_VERSION = '2.8.7';
+    const SCRIPT_VERSION = '2.8.8';
 
     // Auto-selecionar alvo de catapulta na confirmação de ataque na Praça de Reunião se especificado no URL
     try {
@@ -2565,9 +2565,9 @@
                             <div class="tw-card-title" style="color:#34d399; font-size:11px;">
                                 <span>🛡️ 3. Bunker Conquista</span>
                                 <select id="tw-nt-bunker-count" class="tw-select" style="font-weight:bold; color:#34d399; padding:2px 4px; font-size:10px;">
-                                    <option value="0">0 Apoios</option>
+                                    <option value="0" selected>0 Apoios (Desativado)</option>
                                     <option value="1">1 Apoio</option>
-                                    <option value="2" selected>2 Apoios</option>
+                                    <option value="2">2 Apoios</option>
                                     <option value="3">3 Apoios</option>
                                     <option value="4">4 Apoios</option>
                                 </select>
@@ -2897,7 +2897,7 @@
                 if (archSelect) archSelect.value = 'single_4';
                 if (leadNukesInput) leadNukesInput.value = '1';
                 if (antiModeSelect) antiModeSelect.value = 'none';
-                if (bunkerCountSelect) bunkerCountSelect.value = '2';
+                if (bunkerCountSelect) bunkerCountSelect.value = '0';
                 if (nukeCatTargetSelect) nukeCatTargetSelect.value = 'place';
                 if (antiCatTargetSelect) antiCatTargetSelect.value = 'none';
                 if (catTargetSelect) catTargetSelect.value = 'none';
@@ -2910,7 +2910,7 @@
                 if (archSelect) archSelect.value = 'single_4';
                 if (leadNukesInput) leadNukesInput.value = '1';
                 if (antiModeSelect) antiModeSelect.value = 'anti_full_3';
-                if (bunkerCountSelect) bunkerCountSelect.value = '2';
+                if (bunkerCountSelect) bunkerCountSelect.value = '0';
                 if (nukeCatTargetSelect) nukeCatTargetSelect.value = 'place';
                 if (antiCatTargetSelect) antiCatTargetSelect.value = 'none';
                 if (catTargetSelect) catTargetSelect.value = 'place';
@@ -2925,7 +2925,7 @@
                 if (archSelect) archSelect.value = 'single_4';
                 if (leadNukesInput) leadNukesInput.value = '1';
                 if (antiModeSelect) antiModeSelect.value = 'anti_50_2';
-                if (bunkerCountSelect) bunkerCountSelect.value = '1';
+                if (bunkerCountSelect) bunkerCountSelect.value = '0';
                 if (nukeCatTargetSelect) nukeCatTargetSelect.value = 'place';
                 if (antiCatTargetSelect) antiCatTargetSelect.value = 'none';
                 if (catTargetSelect) catTargetSelect.value = 'place';
@@ -2940,7 +2940,7 @@
                 if (archSelect) archSelect.value = 'split_2x2';
                 if (leadNukesInput) leadNukesInput.value = '1';
                 if (antiModeSelect) antiModeSelect.value = 'anti_50_2';
-                if (bunkerCountSelect) bunkerCountSelect.value = '2';
+                if (bunkerCountSelect) bunkerCountSelect.value = '0';
                 if (nukeCatTargetSelect) nukeCatTargetSelect.value = 'place';
                 if (antiCatTargetSelect) antiCatTargetSelect.value = 'none';
                 if (catTargetSelect) catTargetSelect.value = 'place';
@@ -2955,7 +2955,7 @@
                 if (archSelect) archSelect.value = 'single_4';
                 if (leadNukesInput) leadNukesInput.value = '0';
                 if (antiModeSelect) antiModeSelect.value = 'none';
-                if (bunkerCountSelect) bunkerCountSelect.value = '1';
+                if (bunkerCountSelect) bunkerCountSelect.value = '0';
                 if (nukeCatTargetSelect) nukeCatTargetSelect.value = 'none';
                 if (antiCatTargetSelect) antiCatTargetSelect.value = 'none';
                 if (catTargetSelect) catTargetSelect.value = 'none';
@@ -2968,7 +2968,7 @@
                 if (archSelect) archSelect.value = 'single_4';
                 if (leadNukesInput) leadNukesInput.value = '0';
                 if (antiModeSelect) antiModeSelect.value = 'none';
-                if (bunkerCountSelect) bunkerCountSelect.value = '1';
+                if (bunkerCountSelect) bunkerCountSelect.value = '0';
                 if (nukeCatTargetSelect) nukeCatTargetSelect.value = 'none';
                 if (antiCatTargetSelect) antiCatTargetSelect.value = 'none';
                 if (catTargetSelect) catTargetSelect.value = 'none';
@@ -2999,7 +2999,7 @@
                 if (archSelect) archSelect.value = 'single_4';
                 if (leadNukesInput) leadNukesInput.value = '2';
                 if (antiModeSelect) antiModeSelect.value = 'anti_full_3';
-                if (bunkerCountSelect) bunkerCountSelect.value = '3';
+                if (bunkerCountSelect) bunkerCountSelect.value = '0';
                 if (nukeCatTargetSelect) nukeCatTargetSelect.value = 'place';
                 if (antiCatTargetSelect) antiCatTargetSelect.value = 'none';
                 if (catTargetSelect) catTargetSelect.value = 'place';
@@ -3256,11 +3256,6 @@
                 const val = parseInt(e.target.value, 10);
                 if (val > 0) {
                     const mode = attackModeSelect ? attackModeSelect.value : 'standard_anti';
-                    if (bunkerCountSelect && bunkerCountSelect.value === '0') {
-                        if (mode === 'standard_anti' || mode === 'nt_clean' || mode === 'split_2x2') bunkerCountSelect.value = '2';
-                        else if (mode === 'standard_anti_50' || mode === 'snob_solo' || mode === 'snob_single') bunkerCountSelect.value = '1';
-                        else if (mode === 'full_storm') bunkerCountSelect.value = '3';
-                    }
                     if (antiModeSelect && antiModeSelect.value === 'none') {
                         if (mode === 'standard_anti' || mode === 'full_storm') antiModeSelect.value = 'anti_full_3';
                         else if (mode === 'standard_anti_50' || mode === 'split_2x2') antiModeSelect.value = 'anti_50_2';
