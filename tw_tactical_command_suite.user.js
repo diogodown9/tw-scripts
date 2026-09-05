@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW Tactical Command Suite
 // @namespace    https://tribalwars.com.pt/
-// @version      3.2.1
+// @version      3.2.2
 // @description  Suite militar avançada para Tribal Wars PT: Módulo Tático de Comandos (Ataques & Retornos de tropas com filtros e timers em tempo real), Rastreio de Nobres a Caminho & em Retorno de Comandos + Treino na Academia, Validação Precisa de Envio & Horário Mínimo de Ataque (⚡ com 5m folga e seleção do Nuke Full mais perto), Suporte Automático a Modelos NT (NT 33% para 3 nobres, NT 25% para 4 nobres), Bunkers Desligados por Default, Alvo Cats do Nuke Muralha por Default, Fakes Inteligentes 1% Dinâmico, Arsenal Tático de Fakes, UI de Limpezas/Nobres/Demolição, e Planeador Tático.
 // @author       Diogo & Antigravity
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -12,7 +12,7 @@
 // ==/UserScript==
 
 (async function () {
-    const SCRIPT_VERSION = '3.2.1';
+    const SCRIPT_VERSION = '3.2.2';
 
     // Auto-selecionar alvo de catapulta na confirmação de ataque na Praça de Reunião se especificado no URL
     try {
@@ -589,44 +589,96 @@
 
     let worldVillages = [];
     let worldVillagesLoaded = false;
+    let worldVillageByCoord = new Map();
+    let worldPlayers = {};
+    let worldPlayersLoaded = false;
 
-    async function fetchWorldVillages() {
-        if (worldVillagesLoaded) return;
+    async function fetchWorldData() {
+        if (worldVillagesLoaded && worldPlayersLoaded) return;
         try {
-            const res = await fetch('/map/village.txt');
-            if (res.ok) {
-                const text = await res.text();
-                const lines = text.trim().split('\n');
-                worldVillages = lines.map(line => {
-                    const parts = line.split(',');
-                    if (parts.length >= 6) {
-                        return {
-                            id: parts[0],
-                            name: decodeURIComponent(parts[1] || '').replace(/\+/g, ' '),
-                            x: parseInt(parts[2], 10),
-                            y: parseInt(parts[3], 10),
-                            playerId: parts[4] || '0',
-                            points: parseInt(parts[5], 10) || 0,
-                            coord: `${parts[2]}|${parts[3]}`
-                        };
-                    } else if (parts.length >= 4) {
-                        return {
-                            id: parts[0],
-                            name: decodeURIComponent(parts[1] || '').replace(/\+/g, ' '),
-                            x: parseInt(parts[2], 10),
-                            y: parseInt(parts[3], 10),
-                            playerId: parts[4] || '0',
-                            points: 0,
-                            coord: `${parts[2]}|${parts[3]}`
-                        };
+            const fetches = [];
+            if (!worldVillagesLoaded) {
+                fetches.push(fetch('/map/village.txt').then(async res => {
+                    if (res.ok) {
+                        const text = await res.text();
+                        const lines = text.trim().split('\n');
+                        const vList = [];
+                        const vMap = new Map();
+                        lines.forEach(line => {
+                            const parts = line.split(',');
+                            if (parts.length >= 4) {
+                                const coord = `${parts[2]}|${parts[3]}`;
+                                const vObj = {
+                                    id: parts[0],
+                                    name: decodeURIComponent(parts[1] || '').replace(/\+/g, ' '),
+                                    x: parseInt(parts[2], 10),
+                                    y: parseInt(parts[3], 10),
+                                    playerId: parts[4] || '0',
+                                    points: parts.length >= 6 ? (parseInt(parts[5], 10) || 0) : 0,
+                                    coord
+                                };
+                                vList.push(vObj);
+                                vMap.set(coord, vObj);
+                            }
+                        });
+                        worldVillages = vList;
+                        worldVillageByCoord = vMap;
+                        worldVillagesLoaded = true;
                     }
-                    return null;
-                }).filter(Boolean);
-                worldVillagesLoaded = true;
+                }).catch(() => {}));
             }
+            if (!worldPlayersLoaded) {
+                fetches.push(fetch('/map/player.txt').then(async res => {
+                    if (res.ok) {
+                        const text = await res.text();
+                        const lines = text.trim().split('\n');
+                        const pMap = {};
+                        lines.forEach(line => {
+                            const parts = line.split(',');
+                            if (parts.length >= 2) {
+                                pMap[parts[0]] = decodeURIComponent(parts[1] || '').replace(/\+/g, ' ');
+                            }
+                        });
+                        worldPlayers = pMap;
+                        worldPlayersLoaded = true;
+                    }
+                }).catch(() => {}));
+            }
+            await Promise.all(fetches);
         } catch (e) {
-            console.warn('[TW] Não foi possível carregar map/village.txt', e);
+            console.warn('[TW] Erro ao carregar dados do mapa e jogadores', e);
         }
+    }
+    const fetchWorldVillages = fetchWorldData;
+
+    function getCoordOwnership(coord) {
+        if (!coord) return { type: 'unknown', label: 'Desconhecido', isOwn: false, isPlayer: false, isBarbarian: false, playerName: '' };
+
+        // 1. Verificar se é aldeia própria ativa do jogador da conta (allVillages)
+        if (typeof allVillages !== 'undefined' && Array.isArray(allVillages)) {
+            const ownV = allVillages.find(v => v.coords === coord);
+            if (ownV) {
+                return { type: 'own', label: 'Própria', isOwn: true, isPlayer: false, isBarbarian: false, playerName: 'Própria', villageName: ownV.name };
+            }
+        }
+
+        // 2. Verificar no game_data.player.id
+        const currentPid = (typeof game_data !== 'undefined' && game_data.player && game_data.player.id) ? String(game_data.player.id) : null;
+
+        // 3. Consultar no mapa de aldeias do mundo
+        const wv = worldVillageByCoord.get(coord) || (worldVillages && worldVillages.find(v => v.coord === coord));
+        if (wv) {
+            if (!wv.playerId || wv.playerId === '0') {
+                return { type: 'barbarian', label: 'Bárbara', isOwn: false, isPlayer: false, isBarbarian: true, playerName: 'Bárbara', villageName: wv.name };
+            }
+            if (currentPid && String(wv.playerId) === currentPid) {
+                return { type: 'own', label: 'Própria', isOwn: true, isPlayer: false, isBarbarian: false, playerName: 'Própria', villageName: wv.name };
+            }
+            const pName = worldPlayers[wv.playerId] || 'Player';
+            return { type: 'player', label: pName, isOwn: false, isPlayer: true, isBarbarian: false, playerName: pName, villageName: wv.name, playerId: wv.playerId };
+        }
+
+        return { type: 'player', label: 'Player', isOwn: false, isPlayer: true, isBarbarian: false, playerName: 'Player' };
     }
 
     function parseTimerSeconds(timerStr) {
@@ -1314,10 +1366,15 @@
                 }
             }
 
+            // Classificação e Propriedade da Aldeia Alvo/Remota
+            const targetOwner = getCoordOwnership(targetCoords);
+            const targetPlayerName = targetOwner.playerName || (targetOwner.isOwn ? 'Própria' : (targetOwner.isBarbarian ? 'Bárbara' : 'Player'));
+            if (!targetName && targetOwner.villageName) targetName = targetOwner.villageName;
+
             // Classificação rigorosa de Alvo Jogador vs Saque Bárbara
-            const isBarbarianTarget = /b[áa]rbar[ao]|b[oó]nus|barbarian/i.test(targetName || '') || 
-                                      /b[áa]rbar[ao]|b[oó]nus|barbarian/i.test(label || '') ||
-                                      (typeof worldVillages !== 'undefined' && targetCoords && worldVillages.some(wv => wv.coord === targetCoords && wv.playerId === '0'));
+            const isBarbarianTarget = targetOwner.isBarbarian ||
+                                      /b[áa]rbar[ao]|b[oó]nus|barbarian/i.test(targetName || '') || 
+                                      /b[áa]rbar[ao]|b[oó]nus|barbarian/i.test(label || '');
             const isFarmIconOrLabel = /farm\.webp/i.test(row) || /data-icon-hint="[^"]*saque[^"]*"/i.test(row) || /^saque\b/i.test(label || '');
             const isFarm = (isFarmIconOrLabel || isBarbarianTarget) && !hasSnob && !hasPaladin && !isLarge;
             const isPlayerTarget = !isFarm && (!isBarbarianTarget || hasSnob || hasPaladin || isLarge);
@@ -1342,6 +1399,8 @@
                 originCoords,
                 targetName,
                 targetCoords,
+                targetOwner,
+                targetPlayerName,
                 timerStr,
                 remainingSec,
                 completionStr: completionStr || (readyAtMs ? new Date(readyAtMs).toLocaleTimeString('pt-PT') : ''),
@@ -1656,7 +1715,7 @@
     }
 
     async function loadData() {
-        fetchWorldVillages();
+        const worldDataPromise = fetchWorldData();
         try {
             const baseUrl = (typeof game_data !== 'undefined' && game_data.link_base_pure) ? game_data.link_base_pure : '/game.php?screen=';
             const currentVId = (typeof game_data !== 'undefined' && game_data.village) ? game_data.village.id : null;
@@ -1712,6 +1771,7 @@
                 safeFetch(snobTrainUrl),
                 villageOverviewUrl ? safeFetch(villageOverviewUrl) : Promise.resolve('')
             ]);
+            await worldDataPromise;
 
             // 1. Processar dados de Paladinos
             allAccountPaladins = parseKnightsFromHtml(rS);
@@ -2154,7 +2214,7 @@
                 v.hasSnobsAway = (v.snobsOutside > 0) || (v.snobsInProd > 0) || (v.snobsReturning > 0);
             });
 
-            // 10. Enriquecer allParsedCommands com nomes de aldeias e distâncias
+            // 10. Enriquecer allParsedCommands com nomes de aldeias, propriedade e distâncias
             allParsedCommands.forEach(c => {
                 if (c.originCoords && !c.originName) {
                     const foundV = allVillages.find(v => v.coords === c.originCoords);
@@ -2164,6 +2224,10 @@
                     const foundV = allVillages.find(v => v.coords === c.targetCoords);
                     if (foundV) c.targetName = foundV.name;
                 }
+                c.targetOwner = getCoordOwnership(c.targetCoords);
+                c.targetPlayerName = c.targetOwner.playerName || (c.targetOwner.isOwn ? 'Própria' : (c.targetOwner.isBarbarian ? 'Bárbara' : 'Player'));
+                if (!c.targetName && c.targetOwner.villageName) c.targetName = c.targetOwner.villageName;
+
                 if (c.originCoords && c.targetCoords && typeof calcDistance === 'function') {
                     c.dist = calcDistance(c.originCoords, c.targetCoords).toFixed(1);
                 }
@@ -6714,7 +6778,8 @@
 
             const [rCmdResponses, rVillageOverview] = await Promise.all([
                 fetchAllAccountCommandsHtml(makeUrl, safeFetchCmd, activeWarVillages),
-                villageOverviewUrl ? safeFetchCmd(villageOverviewUrl) : Promise.resolve('')
+                villageOverviewUrl ? safeFetchCmd(villageOverviewUrl) : Promise.resolve(''),
+                fetchWorldData()
             ]);
 
             const currentDocHtml = (typeof document !== 'undefined' && document.body) ? document.body.innerHTML : '';
@@ -6757,6 +6822,10 @@
                     const foundV = allVillages.find(v => v.coords === c.targetCoords);
                     if (foundV) c.targetName = foundV.name;
                 }
+                c.targetOwner = getCoordOwnership(c.targetCoords);
+                c.targetPlayerName = c.targetOwner.playerName || (c.targetOwner.isOwn ? 'Própria' : (c.targetOwner.isBarbarian ? 'Bárbara' : 'Player'));
+                if (!c.targetName && c.targetOwner.villageName) c.targetName = c.targetOwner.villageName;
+
                 if (c.originCoords && c.targetCoords && typeof calcDistance === 'function') {
                     c.dist = calcDistance(c.originCoords, c.targetCoords).toFixed(1);
                 }
@@ -6887,8 +6956,8 @@
                             <tr>
                                 <th style="text-align:left; width:130px; padding-left:10px;">Tipo / Comando</th>
                                 <th style="text-align:left; width:140px;">Composição & Destaques</th>
-                                <th style="text-align:left; width:220px;">Aldeia de Origem</th>
-                                <th style="text-align:left; width:250px;">Aldeia de Destino</th>
+                                <th style="text-align:left; width:220px;">Aldeia Base (Origem)</th>
+                                <th style="text-align:left; width:250px;">Aldeia Alvo / Remota</th>
                                 <th style="width:140px;">Hora de Chegada</th>
                                 <th style="width:110px;">Tempo Restante</th>
                                 <th style="width:100px;">Ações Rápidas</th>
@@ -7016,7 +7085,9 @@
                        (c.originName && c.originName.toLowerCase().includes(q)) ||
                        (c.originCoords && c.originCoords.includes(q)) ||
                        (c.targetName && c.targetName.toLowerCase().includes(q)) ||
-                       (c.targetCoords && c.targetCoords.includes(q));
+                       (c.targetCoords && c.targetCoords.includes(q)) ||
+                       (c.targetPlayerName && c.targetPlayerName.toLowerCase().includes(q)) ||
+                       (c.targetOwner && c.targetOwner.label && c.targetOwner.label.toLowerCase().includes(q));
             });
         }
 
@@ -7074,7 +7145,13 @@
             let badges = '';
             if (c.hasSnob) badges += '<span class="tw-badge-cmd-snob" title="Comando com Nobre!">👑 Nobre</span> ';
             if (c.hasPaladin) badges += '<span class="tw-badge-paladino" style="font-size:9.5px; padding:1px 5px;" title="Comando com Paladino">🛡️ Paladino</span> ';
-            if (c.isPlayerTarget && !c.hasSnob) badges += '<span class="tw-pill" style="font-size:9.5px; padding:1px 5px; background:rgba(56,189,248,0.15); color:#38bdf8; border:1px solid rgba(56,189,248,0.3);" title="Alvo de Jogador">🎯 Player</span> ';
+            if (c.targetOwner && c.targetOwner.isOwn) {
+                badges += '<span class="tw-pill" style="font-size:9.5px; padding:1px 5px; background:rgba(16,185,129,0.15); color:#10b981; border:1px solid rgba(16,185,129,0.3);" title="Aldeia Conquistada / Própria">🏰 Própria</span> ';
+            } else if (c.targetOwner && c.targetOwner.isPlayer) {
+                badges += `<span class="tw-pill" style="font-size:9.5px; padding:1px 5px; background:rgba(56,189,248,0.15); color:#38bdf8; border:1px solid rgba(56,189,248,0.3);" title="Jogador Inimigo: ${escapeHtml(c.targetPlayerName)}">👤 ${escapeHtml(c.targetPlayerName)}</span> `;
+            } else if (c.isPlayerTarget && !c.hasSnob) {
+                badges += `<span class="tw-pill" style="font-size:9.5px; padding:1px 5px; background:rgba(56,189,248,0.15); color:#38bdf8; border:1px solid rgba(56,189,248,0.3);" title="Alvo de Jogador">🎯 ${escapeHtml(c.targetPlayerName || 'Player')}</span> `;
+            }
             if (c.isFarm) badges += '<span class="tw-badge-cmd-farm" title="Saque / Farm">🌾 Saque</span> ';
             if (c.hasSpy) badges += '<span class="tw-pill" style="font-size:9.5px; padding:1px 5px; background:#1e293b; color:#94a3b8;" title="Batedores">🏹 Batedores</span> ';
             if (c.isLarge) badges += '<span class="tw-badge-nuke" style="font-size:9.5px; padding:1px 5px;" title="Ataque Grande (5k+ tropas)">🔥 5k+ Tropas</span> ';
@@ -7108,12 +7185,24 @@
                     </td>
                     <td style="text-align:left;">
                         <div style="font-weight:600; color:#f8fafc; font-size:11.5px; max-width:240px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
-                            <a href="javascript:void(0);" class="tw-cmd-copy-coord" data-coord="${targetCoords}" style="color:${c.isPlayerTarget ? '#38bdf8' : '#f8fafc'}; text-decoration:none;" title="Copiar coordenadas">${escapeHtml(targetName)}</a>
+                            <a href="javascript:void(0);" class="tw-cmd-copy-coord" data-coord="${targetCoords}" style="color:${(c.targetOwner && c.targetOwner.isOwn) ? '#34d399' : (c.isPlayerTarget ? '#38bdf8' : '#f8fafc')}; text-decoration:none;" title="Copiar coordenadas">${escapeHtml(targetName)}</a>
                         </div>
                         <div style="font-size:11px; color:#94a3b8; margin-top:2px;">
                             <span>(${targetCoords})</span>
                             ${dist ? `<span style="font-size:10.5px; color:#64748b; margin-left:4px;">(${dist} campos)</span>` : ''}
-                            ${c.isPlayerTarget ? `<span style="font-size:9.5px; color:#38bdf8; margin-left:4px; font-weight:bold;">[Player]</span>` : ''}
+                            ${(c.targetOwner && c.targetOwner.isOwn)
+                                ? `<span style="font-size:9.5px; color:#10b981; margin-left:4px; font-weight:bold; background:rgba(16,185,129,0.12); padding:1px 5px; border-radius:3px; border:1px solid rgba(16,185,129,0.3);" title="Aldeia conquistada pertencente à conta">[Própria]</span>`
+                                : (c.targetOwner && c.targetOwner.isPlayer
+                                    ? `<span style="font-size:9.5px; color:#38bdf8; margin-left:4px; font-weight:bold; background:rgba(56,189,248,0.12); padding:1px 5px; border-radius:3px; border:1px solid rgba(56,189,248,0.3);" title="Jogador: ${escapeHtml(c.targetPlayerName)}">[${escapeHtml(c.targetPlayerName)}]</span>`
+                                    : (c.isPlayerTarget
+                                        ? `<span style="font-size:9.5px; color:#38bdf8; margin-left:4px; font-weight:bold; background:rgba(56,189,248,0.12); padding:1px 5px; border-radius:3px; border:1px solid rgba(56,189,248,0.3);">[${escapeHtml(c.targetPlayerName || 'Player')}]</span>`
+                                        : (c.targetOwner && c.targetOwner.isBarbarian
+                                            ? `<span style="font-size:9.5px; color:#94a3b8; margin-left:4px; font-weight:bold; background:rgba(148,163,184,0.12); padding:1px 5px; border-radius:3px; border:1px solid rgba(148,163,184,0.3);">[Bárbara]</span>`
+                                            : ''
+                                          )
+                                      )
+                                  )
+                            }
                         </div>
                     </td>
                     <td style="color:#cbd5e1; font-size:11.5px; font-weight:500;">
