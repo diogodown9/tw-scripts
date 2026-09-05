@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TW Tactical Command Suite
 // @namespace    https://tribalwars.com.pt/
-// @version      3.2.12
-// @description  Suite militar avançada para Tribal Wars PT: Módulo Tático de Comandos (Ataques & Retornos com filtros, agrupamento por alvos, ordenação interativa por clique nos cabeçalhos de coluna, exclusão opcional de micro-saques Modo Turbo para velocidade máxima, purga automática de comandos expirados e timers sincronizados com o servidor), Rastreio em Tempo Real de Nobres a Caminho & em Retorno de Comandos + Treino na Academia, Deteção Rigorosa de 0 Nobres em Casa por Isolamento de Linhas HTML & Cruzamento de Comandos Ativos, Deduplicação Rigorosa de Nobres & Teto Físico de Tropas Fora, Sincronização Server-Live sem Cache, Validação Precisa de Envio & Horário Mínimo de Ataque à Prova de Falhas (⚡ com 5m folga, cálculo inteligente de nobres a regressar e seleção do Nuke Full mais perto), Suporte Automático a Modelos NT (NT 33% para 3 nobres, NT 25% para 4 nobres), Bunkers Desligados por Default, Alvo Cats do Nuke Muralha por Default, Fakes Inteligentes 1% Dinâmico, Arsenal Tático de Fakes, UI de Limpezas/Nobres/Demolição, e Planeador Tático.
+// @version      3.2.13
+// @description  Suite militar avançada para Tribal Wars PT: Módulo Tático de Comandos (Ataques & Retornos com filtros, agrupamento por alvos, ordenação interativa por clique nos cabeçalhos de coluna, exclusão opcional de micro-saques Modo Turbo para velocidade máxima, purga automática de comandos expirados e timers sincronizados com o servidor), Escoltas Anti-Snipe de Precisão Cirúrgica a 40ms antes de cada Nobre (janela anti-snipe personalizável), Rastreio em Tempo Real de Nobres a Caminho & em Retorno de Comandos + Treino na Academia, Deteção Rigorosa de 0 Nobres em Casa por Isolamento de Linhas HTML & Cruzamento de Comandos Ativos, Deduplicação Rigorosa de Nobres & Teto Físico de Tropas Fora, Sincronização Server-Live sem Cache, Validação Precisa de Envio & Horário Mínimo de Ataque à Prova de Falhas (⚡ com 5m folga, cálculo inteligente de nobres a regressar e seleção do Nuke Full mais perto), Suporte Automático a Modelos NT (NT 33% para 3 nobres, NT 25% para 4 nobres), Bunkers Desligados por Default, Alvo Cats do Nuke Muralha por Default, Fakes Inteligentes 1% Dinâmico, Arsenal Tático de Fakes, UI de Limpezas/Nobres/Demolição, e Planeador Tático.
 // @author       Diogo & Antigravity
 // @match        https://*.tribalwars.com.pt/game.php*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=tribalwars.com.pt
@@ -12,7 +12,7 @@
 // ==/UserScript==
 
 (async function () {
-    const SCRIPT_VERSION = '3.2.12';
+    const SCRIPT_VERSION = '3.2.13';
 
     // Auto-selecionar alvo de catapulta na confirmação de ataque na Praça de Reunião se especificado no URL
     try {
@@ -3688,6 +3688,15 @@
                             </div>
                         </div>
 
+                        <!-- AJUSTE CIRÚRGICO DA JANELA ANTI-SNIPE (MS ANTES DO NOBRE) -->
+                        <div id="tw-box-anti-lead" style="display:flex; align-items:center; justify-content:space-between; background:rgba(56,189,248,0.08); border:1px solid rgba(56,189,248,0.25); border-radius:4px; padding:3px 6px; margin:1px 0;">
+                            <span style="font-size:9.5px; color:#38bdf8; font-weight:bold;" title="Tempo em milissegundos que cada escolta bate ANTES do nobre correspondente para impedir snipes (ex: 40ms antes)">⏱️ Janela Anti-Snipe (antes do Nobre):</span>
+                            <div style="display:flex; align-items:center; gap:3px;">
+                                <input type="number" id="tw-nt-anti-ms-lead" class="tw-input" value="40" min="5" max="150" step="5" style="width:52px; padding:2px 4px; font-size:10.5px; text-align:center; font-weight:bold; color:#38bdf8;" title="Milissegundos antes do Nobre (padrão recomendado: 40ms)">
+                                <span style="font-size:9px; color:#94a3b8; font-weight:bold;">ms</span>
+                            </div>
+                        </div>
+
                         <!-- ONDA DEDICADA DE DEMOLIÇÃO TÁTICA (APENAS VISÍVEL QUANDO PERFIL É DEMOLIÇÃO TÁTICA) -->
                         <div id="tw-box-cat-demolish" style="display:none; flex-direction:column; gap:2px; padding:4px 6px; background:rgba(244, 63, 94, 0.08); border:1px dashed rgba(244, 63, 94, 0.4); border-radius:4px;">
                             <span style="font-size:9.5px; color:#fb7185; font-weight:bold;">🏚️ Alvo Demolição Tática (-10m/-15m):</span>
@@ -4363,6 +4372,16 @@
                 const isAntiActive = (hasNobles && antiCfg.waves > 0);
                 antiCatTargetSelect.disabled = !isAntiActive;
                 antiCatTargetSelect.style.opacity = isAntiActive ? '1' : '0.4';
+            }
+
+            const boxAntiLead = document.getElementById('tw-box-anti-lead');
+            const antiLeadInput = document.getElementById('tw-nt-anti-ms-lead');
+            if (boxAntiLead && antiLeadInput) {
+                const antiCfg = getAntiSnipeConfig();
+                const isAntiActive = (hasNobles && antiCfg.waves > 0);
+                antiLeadInput.disabled = !isAntiActive;
+                boxAntiLead.style.opacity = isAntiActive ? '1' : '0.35';
+                boxAntiLead.style.pointerEvents = isAntiActive ? 'auto' : 'none';
             }
 
             const boxCatDemolish = document.getElementById('tw-box-cat-demolish');
@@ -5193,6 +5212,7 @@
         }
         const savedAntiCat = getPref('tw_nt_anti_cat_target', 'none');
         const savedMsInterval = getPref('tw_nt_ms_interval', '200');
+        const savedAntiMsLead = getPref('tw_nt_anti_ms_lead', '40');
         const savedCatDemolishTarget = getPref('tw_nt_cat_target_building', 'main');
 
         if (document.getElementById('tw-nt-model-nuke')) document.getElementById('tw-nt-model-nuke').value = savedNukeModel;
@@ -5236,6 +5256,10 @@
         if (document.getElementById('tw-nt-ms-interval')) {
             document.getElementById('tw-nt-ms-interval').value = savedMsInterval;
             document.getElementById('tw-nt-ms-interval').oninput = (e) => savePrefs('tw_nt_ms_interval', e.target.value);
+        }
+        if (document.getElementById('tw-nt-anti-ms-lead')) {
+            document.getElementById('tw-nt-anti-ms-lead').value = savedAntiMsLead;
+            document.getElementById('tw-nt-anti-ms-lead').oninput = (e) => savePrefs('tw_nt_anti_ms_lead', e.target.value);
         }
 
         document.getElementById('tw-nt-model-nuke').onchange = (e) => savePrefs('tw_nt_model_nuke', e.target.value);
@@ -5322,11 +5346,13 @@
     // ==========================================
     function getAntiSnipeConfig() {
         const mode = document.getElementById('tw-nt-anti-mode') ? document.getElementById('tw-nt-anti-mode').value : 'anti_50_2';
-        if (mode === 'anti_full_3') return { waves: 3, origins: 'dedicated', defaultModel: 'Ataque Full' };
-        if (mode === 'anti_50_2') return { waves: 2, origins: 'max2', defaultModel: 'Ataque 50%' };
-        if (mode === 'anti_full_1') return { waves: 1, origins: 'dedicated', defaultModel: 'Ataque Full' };
-        if (mode === 'anti_50_1') return { waves: 1, origins: 'max2', defaultModel: 'Ataque 50%' };
-        return { waves: 0, origins: 'dedicated', defaultModel: 'Ataque Full' };
+        const rawLead = document.getElementById('tw-nt-anti-ms-lead') ? parseInt(document.getElementById('tw-nt-anti-ms-lead').value, 10) : 40;
+        const leadMs = isNaN(rawLead) ? 40 : Math.max(5, Math.min(150, rawLead));
+        if (mode === 'anti_full_3') return { waves: 3, origins: 'dedicated', defaultModel: 'Ataque Full', leadMs };
+        if (mode === 'anti_50_2') return { waves: 2, origins: 'max2', defaultModel: 'Ataque 50%', leadMs };
+        if (mode === 'anti_full_1') return { waves: 1, origins: 'dedicated', defaultModel: 'Ataque Full', leadMs };
+        if (mode === 'anti_50_1') return { waves: 1, origins: 'max2', defaultModel: 'Ataque 50%', leadMs };
+        return { waves: 0, origins: 'dedicated', defaultModel: 'Ataque Full', leadMs };
     }
 
     // ==========================================
@@ -5356,7 +5382,7 @@
             const hasNobles = nobleCount > 0;
 
             const leadNukesCount = parseInt(document.getElementById('tw-nt-lead-nukes').value, 10) || 0;
-            const { waves: rawAntiWaves, origins: antiOrigins } = getAntiSnipeConfig();
+            const { waves: rawAntiWaves, origins: antiOrigins, leadMs: antiLeadMs } = getAntiSnipeConfig();
             const antiWavesCount = hasNobles ? rawAntiWaves : 0;
             const bunkerCount = hasNobles ? (parseInt(document.getElementById('tw-nt-bunker-count').value, 10) || 0) : 0;
             const bunkerGapMs = parseInt(document.getElementById('tw-nt-bunker-gap').value, 10) || 200;
@@ -5558,7 +5584,17 @@
 
             // Escoltas Anti-Snipe (NUNCA gastam aldeia com Paladino: forbidPaladin = true)
             if (hasNobles && antiWavesCount > 0) {
-                const antiOffsets = [halfStep, msStep + halfStep, (2 * msStep) + halfStep].slice(0, antiWavesCount);
+                const safeLeadMs = Math.max(5, Math.min(msStep - 10, antiLeadMs || 40));
+                let antiOffsets;
+                if (attackMode === 'snob_solo') {
+                    antiOffsets = [-safeLeadMs, -safeLeadMs - 100, -safeLeadMs - 200].slice(0, antiWavesCount);
+                } else {
+                    antiOffsets = [
+                        (1 * msStep) - safeLeadMs,
+                        (2 * msStep) - safeLeadMs,
+                        (3 * msStep) - safeLeadMs
+                    ].slice(0, antiWavesCount);
+                }
                 if (antiOrigins === 'max2') {
                     const v1 = findClosestAvailable(offPool, usedOffVillages, tCoord, baseLandTime + antiOffsets[0], minLaunchMs, true);
                     let v2 = null;
@@ -5581,7 +5617,8 @@
                         }
                         if (cand) {
                             const launchMs = landMs - (cand.sec * 1000);
-                            allCampaignCommands.push(makeCmd(`Anti-Snipe #${idx+1}`, 'tw-badge-anti', 'Attack', cand.village, tCoord, cand.dist, cand.sec, new Date(launchMs), new Date(landMs), modelAnti, antiCatTarget !== 'none' ? antiCatTarget : '', `Escolta Anti-Snipe (${modelAnti})`));
+                            const leadNote = (attackMode === 'snob_solo') ? `${safeLeadMs}ms antes Conquista` : `${safeLeadMs}ms antes Nobre #${idx+2}`;
+                            allCampaignCommands.push(makeCmd(`Anti-Snipe #${idx+1}`, 'tw-badge-anti', 'Attack', cand.village, tCoord, cand.dist, cand.sec, new Date(launchMs), new Date(landMs), modelAnti, antiCatTarget !== 'none' ? antiCatTarget : '', `Escolta Anti-Snipe (${modelAnti} • ${leadNote})`));
                         }
                     });
                 } else {
@@ -5590,7 +5627,8 @@
                         const antiOff = findClosestAvailable(offPool, usedOffVillages, tCoord, landMs, minLaunchMs, true);
                         if (antiOff) {
                             usedOffVillages.add(antiOff.village.id);
-                            allCampaignCommands.push(makeCmd(`Anti-Snipe #${idx+1}`, 'tw-badge-anti', 'Attack', antiOff.village, tCoord, antiOff.dist, antiOff.sec, antiOff.launchTime, new Date(landMs), modelAnti, antiCatTarget !== 'none' ? antiCatTarget : '', 'Escolta Anti-Snipe'));
+                            const leadNote = (attackMode === 'snob_solo') ? `${safeLeadMs}ms antes Conquista` : `${safeLeadMs}ms antes Nobre #${idx+2}`;
+                            allCampaignCommands.push(makeCmd(`Anti-Snipe #${idx+1}`, 'tw-badge-anti', 'Attack', antiOff.village, tCoord, antiOff.dist, antiOff.sec, antiOff.launchTime, new Date(landMs), modelAnti, antiCatTarget !== 'none' ? antiCatTarget : '', `Escolta Anti-Snipe (${modelAnti} • ${leadNote})`));
                         }
                     });
                 }
@@ -6003,10 +6041,10 @@
             const popBunker2 = parseInt(document.getElementById('tw-nt-pop-bunker-2').value, 10) || 4000;
 
             const leadNukesCount = parseInt(document.getElementById('tw-nt-lead-nukes').value, 10) || 0;
-            const { waves: rawAntiWaves, origins: antiOrigins } = getAntiSnipeConfig();
+            const { waves: rawAntiWaves, origins: antiOrigins, leadMs: antiLeadMs } = getAntiSnipeConfig();
             const antiWavesCount = hasNobles ? rawAntiWaves : 0;
             const msStep = parseInt(document.getElementById('tw-nt-ms-interval').value, 10) || 200;
-            const halfStep = Math.floor(msStep / 2);
+            const safeAntiLeadMs = Math.max(5, Math.min(msStep - 10, antiLeadMs || 40));
 
             if (!hasNobles && leadNukesCount === 0 && attackMode !== 'full_storm' && attackMode !== 'cat_demolish') {
                 alert('❌ Nenhuma unidade ou ataque selecionado para agendar (0 Nobres e 0 Limpezas).\nSeleciona pelo menos 1 Nuke de Limpeza ou Nobres.');
@@ -6182,7 +6220,7 @@
 
         const STANDARD_RELOCATE_MS = (3 * 3600 + 31 * 60 + 45) * 1000;
 
-        function assignOffNuke(targetLandMs, typeLabel, badgeClass, modelStr, isLeadNuke = false, buildingTarget = '', allowPaladin = true, forceVillageId = null) {
+        function assignOffNuke(targetLandMs, typeLabel, badgeClass, modelStr, isLeadNuke = false, buildingTarget = '', allowPaladin = true, forceVillageId = null, customInfo = null) {
             let candIndex = -1;
             if (forceVillageId && forceVillageId !== 'auto') {
                 const idx = sortedOff.findIndex(c => c.village.id === forceVillageId && !usedOffVillages.has(c.village.id));
@@ -6262,7 +6300,7 @@
                 const cat = d.catapult ? `${d.catapult}☄️ ` : '';
                 const farmK = (cand.village.farm && cand.village.farm.used) ? `Faz. ${(cand.village.farm.used/1000).toFixed(1)}k` : '';
                 const troopsInline = (axe || lc || ram || cat) ? `• ${axe}${lc}${ram}${cat}`.trim() : '';
-                let extraInfo = isLeadNuke ? `${farmK} ${troopsInline}`.trim() : 'Full Off';
+                let extraInfo = customInfo || (isLeadNuke ? `${farmK} ${troopsInline}`.trim() : 'Full Off');
                 if (cand.village.hasTroopsAway) {
                     extraInfo += ` • ⚠️ ${cand.village.troopsAwayPerc}% fora`;
                 }
@@ -6431,7 +6469,16 @@
         // 3. Escoltas Anti-Snipe (NUNCA gastam aldeia com Paladino)
         if (hasNobles && antiWavesCount > 0) {
             const antiAnchorLandMs = (attackMode === 'snob_solo' && bvAnchor === 'final') ? baseLandTime : trip1AnchorLandMs;
-            const antiSnipeOffsets = [halfStep, msStep + halfStep, (2 * msStep) + halfStep].slice(0, antiWavesCount);
+            let antiSnipeOffsets;
+            if (attackMode === 'snob_solo') {
+                antiSnipeOffsets = [-safeAntiLeadMs, -safeAntiLeadMs - 100, -safeAntiLeadMs - 200].slice(0, antiWavesCount);
+            } else {
+                antiSnipeOffsets = [
+                    (1 * msStep) - safeAntiLeadMs,
+                    (2 * msStep) - safeAntiLeadMs,
+                    (3 * msStep) - safeAntiLeadMs
+                ].slice(0, antiWavesCount);
+            }
             if (antiOrigins === 'max2') {
                 let antiCand1 = null;
                 let antiCand2 = null;
@@ -6502,7 +6549,8 @@
                         const launchMs = targetLandMs - (travelSec * 1000);
                         const finalBadge = 'tw-badge-anti';
                         const finalType = `Anti-Snipe #${idx + 1}`;
-                        const extraInfo = `Escolta Anti-Snipe (${modelAnti})`;
+                        const leadNote = (attackMode === 'snob_solo') ? `${safeAntiLeadMs}ms antes Conquista` : `${safeAntiLeadMs}ms antes Nobre #${idx+2}`;
+                        const extraInfo = `Escolta Anti-Snipe (${modelAnti} • ${leadNote})`;
 
                         sequence.push({
                             type: finalType,
@@ -6524,7 +6572,8 @@
                 });
             } else {
                 antiSnipeOffsets.forEach((offset, idx) => {
-                    assignOffNuke(antiAnchorLandMs + offset, `Anti-Snipe #${idx+1}`, 'tw-badge-anti', modelAnti, false, (antiCatTarget !== 'none' ? antiCatTarget : ''), false);
+                    const leadNote = (attackMode === 'snob_solo') ? `${safeAntiLeadMs}ms antes Conquista` : `${safeAntiLeadMs}ms antes Nobre #${idx+2}`;
+                    assignOffNuke(antiAnchorLandMs + offset, `Anti-Snipe #${idx+1}`, 'tw-badge-anti', modelAnti, false, (antiCatTarget !== 'none' ? antiCatTarget : ''), false, null, `Escolta Anti-Snipe (${modelAnti} • ${leadNote})`);
                 });
             }
         }
