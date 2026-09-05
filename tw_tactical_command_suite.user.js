@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW Tactical Command Suite
 // @namespace    https://tribalwars.com.pt/
-// @version      3.0.3
+// @version      3.0.4
 // @description  Suite militar avançada para Tribal Wars PT: Módulo Tático de Comandos (Ataques & Retornos de tropas com filtros e timers em tempo real), Rastreio de Nobres a Caminho & em Retorno de Comandos + Treino na Academia, Validação Precisa de Envio & Horário Mínimo de Ataque (⚡ com 5m folga e seleção do Nuke Full mais perto), Suporte Automático a Modelos NT (NT 33% para 3 nobres, NT 25% para 4 nobres), Bunkers Desligados por Default, Alvo Cats do Nuke Muralha por Default, Fakes Inteligentes 1% Dinâmico, Arsenal Tático de Fakes, UI de Limpezas/Nobres/Demolição, e Planeador Tático.
 // @author       Diogo & Antigravity
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -12,7 +12,7 @@
 // ==/UserScript==
 
 (async function () {
-    const SCRIPT_VERSION = '3.0.3';
+    const SCRIPT_VERSION = '3.0.4';
 
     // Auto-selecionar alvo de catapulta na confirmação de ataque na Praça de Reunião se especificado no URL
     try {
@@ -1298,6 +1298,7 @@
             const snobPopupUrl = currentVId
                 ? `/game.php?village=${currentVId}&screen=snob&ajax=production_popup`
                 : (baseUrl.includes('screen=') ? baseUrl + 'snob&ajax=production_popup' : baseUrl + 'screen=snob&ajax=production_popup');
+            const snobTrainUrl = baseUrl.includes('screen=') ? baseUrl + 'snob&mode=train' : baseUrl + 'screen=snob&mode=train';
             const commandsUrl = (baseUrl.includes('screen=') ? baseUrl : baseUrl + 'screen=') + 'overview_villages&mode=commands&group=0&page=-1';
             const commandsReturnUrl = (baseUrl.includes('screen=') ? baseUrl : baseUrl + 'screen=') + 'overview_villages&mode=commands&type=return&group=0&page=-1';
 
