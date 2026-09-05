@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TW Tactical Command Suite
 // @namespace    https://tribalwars.com.pt/
-// @version      2.8.3
-// @description  Suite militar avançada para Tribal Wars PT: Rastreio de Nobres a Caminho & em Treino na Academia, Calculadora de Horário Mínimo de Ataque (⚡ com 5m folga e alinhamento perfeito de Limpezas Full), Fakes Inteligentes 1% Dinâmico, Arsenal Tático de Fakes, UI de Limpezas/Nobres/Demolição, e Planeador Tático.
+// @version      2.8.4
+// @description  Suite militar avançada para Tribal Wars PT: Rastreio de Nobres a Caminho & em Treino na Academia, Calculadora de Horário Mínimo de Ataque (⚡ com 5m folga e seleção do Nuke Full mais perto), Fakes Inteligentes 1% Dinâmico, Arsenal Tático de Fakes, UI de Limpezas/Nobres/Demolição, e Planeador Tático.
 // @author       Diogo & Antigravity
 // @match        https://*.tribalwars.com.pt/game.php*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=tribalwars.com.pt
@@ -12,7 +12,7 @@
 // ==/UserScript==
 
 (async function () {
-    const SCRIPT_VERSION = '2.8.3';
+    const SCRIPT_VERSION = '2.8.4';
 
     // Auto-selecionar alvo de catapulta na confirmação de ataque na Praça de Reunião se especificado no URL
     try {
@@ -847,18 +847,29 @@
                 hasTroopsAway: v.hasTroopsAway
             };
         }).sort((a, b) => {
-            if (reqPaladinNuke) {
-                if (a.hasMatchingPaladin && !b.hasMatchingPaladin) return -1;
-                if (!a.hasMatchingPaladin && b.hasMatchingPaladin) return 1;
-            }
+            // 1. Priorizar Full Nukes reais (Fazenda >= 20k) sobre Semi Nukes
             if (preferFull) {
                 if (a.isFull && !b.isFull) return -1;
                 if (!a.isFull && b.isFull) return 1;
+            }
+            // 2. Se a opção "Priorizar Paladino" estiver ativa, dar preferência ao Paladino
+            // apenas se a diferença de distância for pequena (até 3 campos), para nunca escolher uma aldeia a 31c se houver a 5c!
+            if (reqPaladinNuke) {
+                const distDiff = Math.abs(a.dist - b.dist);
+                if (distDiff <= 3) {
+                    if (a.hasMatchingPaladin && !b.hasMatchingPaladin) return -1;
+                    if (!a.hasMatchingPaladin && b.hasMatchingPaladin) return 1;
+                }
+            }
+            // 3. Aldeias com tropas em casa sobre tropas fora (se distância muito próxima <= 1 campo)
+            const distDiffReady = Math.abs(a.dist - b.dist);
+            if (distDiffReady <= 1) {
                 const aReady = !a.village.hasTroopsAway;
                 const bReady = !b.village.hasTroopsAway;
                 if (aReady && !bReady) return -1;
                 if (!aReady && bReady) return 1;
             }
+            // 4. Distância absoluta mais curta
             return a.dist - b.dist;
         });
     }
@@ -4516,8 +4527,8 @@
                 }
             }
         });
-        if (preferPaladin && bestPal) return bestPal;
-        if (preferFull && bestFullReady) return bestFullReady;
+        if (preferPaladin && bestPal && (!bestFull || bestPalDist <= bestFullDist + 3)) return bestPal;
+        if (preferFull && bestFullReady && (!bestFull || bestFullReadyDist <= bestFullDist + 1)) return bestFullReady;
         if (preferFull && bestFull) return bestFull;
         return best || bestFallback;
     }
