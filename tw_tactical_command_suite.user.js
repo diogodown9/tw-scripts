@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW Tactical Command Suite
 // @namespace    https://tribalwars.com.pt/
-// @version      3.0.4
+// @version      3.0.5
 // @description  Suite militar avançada para Tribal Wars PT: Módulo Tático de Comandos (Ataques & Retornos de tropas com filtros e timers em tempo real), Rastreio de Nobres a Caminho & em Retorno de Comandos + Treino na Academia, Validação Precisa de Envio & Horário Mínimo de Ataque (⚡ com 5m folga e seleção do Nuke Full mais perto), Suporte Automático a Modelos NT (NT 33% para 3 nobres, NT 25% para 4 nobres), Bunkers Desligados por Default, Alvo Cats do Nuke Muralha por Default, Fakes Inteligentes 1% Dinâmico, Arsenal Tático de Fakes, UI de Limpezas/Nobres/Demolição, e Planeador Tático.
 // @author       Diogo & Antigravity
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -12,7 +12,7 @@
 // ==/UserScript==
 
 (async function () {
-    const SCRIPT_VERSION = '3.0.4';
+    const SCRIPT_VERSION = '3.0.5';
 
     // Auto-selecionar alvo de catapulta na confirmação de ataque na Praça de Reunião se especificado no URL
     try {
@@ -728,40 +728,54 @@
     function parseCommandsNobleReturns(html, fallbackVillageId = null, fallbackCoords = null) {
         if (!html) return [];
         const returns = [];
-        const rowMatches = html.match(/<tr[^>]*>([\s\S]*?)<\/tr>/gi) || [];
+        const trRegex = /<tr\b[^>]*>([\s\S]*?)<\/tr>/gi;
+        let trM;
+        const rowMatches = [];
+        while ((trM = trRegex.exec(html)) !== null) {
+            const row = trM[0];
+            if ((row.includes('snob') || row.includes('nobre')) && 
+                (row.includes('return') || row.includes('retorno') || row.includes('regresso') || row.includes('cancel') || row.includes('other_back') || row.includes('back.webp'))) {
+                rowMatches.push(row);
+            }
+        }
 
         rowMatches.forEach(row => {
-            const hasSnob = /snob/i.test(row) || /nobre/i.test(row);
-            if (!hasSnob) return;
-            if (/<th/i.test(row)) return;
+            if (/<th/i.test(row) && !/<td/i.test(row)) return;
 
-            // Apenas comandos de regresso/retorno representam tropas que vão chegar a casa
-            const isReturn = /return|retorno|regresso|cancel|cancelar/i.test(row) || /data-command-type="return"/i.test(row);
-            if (!isReturn) return;
-
-            const cmdIdMatch = row.match(/data-id="(\d+)"/) || row.match(/data-command-id="(\d+)"/) || row.match(/id=(\d+)/);
-            const commandId = cmdIdMatch ? cmdIdMatch[1] : null;
+            let commandId = null;
+            const cmdIdMatch = row.match(/data-command-id="(\d+)"/) || row.match(/data-id="(\d+)"/) || row.match(/id="command_(\d+)"/i);
+            if (cmdIdMatch) {
+                commandId = cmdIdMatch[1];
+            } else {
+                const hrefM = row.match(/href="([^"]*info_command[^"]*)"/i) || row.match(/href="([^"]*id=\d+[^"]*)"/i);
+                if (hrefM) {
+                    const idParam = hrefM[1].match(/[?&;]id=(\d+)/i);
+                    if (idParam) commandId = idParam[1];
+                }
+            }
 
             const tds = row.match(/<td[^>]*>([\s\S]*?)<\/td>/gi) || [];
             let homeCoords = fallbackCoords || '';
             let remoteCoords = '';
 
-            const isOverviewTable = tds.length >= 4 && !/(hoje|amanhã|[0-9\.]+)\s*às/i.test(tds[1]);
+            const isOverviewTable = tds.length >= 4;
             const vMatch = isOverviewTable ? null : row.match(/village=(\d+)/);
             const vId = vMatch ? vMatch[1] : (fallbackVillageId ? String(fallbackVillageId) : null);
 
             if (isOverviewTable) {
-                const originTd = tds[1];
-                const targetTd = tds[2];
+                // Layout A: overview_villages (tds[0]: Command/Target, tds[1]: Origin/Home)
+                const origTd = tds[1];
+                const destTd = tds[0];
 
-                const oCoord = originTd.match(/(\d{3}\|\d{3})/);
+                const oCoord = origTd.match(/(\d{1,3}\|\d{1,3})/);
                 if (oCoord) homeCoords = oCoord[1];
 
-                const tCoord = targetTd.match(/(\d{3}\|\d{3})/);
-                if (tCoord) remoteCoords = tCoord[1];
+                const dCoord = destTd.match(/(\d{1,3}\|\d{1,3})/);
+                if (dCoord) remoteCoords = dCoord[1];
             } else {
+                // Layout B: Village Overview widget
                 homeCoords = fallbackCoords || '';
-                const allCoords = Array.from(row.matchAll(/(\d{3}\|\d{3})/g)).map(m => m[1]);
+                const allCoords = Array.from(row.matchAll(/(\d{1,3}\|\d{1,3})/g)).map(m => m[1]);
                 if (allCoords.length > 0) {
                     remoteCoords = allCoords[0];
                 }
@@ -769,37 +783,58 @@
 
             // Deteção do timestamp de chegada
             let readyAtMs = 0;
+            let timerStr = '';
+            let remainingSec = 0;
+            let completionStr = '';
+
             const endtimeMatch = row.match(/data-endtime="(\d+)"/);
             if (endtimeMatch) {
                 readyAtMs = parseInt(endtimeMatch[1], 10) * 1000;
             }
 
-            const timerMatch = row.match(/class="(?:widget-command-)?timer"[^>]*>([^<]+)<\/span>/i) || row.match(/timer">([^<]+)<\/span>/i);
-            const timerStr = timerMatch ? timerMatch[1].trim() : '';
-            const remainingSec = timerStr ? parseTimerSeconds(timerStr) : 0;
-
-            const timeMatch = row.match(/(hoje|amanhã|[0-9\.]+)\s*às\s*(\d{1,2}:\d{2}:\d{2})/i);
-            const completionStr = timeMatch ? timeMatch[0] : '';
-
-            if (!readyAtMs) {
-                const now = Date.now();
-                readyAtMs = remainingSec > 0 ? (now + remainingSec * 1000) : (parseTwDateTime(completionStr) || now);
-            }
-
-            if (readyAtMs > 0) {
-                returns.push({
-                    commandId,
-                    villageId: vId,
-                    coords: homeCoords,
-                    remoteCoords,
-                    type: 'return',
-                    isReturn: true,
-                    timerStr,
-                    remainingSec,
-                    completionStr: completionStr || (readyAtMs ? new Date(readyAtMs).toLocaleTimeString('pt-PT') : ''),
-                    readyAtMs
+            const timerMatch = row.match(/class="[^"]*(?:widget-command-)?timer[^"]*"[^>]*>([^<]+)<\/span>/i) || row.match(/timer">([^<]+)<\/span>/i);
+            if (timerMatch) {
+                timerStr = timerMatch[1].trim();
+            } else {
+                tds.forEach(td => {
+                    const clean = td.replace(/<[^>]+>/g, '').trim();
+                    const m = clean.match(/^(\d{1,2}):(\d{2}):(\d{2})$/);
+                    if (m && !timerStr) timerStr = clean;
                 });
             }
+            if (timerStr) {
+                const parts = timerStr.split(':').map(p => parseInt(p, 10));
+                if (parts.length === 3) remainingSec = parts[0] * 3600 + parts[1] * 60 + parts[2];
+                else if (parts.length === 2) remainingSec = parts[0] * 60 + parts[1];
+            }
+
+            const timeMatch = row.match(/(hoje|amanhã|today|tomorrow|[0-9\.\/]+)\s*(?:às|at|\s)\s*(\d{1,2}:\d{2}:\d{2}(?::\d{3})?)/i) ||
+                              row.match(/(\d{1,2}\.\d{1,2}\.(?:\d{2,4})?\s+\d{1,2}:\d{2}:\d{2})/i) ||
+                              row.match(/(\d{1,2}:\d{2}:\d{2}:\d{3})/i);
+            if (timeMatch) {
+                completionStr = timeMatch[0];
+                if (!readyAtMs) readyAtMs = parseTwDateTime(completionStr);
+            }
+
+            if (!readyAtMs && remainingSec > 0) {
+                readyAtMs = Date.now() + remainingSec * 1000;
+            }
+            if (!readyAtMs) {
+                readyAtMs = Date.now() + 60000;
+            }
+
+            returns.push({
+                commandId,
+                villageId: vId,
+                coords: homeCoords,
+                remoteCoords,
+                type: 'return',
+                isReturn: true,
+                timerStr,
+                remainingSec,
+                completionStr: completionStr || (readyAtMs ? new Date(readyAtMs).toLocaleTimeString('pt-PT') : ''),
+                readyAtMs
+            });
         });
 
         return returns;
@@ -810,65 +845,90 @@
         const commands = [];
 
         // Extração robusta de linhas TR (sem truncamento por tabelas aninhadas ou paginação)
-        const rowMatches = [];
         const trRegex = /<tr\b[^>]*>([\s\S]*?)<\/tr>/gi;
         let trM;
+        const rows = [];
         while ((trM = trRegex.exec(html)) !== null) {
             const row = trM[0];
-            if (row.includes('screen=info_command') || row.includes('command-row') || row.includes('data-command-id') || /class="[^"]*command/i.test(row)) {
-                rowMatches.push(row);
+            if (row.includes('screen=info_command') || 
+                row.includes('data-command-id') || 
+                row.includes('command_hover_details') || 
+                row.includes('command-row') || 
+                row.includes('widget-command-timer') || 
+                /data-command-type=/i.test(row) || 
+                /class="[^"]*command/i.test(row)) {
+                rows.push(row);
             }
         }
 
-        rowMatches.forEach(row => {
+        rows.forEach((row, idx) => {
             if (/<th/i.test(row) && !/<td/i.test(row)) return;
 
+            let commandId = null;
             const cmdIdMatch = row.match(/data-command-id="(\d+)"/) ||
-                               row.match(/data-id="(\d+)"/) || 
-                               row.match(/screen=info_command[^"']*id=(\d+)/i) ||
+                               row.match(/data-id="(\d+)"/) ||
                                row.match(/id="command_(\d+)"/i);
-            if (!cmdIdMatch) return;
-            const commandId = cmdIdMatch[1];
+            if (cmdIdMatch) {
+                commandId = cmdIdMatch[1];
+            } else {
+                const hrefMatch = row.match(/href="([^"]*info_command[^"]*)"/i) || row.match(/href="([^"]*id=\d+[^"]*)"/i);
+                if (hrefMatch) {
+                    const idParam = hrefMatch[1].match(/[?&;]id=(\d+)/i);
+                    if (idParam) commandId = idParam[1];
+                }
+            }
+            if (!commandId) {
+                const coordM = row.match(/(\d{1,3}\|\d{1,3})/g);
+                commandId = coordM ? `${coordM.join('_')}_${idx}` : `cmd_${idx}`;
+            }
 
             const linkMatch = row.match(/href="([^"]*screen=info_command[^"]*)"/i);
             const commandLink = linkMatch ? linkMatch[1].replace(/&amp;/g, '&') : `/game.php?screen=info_command&id=${commandId}`;
 
-            // Deteção do timestamp de chegada
+            const tds = row.match(/<td[^>]*>([\s\S]*?)<\/td>/gi) || [];
+
             let readyAtMs = 0;
+            let timerStr = '';
+            let remainingSec = 0;
+            let completionStr = '';
+
             const endtimeMatch = row.match(/data-endtime="(\d+)"/);
             if (endtimeMatch) {
                 readyAtMs = parseInt(endtimeMatch[1], 10) * 1000;
             }
 
-            const timerMatch = row.match(/class="(?:widget-command-)?timer"[^>]*>([^<]+)<\/span>/i) || 
+            const timerMatch = row.match(/class="[^"]*(?:widget-command-)?timer[^"]*"[^>]*>([^<]+)<\/span>/i) ||
                                row.match(/timer">([^<]+)<\/span>/i);
-            const timerStr = timerMatch ? timerMatch[1].trim() : '';
-            
-            let remainingSec = 0;
+            if (timerMatch) {
+                timerStr = timerMatch[1].trim();
+            } else {
+                tds.forEach(td => {
+                    const clean = td.replace(/<[^>]+>/g, '').trim();
+                    const m = clean.match(/^(\d{1,2}):(\d{2}):(\d{2})$/);
+                    if (m && !timerStr) timerStr = clean;
+                });
+            }
+
             if (timerStr) {
                 const parts = timerStr.split(':').map(p => parseInt(p, 10));
                 if (parts.length === 3) remainingSec = parts[0] * 3600 + parts[1] * 60 + parts[2];
                 else if (parts.length === 2) remainingSec = parts[0] * 60 + parts[1];
             }
 
-            const timeMatch = row.match(/(hoje|amanhã|[0-9\.]+)\s*às\s*(\d{1,2}:\d{2}:\d{2}(?::\d{3})?)/i);
-            const completionStr = timeMatch ? timeMatch[0] : '';
+            const timeMatch = row.match(/(hoje|amanhã|today|tomorrow|[0-9\.\/]+)\s*(?:às|at|\s)\s*(\d{1,2}:\d{2}:\d{2}(?::\d{3})?)/i) ||
+                              row.match(/(\d{1,2}\.\d{1,2}\.(?:\d{2,4})?\s+\d{1,2}:\d{2}:\d{2})/i) ||
+                              row.match(/(\d{1,2}:\d{2}:\d{2}:\d{3})/i);
+            if (timeMatch) {
+                completionStr = timeMatch[0];
+                if (!readyAtMs) readyAtMs = parseTwDateTime(completionStr);
+            }
 
+            if (!readyAtMs && remainingSec > 0) {
+                readyAtMs = Date.now() + remainingSec * 1000;
+            }
             if (!readyAtMs) {
-                if (completionStr) {
-                    readyAtMs = parseTwDateTime(completionStr);
-                } else if (remainingSec > 0) {
-                    readyAtMs = Date.now() + remainingSec * 1000;
-                }
+                readyAtMs = Date.now() + 60000;
             }
-
-            // CRÍTICO: Um comando real em movimento DEVE ter um temporizador ou hora de chegada válida!
-            // Se não tiver, é uma linha de outra tabela não militar (filas, aldeias, etc.) e deve ser ignorada.
-            if (!readyAtMs || isNaN(readyAtMs) || readyAtMs <= 0) {
-                return;
-            }
-
-            const tds = row.match(/<td[^>]*>([\s\S]*?)<\/td>/gi) || [];
 
             let label = '';
             const labelMatch = row.match(/class="quickedit-label"[^>]*>([\s\S]*?)<\/span>/i) ||
@@ -904,9 +964,9 @@
             else if (isAttack) type = 'attack';
             else if (isSupport) type = 'support';
 
-            const hasSnob = /snob/i.test(row) || /nobre/i.test(row) || /snob\.webp/i.test(row);
-            const hasPaladin = /knight|paladino/i.test(row) || /knight\.webp/i.test(row);
-            const hasSpy = /spy|batedor/i.test(row) || /spy\.webp/i.test(row);
+            const hasSnob = /snob|nobre|snob\.webp|return_snob\.webp/i.test(row);
+            const hasPaladin = /knight|paladino|knight\.webp/i.test(row);
+            const hasSpy = /spy|batedor|spy\.webp/i.test(row);
             const isFarm = /farm/i.test(row) || /saque/i.test(label);
             const isLarge = /attack_large|grande ataque/i.test(row);
             const isMedium = /attack_medium|médio ataque/i.test(row);
@@ -917,32 +977,49 @@
             let targetName = '';
             let targetCoords = '';
 
-            const isOverviewTable = tds.length >= 4 && !/(hoje|amanhã|[0-9\.]+)\s*às/i.test(tds[1]);
+            if (tds.length >= 4) {
+                // Layout A: overview_villages commands_table (tds[0]: Dest/Command, tds[1]: Origin)
+                const destTd = tds[0];
+                const origTd = tds[1];
 
-            if (isOverviewTable) {
-                const originTd = tds[1];
-                const targetTd = tds[2];
-
-                const oLink = originTd.match(/<a[^>]*>([\s\S]*?)<\/a>/i);
+                const oLink = origTd.match(/<a[^>]*>([\s\S]*?)<\/a>/i);
                 if (oLink) originName = oLink[1].replace(/<[^>]+>/g, '').trim();
+                else originName = origTd.replace(/<[^>]+>/g, '').trim();
 
-                const tLink = targetTd.match(/<a[^>]*>([\s\S]*?)<\/a>/i);
-                if (tLink) targetName = tLink[1].replace(/<[^>]+>/g, '').trim();
+                const dLink = destTd.match(/<a[^>]*>([\s\S]*?)<\/a>/i);
+                if (dLink) targetName = dLink[1].replace(/<[^>]+>/g, '').trim();
+                else targetName = destTd.replace(/<[^>]+>/g, '').trim();
 
-                const oCoord = originTd.match(/(\d{3}\|\d{3})/);
-                if (oCoord) originCoords = oCoord[1];
+                const oCoordMatch = origTd.match(/(\d{1,3}\|\d{1,3})/);
+                if (oCoordMatch) originCoords = oCoordMatch[1];
 
-                const tCoord = targetTd.match(/(\d{3}\|\d{3})/);
-                if (tCoord) targetCoords = tCoord[1];
+                const dCoordMatch = destTd.match(/(\d{1,3}\|\d{1,3})/);
+                if (dCoordMatch) targetCoords = dCoordMatch[1];
             } else {
-                targetName = label.replace(/^Ataque a /i, '').replace(/^Retorno de /i, '').replace(/^Enviado de volta por /i, '');
-                const tCoord = targetName.match(/(\d{3}\|\d{3})/);
-                if (tCoord) targetCoords = tCoord[1];
+                // Layout B: Village Overview widget (commands_outgoings)
+                const rowCoords = row.match(/(\d{1,3}\|\d{1,3})/g) || [];
+                if (isReturn) {
+                    targetCoords = fallbackCoords || (rowCoords.length > 0 ? rowCoords[rowCoords.length - 1] : '');
+                    targetName = fallbackVillageName || '';
+                    originCoords = rowCoords.length > 0 ? rowCoords[0] : '';
+                    originName = label.replace(/^Enviado de volta por /i, '').replace(/^Retorno de /i, '').trim();
+                } else {
+                    originCoords = fallbackCoords || (rowCoords.length > 0 ? rowCoords[0] : '');
+                    originName = fallbackVillageName || '';
+                    targetCoords = rowCoords.length > 0 ? rowCoords[rowCoords.length - 1] : '';
+                    targetName = label.replace(/^Ataque a /i, '').replace(/^Apoio a /i, '').trim();
+                }
             }
 
+            if (!originCoords && fallbackCoords) originCoords = fallbackCoords;
             if (!targetCoords) {
-                const anyCoord = row.match(/(\d{3}\|\d{3})/g) || [];
-                if (anyCoord.length > 0) targetCoords = anyCoord[anyCoord.length - 1];
+                const allCoords = row.match(/(\d{1,3}\|\d{1,3})/g) || [];
+                if (allCoords.length > 1) {
+                    targetCoords = allCoords[0];
+                    if (!originCoords) originCoords = allCoords[1];
+                } else if (allCoords.length === 1) {
+                    targetCoords = allCoords[0];
+                }
             }
 
             commands.push({
@@ -966,7 +1043,7 @@
                 targetCoords,
                 timerStr,
                 remainingSec,
-                completionStr,
+                completionStr: completionStr || (readyAtMs ? new Date(readyAtMs).toLocaleTimeString('pt-PT') : ''),
                 readyAtMs
             });
         });
@@ -1299,19 +1376,35 @@
                 ? `/game.php?village=${currentVId}&screen=snob&ajax=production_popup`
                 : (baseUrl.includes('screen=') ? baseUrl + 'snob&ajax=production_popup' : baseUrl + 'screen=snob&ajax=production_popup');
             const snobTrainUrl = baseUrl.includes('screen=') ? baseUrl + 'snob&mode=train' : baseUrl + 'screen=snob&mode=train';
-            const commandsUrl = (baseUrl.includes('screen=') ? baseUrl : baseUrl + 'screen=') + 'overview_villages&mode=commands&group=0&page=-1';
-            const commandsReturnUrl = (baseUrl.includes('screen=') ? baseUrl : baseUrl + 'screen=') + 'overview_villages&mode=commands&type=return&group=0&page=-1';
 
-            const [rU, rP, rS, rSnobDirect, rSnobPopup, rSnobTrain, rCommands, rCommandsReturn, rVillageOverview] = await Promise.all([
+            const makeUrl = (param) => {
+                if (baseUrl.includes('screen=')) return baseUrl + param;
+                return baseUrl + (baseUrl.includes('?') ? '&screen=' : '?screen=') + param;
+            };
+
+            const cmdEndpoints = [
+                'overview_villages&mode=commands&type=all&group=0',
+                'overview_villages&mode=commands&type=attack&group=0',
+                'overview_villages&mode=commands&type=return&group=0',
+                'overview_villages&mode=commands&group=0',
+                'overview_villages&mode=commands&type=all&group=0&page=-1',
+                'overview_villages&mode=commands&type=attack&group=0&page=-1',
+                'overview_villages&mode=commands&type=return&group=0&page=-1',
+                'overview_villages&mode=commands&group=0&page=-1',
+                'overview_villages&mode=incomings&group=0',
+                'overview_villages&mode=incomings&subtype=attacks&group=0'
+            ];
+            const cmdFetches = cmdEndpoints.map(ep => fetch(makeUrl(ep)).then(r => r.text()).catch(() => ''));
+
+            const [rU, rP, rS, rSnobDirect, rSnobPopup, rSnobTrain, rVillageOverview, ...rCmdResponses] = await Promise.all([
                 fetch(baseUrl + 'overview_villages&mode=units&type=complete&group=0&page=-1').then(r => r.text()),
                 fetch(baseUrl + 'overview_villages&mode=prod&group=0&page=-1').then(r => r.text()),
                 fetch(statueUrl).then(r => r.text()).catch(() => ''),
                 fetch(snobScreenUrl).then(r => r.text()).catch(() => ''),
                 fetch(snobPopupUrl, { headers: { 'X-Requested-With': 'XMLHttpRequest' } }).then(r => r.text()).catch(() => ''),
                 fetch(snobTrainUrl).then(r => r.text()).catch(() => ''),
-                fetch(commandsUrl).then(r => r.text()).catch(() => ''),
-                fetch(commandsReturnUrl).then(r => r.text()).catch(() => ''),
-                villageOverviewUrl ? fetch(villageOverviewUrl).then(r => r.text()).catch(() => '') : Promise.resolve('')
+                villageOverviewUrl ? fetch(villageOverviewUrl).then(r => r.text()).catch(() => '') : Promise.resolve(''),
+                ...cmdFetches
             ]);
 
             // Deteção de Nobres em Treino na Academia (DOM da página atual + página snob direta + popup + train)
@@ -1363,12 +1456,9 @@
             }
 
             // 3. Deteção na visão global de comandos
-            if (rCommands) {
-                addNobleReturns(parseCommandsNobleReturns(rCommands, currentVId, currentVCoords));
-            }
-            if (rCommandsReturn) {
-                addNobleReturns(parseCommandsNobleReturns(rCommandsReturn, currentVId, currentVCoords));
-            }
+            rCmdResponses.forEach(r => {
+                if (r) addNobleReturns(parseCommandsNobleReturns(r, currentVId, currentVCoords));
+            });
 
             // 4. Extração completa de todos os Comandos & Retornos da Conta para o Módulo de Comandos
             const cmdMap = new Map();
@@ -1389,8 +1479,9 @@
             };
 
             const currentVName = (typeof game_data !== 'undefined' && game_data.village && game_data.village.name) ? game_data.village.name : '';
-            if (rCommands) addAllCmds(parseAllAccountCommands(rCommands, currentVId, currentVCoords, currentVName));
-            if (rCommandsReturn) addAllCmds(parseAllAccountCommands(rCommandsReturn, currentVId, currentVCoords, currentVName));
+            rCmdResponses.forEach(r => {
+                if (r) addAllCmds(parseAllAccountCommands(r, currentVId, currentVCoords, currentVName));
+            });
             if (currentDocHtml) addAllCmds(parseAllAccountCommands(currentDocHtml, currentVId, currentVCoords, currentVName));
             if (rVillageOverview) addAllCmds(parseAllAccountCommands(rVillageOverview, currentVId, currentVCoords, currentVName));
 
@@ -6220,14 +6311,30 @@
             const currentVId = (typeof game_data !== 'undefined' && game_data.village) ? game_data.village.id : null;
             const currentVCoords = (typeof game_data !== 'undefined' && game_data.village && game_data.village.coord) ? game_data.village.coord : '';
             const currentVName = (typeof game_data !== 'undefined' && game_data.village && game_data.village.name) ? game_data.village.name : '';
-            const commandsUrl = (baseUrl.includes('screen=') ? baseUrl : baseUrl + 'screen=') + 'overview_villages&mode=commands&group=0&page=-1';
-            const commandsReturnUrl = (baseUrl.includes('screen=') ? baseUrl : baseUrl + 'screen=') + 'overview_villages&mode=commands&type=return&group=0&page=-1';
+            const makeUrl = (param) => {
+                if (baseUrl.includes('screen=')) return baseUrl + param;
+                return baseUrl + (baseUrl.includes('?') ? '&screen=' : '?screen=') + param;
+            };
+
+            const cmdEndpoints = [
+                'overview_villages&mode=commands&type=all&group=0',
+                'overview_villages&mode=commands&type=attack&group=0',
+                'overview_villages&mode=commands&type=return&group=0',
+                'overview_villages&mode=commands&group=0',
+                'overview_villages&mode=commands&type=all&group=0&page=-1',
+                'overview_villages&mode=commands&type=attack&group=0&page=-1',
+                'overview_villages&mode=commands&type=return&group=0&page=-1',
+                'overview_villages&mode=commands&group=0&page=-1',
+                'overview_villages&mode=incomings&group=0',
+                'overview_villages&mode=incomings&subtype=attacks&group=0'
+            ];
+            const cmdFetches = cmdEndpoints.map(ep => fetch(makeUrl(ep)).then(r => r.text()).catch(() => ''));
+
             const villageOverviewUrl = currentVId ? `/game.php?village=${currentVId}&screen=overview` : '';
 
-            const [rCommands, rCommandsReturn, rVillageOverview] = await Promise.all([
-                fetch(commandsUrl).then(r => r.text()).catch(() => ''),
-                fetch(commandsReturnUrl).then(r => r.text()).catch(() => ''),
-                villageOverviewUrl ? fetch(villageOverviewUrl).then(r => r.text()).catch(() => '') : Promise.resolve('')
+            const [rVillageOverview, ...rCmdResponses] = await Promise.all([
+                villageOverviewUrl ? fetch(villageOverviewUrl).then(r => r.text()).catch(() => '') : Promise.resolve(''),
+                ...cmdFetches
             ]);
 
             const currentDocHtml = (typeof document !== 'undefined' && document.body) ? document.body.innerHTML : '';
@@ -6248,8 +6355,9 @@
                 });
             };
 
-            if (rCommands) addAllCmds(parseAllAccountCommands(rCommands, currentVId, currentVCoords, currentVName));
-            if (rCommandsReturn) addAllCmds(parseAllAccountCommands(rCommandsReturn, currentVId, currentVCoords, currentVName));
+            rCmdResponses.forEach(r => {
+                if (r) addAllCmds(parseAllAccountCommands(r, currentVId, currentVCoords, currentVName));
+            });
             if (currentDocHtml) addAllCmds(parseAllAccountCommands(currentDocHtml, currentVId, currentVCoords, currentVName));
             if (rVillageOverview) addAllCmds(parseAllAccountCommands(rVillageOverview, currentVId, currentVCoords, currentVName));
 
