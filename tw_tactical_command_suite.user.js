@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW Tactical Command Suite
 // @namespace    https://tribalwars.com.pt/
-// @version      2.8.4
+// @version      2.8.5
 // @description  Suite militar avançada para Tribal Wars PT: Rastreio de Nobres a Caminho & em Treino na Academia, Calculadora de Horário Mínimo de Ataque (⚡ com 5m folga e seleção do Nuke Full mais perto), Fakes Inteligentes 1% Dinâmico, Arsenal Tático de Fakes, UI de Limpezas/Nobres/Demolição, e Planeador Tático.
 // @author       Diogo & Antigravity
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -12,7 +12,7 @@
 // ==/UserScript==
 
 (async function () {
-    const SCRIPT_VERSION = '2.8.4';
+    const SCRIPT_VERSION = '2.8.5';
 
     // Auto-selecionar alvo de catapulta na confirmação de ataque na Praça de Reunião se especificado no URL
     try {
@@ -665,12 +665,13 @@
         const rowMatches = html.match(/<tr[^>]*>([\s\S]*?)<\/tr>/gi) || [];
         
         rowMatches.forEach(row => {
-            // Suporta referências a nobre, snob ou Academia (ecrã geral da aldeia / snob)
-            if (!/nobre|snob|academia/i.test(row)) return;
+            // Ignorar cabeçalhos, ofertas premium, menus e linhas inactivas
             if (/<th/i.test(row)) return;
+            if (/premium|oferta|modemenu|train_snob_cell|auto-minting/i.test(row)) return;
+            if (!/nobre|snob|academia/i.test(row)) return;
 
             const vMatch = row.match(/village=(\d+)/);
-            const vId = vMatch ? vMatch[1] : (currentVillageId ? String(currentVillageId) : null);
+            const vId = vMatch ? String(vMatch[1]) : (currentVillageId ? String(currentVillageId) : null);
             
             const coordsMatch = row.match(/(\d{3}\|\d{3})/);
             const coords = coordsMatch ? coordsMatch[1] : '';
@@ -682,23 +683,26 @@
             const timeMatch = row.match(/(hoje|amanhã|[0-9\.]+)\s*às\s*(\d{1,2}:\d{2}:\d{2})/i);
             const completionStr = timeMatch ? timeMatch[0] : '';
 
+            // Se não tiver temporizador nem hora de conclusão, não é uma fila ativa de treino
+            if (!timerStr && !completionStr) return;
+
             const countMatch = row.match(/(\d+)\s*(?:x\s*)?Nobre/i) || row.match(/(\d+)\s*snob/i);
             const count = countMatch ? parseInt(countMatch[1], 10) : 1;
 
-            if (remainingSec > 0 || completionStr) {
-                const now = Date.now();
-                const readyAtMs = remainingSec > 0 ? (now + remainingSec * 1000) : (parseTwDateTime(completionStr) || now);
-                for (let i = 0; i < count; i++) {
-                    prods.push({
-                        villageId: vId,
-                        coords,
-                        type: 'production',
-                        timerStr,
-                        remainingSec,
-                        completionStr,
-                        readyAtMs
-                    });
-                }
+            const now = Date.now();
+            // Priorizar a hora de conclusão do jogo (evita desvios por latência ou relógio local)
+            const readyAtMs = completionStr ? (parseTwDateTime(completionStr) || (now + remainingSec * 1000)) : (now + remainingSec * 1000);
+
+            for (let i = 0; i < count; i++) {
+                prods.push({
+                    villageId: vId,
+                    coords,
+                    type: 'production',
+                    timerStr,
+                    remainingSec,
+                    completionStr,
+                    readyAtMs
+                });
             }
         });
 
@@ -751,53 +755,60 @@
     }
 
     function calculateEarliestViableNobleTime(village, neededNobles) {
-        if (!village) return { readyAtMs: Date.now(), isFullyReadyNow: true, summary: 'Nenhuma aldeia selecionada' };
+        if (!village) return { readyAtMs: Date.now(), isFullyReadyNow: true, hasShortage: false, summary: 'Nenhuma aldeia selecionada' };
         const readyNow = village.snobsHome || 0;
+        const events = (village.noblePendingEvents || []).slice().sort((a, b) => a.readyAtMs - b.readyAtMs);
+        const inProdCount = events.filter(e => e.type === 'production').length;
+        const inReturnCount = events.filter(e => e.type === 'return').length;
+        const availableTotal = readyNow + events.length;
+
         if (readyNow >= neededNobles) {
             return {
                 readyAtMs: Date.now(),
                 neededNobles,
                 readyNow,
+                availableTotal,
                 isFullyReadyNow: true,
+                hasShortage: false,
                 summary: `${readyNow} Nobre(s) prontos na aldeia`
             };
         }
 
         const missing = neededNobles - readyNow;
-        const events = (village.noblePendingEvents || []).slice().sort((a, b) => a.readyAtMs - b.readyAtMs);
 
         if (events.length >= missing) {
             const targetEvent = events[missing - 1];
-            const inProdCount = events.filter(e => e.type === 'production').length;
-            const inReturnCount = events.filter(e => e.type === 'return').length;
             const timeLabel = targetEvent.completionStr || (targetEvent.timerStr ? `em ${targetEvent.timerStr}` : new Date(targetEvent.readyAtMs).toLocaleTimeString('pt-PT'));
             return {
                 readyAtMs: targetEvent.readyAtMs,
                 neededNobles,
                 readyNow,
+                availableTotal,
                 isFullyReadyNow: false,
+                hasShortage: false,
                 waitingForCount: missing,
                 targetEvent,
                 inProdCount,
                 inReturnCount,
-                summary: `${readyNow} na aldeia, ${inProdCount > 0 ? inProdCount + ' em treino, ' : ''}${inReturnCount > 0 ? inReturnCount + ' em viagem' : ''} (${neededNobles}º nobre disponível às ${timeLabel})`
+                summary: `${readyNow} na aldeia, ${inProdCount > 0 ? inProdCount + ' em treino' : ''}${inProdCount > 0 && inReturnCount > 0 ? ', ' : ''}${inReturnCount > 0 ? inReturnCount + ' em viagem' : ''} (${neededNobles}º nobre disponível às ${timeLabel})`
             };
         }
 
-        // Falta de nobres mesmo com eventos
-        const inProdCount = events.filter(e => e.type === 'production').length;
-        const inReturnCount = events.filter(e => e.type === 'return').length;
+        // Falta de nobres mesmo considerando todos os eventos em treino e viagem
         const lastMs = events.length > 0 ? events[events.length - 1].readyAtMs : Date.now();
+        const missingTotal = neededNobles - availableTotal;
         return {
             readyAtMs: lastMs,
             neededNobles,
             readyNow,
+            availableTotal,
             isFullyReadyNow: false,
-            waitingForCount: missing,
             hasShortage: true,
+            waitingForCount: missing,
+            missingTotal,
             inProdCount,
             inReturnCount,
-            summary: `${readyNow} na aldeia, ${events.length} a caminho/treino (faltam ${missing - events.length} para ${neededNobles})`
+            summary: `Apenas ${availableTotal}/${neededNobles} nobres possíveis (${readyNow} em casa, ${inProdCount} em treino, ${inReturnCount} a caminho). Faltam ${missingTotal} nobres!`
         };
     }
 
@@ -895,6 +906,8 @@
         const MARGIN_MS = 5 * 60 * 1000; // 5 minutos de margem de segurança para envio confortável
         let minViableLandMs = now + MARGIN_MS;
         const reasons = [];
+        let hasShortage = false;
+        const shortageReasons = [];
 
         const attackMode = document.getElementById('tw-nt-attack-mode') ? document.getElementById('tw-nt-attack-mode').value : 'standard_anti';
         const architecture = document.getElementById('tw-nt-architecture') ? document.getElementById('tw-nt-architecture').value : '';
@@ -911,13 +924,19 @@
 
             const needed1 = (architecture === 'split_2x2' && attackMode === 'split_2x2') ? 2 : (attackMode === 'snob_solo' ? 1 : neededNobles);
             const readiness = calculateEarliestViableNobleTime(nobleV, needed1);
+            if (readiness.hasShortage) {
+                hasShortage = true;
+                shortageReasons.push(`${cleanVillageDisplayName(nobleV)}: ${readiness.summary}`);
+            }
             const nobleReadyMs = (!readiness.isFullyReadyNow) ? readiness.readyAtMs : now;
             const minLaunchMs1 = Math.max(now, nobleReadyMs) + MARGIN_MS;
             const minLandMs1 = minLaunchMs1 + Math.round(travelSec * 1000);
 
             if (minLandMs1 > minViableLandMs) {
                 minViableLandMs = minLandMs1;
-                if (!readiness.isFullyReadyNow) {
+                if (readiness.hasShortage) {
+                    reasons.push(`❌ ${readiness.summary}`);
+                } else if (!readiness.isFullyReadyNow) {
                     reasons.push(`Nobres: ${readiness.summary} (+5m folga)`);
                 } else {
                     reasons.push(`Nobres: ${cleanVillageDisplayName(nobleV)} (${formatDuration(travelSec)} viagem + 5m folga)`);
@@ -933,13 +952,19 @@
             const travelSec2 = dist2 * unitSpeedMinutes.snob * 60;
 
             const readiness2 = calculateEarliestViableNobleTime(nobleV2, 2);
+            if (readiness2.hasShortage) {
+                hasShortage = true;
+                shortageReasons.push(`${cleanVillageDisplayName(nobleV2)}: ${readiness2.summary}`);
+            }
             const nobleReadyMs2 = (!readiness2.isFullyReadyNow) ? readiness2.readyAtMs : now;
             const minLaunchMs2 = Math.max(now, nobleReadyMs2) + MARGIN_MS;
             const minLandMs2 = minLaunchMs2 + Math.round(travelSec2 * 1000);
 
             if (minLandMs2 > minViableLandMs) {
                 minViableLandMs = minLandMs2;
-                if (!readiness2.isFullyReadyNow) {
+                if (readiness2.hasShortage) {
+                    reasons.push(`❌ 2ª Aldeia: ${readiness2.summary}`);
+                } else if (!readiness2.isFullyReadyNow) {
                     reasons.push(`2ª Aldeia Nobres: ${readiness2.summary} (+5m folga)`);
                 } else {
                     reasons.push(`2ª Aldeia Nobres: ${cleanVillageDisplayName(nobleV2)} (${formatDuration(travelSec2)} viagem + 5m folga)`);
@@ -987,6 +1012,8 @@
         return {
             earliestLandDate: new Date(earliestLandMs),
             earliestLandMs,
+            hasShortage,
+            shortageReasons,
             reasons
         };
     }
@@ -1005,6 +1032,12 @@
 
         const calc = calculateEarliestViableLandTime();
         if (!calc) return null;
+
+        if (calc.hasShortage) {
+            const shortMsg = calc.shortageReasons.length > 0 ? calc.shortageReasons.join('\n') : 'Não há nobres suficientes disponíveis nesta aldeia!';
+            alert(`⚠️ ATENÇÃO: NOBRES INSUFICIENTES!\n\n${shortMsg}\n\nNão é possível agendar o ataque com essa quantidade de nobres sem recrutar novos nobres ou aguardar pelo regresso de tropas.`);
+            return null;
+        }
 
         const d = calc.earliestLandDate;
         const yr = d.getFullYear();
@@ -1057,16 +1090,24 @@
             const allSnobProductions = [];
             const addSnobProds = (list) => {
                 list.forEach(p => {
-                    if (!allSnobProductions.some(existing => (existing.villageId === p.villageId || (existing.coords && p.coords && existing.coords === p.coords)) && Math.abs(existing.readyAtMs - p.readyAtMs) < 10000)) {
+                    const pVId = String(p.villageId || '');
+                    if (!allSnobProductions.some(existing => {
+                        const exVId = String(existing.villageId || '');
+                        const matchVillage = (exVId && pVId && exVId === pVId) || (existing.coords && p.coords && existing.coords === p.coords);
+                        return matchVillage && Math.abs(existing.readyAtMs - p.readyAtMs) < 30000;
+                    })) {
                         allSnobProductions.push(p);
                     }
                 });
             };
 
-            addSnobProds(parseAcademyProduction(currentDocHtml, currentVId));
             addSnobProds(parseAcademyProduction(rSnobDirect, currentVId));
             addSnobProds(parseAcademyProduction(rSnobPopup, currentVId));
             addSnobProds(parseAcademyProduction(rSnobTrain, currentVId));
+            // Apenas recorre ao DOM do documento atual se ainda não encontramos produção direta para a aldeia atual
+            if (currentVId && !allSnobProductions.some(p => String(p.villageId) === String(currentVId))) {
+                addSnobProds(parseAcademyProduction(currentDocHtml, currentVId));
+            }
 
             // Deteção de Nobres em Viagem / Comandos de Retorno
             const allNobleReturns = parseCommandsNobleReturns(rCommands);
@@ -3490,7 +3531,12 @@
                         const foundProds = parseAcademyProduction(snobHtml, selV.id);
                         if (foundProds.length > 0) {
                             foundProds.forEach(p => {
-                                if (!selV.noblePendingEvents.some(e => e.type === 'production' && Math.abs(e.readyAtMs - p.readyAtMs) < 10000)) {
+                                const pVId = String(p.villageId || '');
+                                if (!selV.noblePendingEvents.some(e => {
+                                    const exVId = String(e.villageId || '');
+                                    const matchVillage = (exVId && pVId && exVId === pVId) || (e.coords && p.coords && e.coords === p.coords);
+                                    return e.type === 'production' && matchVillage && Math.abs(e.readyAtMs - p.readyAtMs) < 30000;
+                                })) {
                                     selV.noblePendingEvents.push(p);
                                 }
                             });
@@ -3503,33 +3549,47 @@
 
                 if (selV.snobsHome < reqNobles) {
                     // ALERTA INTELIGENTE: Nobres fora ou em treino!
-                    hintBox.style.background = 'rgba(239, 68, 68, 0.2)';
-                    hintBox.style.borderColor = '#ef4444';
-                    hintBox.style.color = '#fecaca';
-
                     const canSwitchToBest = (bestV.id !== selV.id && bestV.snobsHome >= reqNobles);
                     const readiness = calculateEarliestViableNobleTime(selV, reqNobles);
-                    let readyDetails = '';
-                    if (readiness.targetEvent) {
-                        const timeTxt = readiness.targetEvent.completionStr || (readiness.targetEvent.timerStr ? `em ${readiness.targetEvent.timerStr}` : new Date(readiness.readyAtMs).toLocaleTimeString('pt-PT'));
-                        readyDetails = `<br><span style="color:#fde047; font-size:10px;">⏰ <b>Disponibilidade:</b> O ${reqNobles}º nobre fica pronto às <b>${timeTxt}</b> (${readiness.summary}).</span>`;
-                    }
-
                     const calcMin = calculateEarliestViableLandTime();
+
+                    let readyDetails = '';
                     let minLandBtnHtml = '';
-                    if (calcMin) {
-                        const isTomorrow = calcMin.earliestLandDate.getDate() !== new Date().getDate();
-                        const timeLabel = isTomorrow ? `amanhã às ${calcMin.earliestLandDate.toLocaleTimeString('pt-PT')}` : calcMin.earliestLandDate.toLocaleTimeString('pt-PT');
-                        minLandBtnHtml = `<button type="button" class="tw-btn tw-btn-blue" id="tw-btn-apply-hud-min-land" style="padding:3px 8px; font-size:9.5px; font-weight:bold; white-space:nowrap;" title="Ajusta automaticamente a hora de chegada para o horário mais cedo viável (com 5m de margem de segurança)">⚡ Ajustar para ${timeLabel}</button>`;
+
+                    if (readiness.hasShortage) {
+                        hintBox.style.background = 'rgba(239, 68, 68, 0.25)';
+                        hintBox.style.borderColor = '#ef4444';
+                        hintBox.style.color = '#fecaca';
+                        readyDetails = `<br><span style="color:#ef4444; font-size:10px; font-weight:bold;">❌ <b>INSUFICIENTE:</b> ${readiness.summary}</span>`;
+                        minLandBtnHtml = `<button type="button" class="tw-btn" disabled style="padding:3px 8px; font-size:9.5px; font-weight:bold; opacity:0.65; cursor:not-allowed; background:#991b1b; color:#fecaca;" title="${readiness.summary}">❌ Faltam Nobres (${readiness.availableTotal}/${reqNobles})</button>`;
+                    } else {
+                        hintBox.style.background = 'rgba(239, 68, 68, 0.2)';
+                        hintBox.style.borderColor = '#ef4444';
+                        hintBox.style.color = '#fecaca';
+
+                        if (readiness.targetEvent) {
+                            const timeTxt = readiness.targetEvent.completionStr || (readiness.targetEvent.timerStr ? `em ${readiness.targetEvent.timerStr}` : new Date(readiness.readyAtMs).toLocaleTimeString('pt-PT'));
+                            readyDetails = `<br><span style="color:#fde047; font-size:10px;">⏰ <b>Disponibilidade:</b> O ${reqNobles}º nobre fica pronto às <b>${timeTxt}</b> (${readiness.summary}).</span>`;
+                        }
+
+                        if (calcMin && !calcMin.hasShortage) {
+                            const isTomorrow = calcMin.earliestLandDate.getDate() !== new Date().getDate();
+                            const timeLabel = isTomorrow ? `amanhã às ${calcMin.earliestLandDate.toLocaleTimeString('pt-PT')}` : calcMin.earliestLandDate.toLocaleTimeString('pt-PT');
+                            minLandBtnHtml = `<button type="button" class="tw-btn tw-btn-blue" id="tw-btn-apply-hud-min-land" style="padding:3px 8px; font-size:9.5px; font-weight:bold; white-space:nowrap;" title="Ajusta automaticamente a hora de chegada para o horário mais cedo viável (com 5m de margem de segurança)">⚡ Ajustar para ${timeLabel}</button>`;
+                        }
                     }
 
                     const inProdTxt = selV.snobsInProd > 0 ? `, <b style="color:#38bdf8;">${selV.snobsInProd} em treino</b>` : '';
                     const inRetTxt = selV.snobsReturning > 0 ? `, <b style="color:#f59e0b;">${selV.snobsReturning} a caminho</b>` : '';
 
+                    const alertTitle = readiness.hasShortage
+                        ? '❌ <b style="color:#ef4444;">ALERTA: NOBRES INSUFICIENTES NESTA ALDEIA!</b>'
+                        : '⚠️ <b style="color:#f87171;">ALERTA: NOBRES EM VIAGEM OU TREINO!</b>';
+
                     hintBox.innerHTML = `
                         <div style="display:flex; justify-content:space-between; align-items:center; width:100%; gap:8px;">
                             <span style="line-height:1.35;">
-                                ⚠️ <b style="color:#f87171;">ALERTA: NOBRES EM VIAGEM OU TREINO!</b><br>
+                                ${alertTitle}<br>
                                 A aldeia <b>${cleanVillageDisplayName(selV)}</b> tem apenas <b style="color:#fde047;">${selV.snobsHome}/${reqNobles}</b> nobres prontos na aldeia (<b style="color:#f87171;">${selV.snobsOutside} fora</b>${inProdTxt}${inRetTxt}).${readyDetails}
                                 ${canSwitchToBest ? `<br><span style="color:#86efac;">💡 Aldeia pronta mais próxima: <b>${cleanVillageDisplayName(bestV)}</b> (${closestWithEnough.dist.toFixed(1)}c • ⏳ ${closestWithEnough.timeStr} • ${bestV.snobsHome}N na aldeia).</span>` : ''}
                             </span>
