@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW Tactical Command Suite
 // @namespace    https://tribalwars.com.pt/
-// @version      3.1.0
+// @version      3.1.1
 // @description  Suite militar avançada para Tribal Wars PT: Módulo Tático de Comandos (Ataques & Retornos de tropas com filtros e timers em tempo real), Rastreio de Nobres a Caminho & em Retorno de Comandos + Treino na Academia, Validação Precisa de Envio & Horário Mínimo de Ataque (⚡ com 5m folga e seleção do Nuke Full mais perto), Suporte Automático a Modelos NT (NT 33% para 3 nobres, NT 25% para 4 nobres), Bunkers Desligados por Default, Alvo Cats do Nuke Muralha por Default, Fakes Inteligentes 1% Dinâmico, Arsenal Tático de Fakes, UI de Limpezas/Nobres/Demolição, e Planeador Tático.
 // @author       Diogo & Antigravity
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -728,8 +728,58 @@
         return prods;
     }
 
+    // Diagnóstico global de recolha de comandos
+    window.twCommandDiagnostics = {
+        lastRun: null,
+        logs: [],
+        add(url, status, bytes, cmdsFound, note = '') {
+            const entry = {
+                time: new Date().toLocaleTimeString('pt-PT'),
+                url,
+                status,
+                bytes,
+                cmdsFound,
+                note
+            };
+            this.logs.push(entry);
+            console.log(`[TW Tactical Fetch] ${status} (${(bytes/1024).toFixed(1)}KB) -> ${cmdsFound} cmds | ${url} ${note ? '('+note+')' : ''}`);
+        },
+        clear() {
+            this.logs = [];
+            this.lastRun = new Date();
+        },
+        getSummaryText() {
+            if (!this.logs.length) return 'Nenhuma consulta efetuada ainda.';
+            return this.logs.map((l, i) => `[${i+1}] ${l.status} (${(l.bytes/1024).toFixed(1)}KB, ${l.cmdsFound} cmds) -> ${l.url} ${l.note ? '['+l.note+']' : ''}`).join('\n');
+        }
+    };
+
     async function fetchAllAccountCommandsHtml(customMakeUrl = null, customSafeFetch = null) {
-        const doFetch = customSafeFetch || (typeof safeFetch === 'function' ? safeFetch : fetch);
+        if (window.twCommandDiagnostics) window.twCommandDiagnostics.clear();
+
+        const doFetch = async (url) => {
+            if (!url) return '';
+            if (typeof customSafeFetch === 'function') {
+                try {
+                    const r = await customSafeFetch(url);
+                    if (r && r.length > 50) return r;
+                } catch (_) {}
+            }
+            for (let attempt = 1; attempt <= 3; attempt++) {
+                try {
+                    const res = await fetch(url);
+                    if (res.ok) {
+                        const txt = await res.text();
+                        if (txt && txt.length > 50) return txt;
+                    }
+                } catch (e) {
+                    if (attempt === 3) console.warn('[TW Tactical] Falha de fetch:', url, e);
+                }
+                if (attempt < 3) await new Promise(r => setTimeout(r, 250));
+            }
+            return '';
+        };
+
         const mkUrl = customMakeUrl || (typeof makeUrl === 'function' ? makeUrl : (p => `/game.php?screen=${p}`));
 
         const results = [];
@@ -739,10 +789,14 @@
         const extractIds = (html) => {
             if (!html) return [];
             const m1 = Array.from(html.matchAll(/data-command-id="(\d+)"/g)).map(m => m[1]);
-            const m2 = Array.from(html.matchAll(/href="[^"]*(?:info_command|screen=info_command)[^"]*[?&;]id=(\d+)[^"]*"/gi)).map(m => m[1]);
+            const m2 = Array.from(html.matchAll(/href="[^"]*(?:info_command)[^"]*"/gi)).map(h => (h[0].match(/[?&;]id=(\d+)/i) || [])[1]).filter(Boolean);
             const m3 = Array.from(html.matchAll(/data-id="(\d+)"/g)).map(m => m[1]);
             const m4 = Array.from(html.matchAll(/id="command_(\d+)"/gi)).map(m => m[1]);
-            return [...new Set([...m1, ...m2, ...m3, ...m4])];
+            const m5 = Array.from(html.matchAll(/<tr[^>]*class="[^"]*nowrap[^"]*"[^>]*>([\s\S]*?)<\/tr>/gi)).map((m, idx) => {
+                const idM = m[1].match(/(?:data-command-id|data-id)="(\d+)"/) || m[1].match(/id=(\d+)/);
+                return idM ? idM[1] : `row_${idx}`;
+            });
+            return [...new Set([...m1, ...m2, ...m3, ...m4, ...m5])];
         };
 
         const extractPageUrls = (html) => {
@@ -764,21 +818,32 @@
             return [...new Set(found.map(u => u.replace(/&amp;/g, '&')).filter(u => u && !u.includes('page=-1')))];
         };
 
-        const fetchSingleUrl = async (url) => {
+        const fetchSingleUrl = async (url, label = '') => {
             if (!url || fetchedUrls.has(url)) return null;
             fetchedUrls.add(url);
             try {
-                const res = await doFetch(url, {}, 2);
+                const res = await doFetch(url);
+                const bytes = res ? res.length : 0;
                 if (res && (
                     res.includes('commands_table') ||
                     res.includes('screen=info_command') ||
                     res.includes('data-command-id') ||
                     res.includes('command_hover_details') ||
-                    (res.includes('overview_table') && res.includes('mode=commands'))
+                    res.includes('class="nowrap"') ||
+                    (res.includes('overview_table') && res.includes('mode=commands')) ||
+                    (res.includes('overview_villages') && res.includes('commands'))
                 )) {
+                    const ids = extractIds(res);
+                    if (window.twCommandDiagnostics) window.twCommandDiagnostics.add(url, '200 OK', bytes, ids.length, label);
                     return res;
+                } else if (res) {
+                    if (window.twCommandDiagnostics) window.twCommandDiagnostics.add(url, 'Sem tabela', bytes, 0, label);
+                } else {
+                    if (window.twCommandDiagnostics) window.twCommandDiagnostics.add(url, 'Falhou', 0, 0, label);
                 }
-            } catch (_) {}
+            } catch (err) {
+                if (window.twCommandDiagnostics) window.twCommandDiagnostics.add(url, 'Erro ' + err.message, 0, 0, label);
+            }
             return null;
         };
 
@@ -793,84 +858,66 @@
             return newIds.length;
         };
 
-        const fetchAllPagesForType = async (typeParam) => {
-            // Passo 1: Obter a página inicial
-            const baseCandidates = [
-                typeof mkUrl === 'function' ? mkUrl(`overview_villages&mode=commands${typeParam}&group=0`) : '',
-                typeof mkUrl === 'function' ? mkUrl(`overview_villages&mode=commands${typeParam}`) : '',
-                `/game.php?screen=overview_villages&mode=commands${typeParam}&group=0`,
-                `/game.php?screen=overview_villages&mode=commands${typeParam}`
+        // Lista de queries estratégicas prioritárias para capturar 100% dos comandos da conta
+        const queryList = [
+            '&type=all&group=0',
+            '&type=all',
+            '&type=attack&group=0',
+            '&type=attack',
+            '&group=0',
+            '',
+            '&type=return&group=0',
+            '&type=return',
+            '&type=support&group=0',
+            '&type=support'
+        ];
+
+        for (const q of queryList) {
+            const candidates = [
+                typeof mkUrl === 'function' ? mkUrl(`overview_villages&mode=commands${q}`) : '',
+                `/game.php?screen=overview_villages&mode=commands${q}`
             ].filter(Boolean);
 
-            let firstPageHtml = null;
-            for (const cand of baseCandidates) {
-                firstPageHtml = await fetchSingleUrl(cand);
-                if (firstPageHtml) break;
+            let pageHtml = null;
+            for (const cand of candidates) {
+                pageHtml = await fetchSingleUrl(cand, q || 'default');
+                if (pageHtml) break;
             }
 
-            if (!firstPageHtml) return;
-            processPageHtml(firstPageHtml);
+            if (!pageHtml) continue;
+            processPageHtml(pageHtml);
 
-            // Passo 2: Seguir links reais de paginação descobertos no HTML
-            const discoveredLinks = extractPageUrls(firstPageHtml);
+            // Seguir links de paginação encontrados
+            const discoveredLinks = extractPageUrls(pageHtml);
             for (const pLink of discoveredLinks) {
-                const pRes = await fetchSingleUrl(pLink);
+                const pRes = await fetchSingleUrl(pLink, 'paginação-link');
                 if (pRes) {
                     processPageHtml(pRes);
-                    const deepLinks = extractPageUrls(pRes);
-                    for (const dLink of deepLinks) {
-                        if (!fetchedUrls.has(dLink)) {
-                            const dRes = await fetchSingleUrl(dLink);
-                            if (dRes) processPageHtml(dRes);
-                        }
+                }
+            }
+
+            // Varredura de páginas numéricas ativas se houver mais de 1 página
+            if (pageHtml.includes('paged-nav-item') || pageHtml.includes('page=')) {
+                let consecutiveEmpty = 0;
+                for (let pageNum = 1; pageNum <= 5; pageNum++) {
+                    const pUrl = typeof mkUrl === 'function' ? mkUrl(`overview_villages&mode=commands${q}&page=${pageNum}`) : `/game.php?screen=overview_villages&mode=commands${q}&page=${pageNum}`;
+                    if (fetchedUrls.has(pUrl)) continue;
+                    const pRes = await fetchSingleUrl(pUrl, `page-${pageNum}`);
+                    if (!pRes) {
+                        consecutiveEmpty++;
+                        if (consecutiveEmpty >= 2) break;
+                        continue;
+                    }
+                    const newCount = processPageHtml(pRes);
+                    if (newCount === 0) {
+                        consecutiveEmpty++;
+                        if (consecutiveEmpty >= 2) break;
+                    } else {
+                        consecutiveEmpty = 0;
                     }
                 }
             }
-
-            // Passo 3: Varredura numérica ativa com tolerância a 1 página repetida (cobre paginação 0-based e 1-based)
-            let consecutiveEmpty = 0;
-            for (let pageNum = 1; pageNum <= 10; pageNum++) {
-                const pageCandidates = [
-                    typeof mkUrl === 'function' ? mkUrl(`overview_villages&mode=commands${typeParam}&group=0&page=${pageNum}`) : '',
-                    typeof mkUrl === 'function' ? mkUrl(`overview_villages&mode=commands${typeParam}&page=${pageNum}`) : '',
-                    `/game.php?screen=overview_villages&mode=commands${typeParam}&group=0&page=${pageNum}`,
-                    `/game.php?screen=overview_villages&mode=commands${typeParam}&page=${pageNum}`
-                ].filter(Boolean);
-
-                let fetchedPage = null;
-                for (const u of pageCandidates) {
-                    if (fetchedUrls.has(u)) continue;
-                    fetchedPage = await fetchSingleUrl(u);
-                    if (fetchedPage) break;
-                }
-
-                if (!fetchedPage) {
-                    consecutiveEmpty++;
-                    if (consecutiveEmpty >= 2) break;
-                    continue;
-                }
-
-                const newCount = processPageHtml(fetchedPage);
-                if (newCount === 0) {
-                    consecutiveEmpty++;
-                    if (consecutiveEmpty >= 2) break;
-                } else {
-                    consecutiveEmpty = 0;
-                }
-            }
-        };
-
-        // 1. Obter comandos a sair (ataques, apoios, fakes) em todas as páginas
-        await fetchAllPagesForType('');
-        if (results.length === 0) {
-            await fetchAllPagesForType('&type=all');
         }
-        if (results.length === 0) {
-            await fetchAllPagesForType('&type=out');
-        }
-
-        // 2. Obter comandos em retorno (tropas e nobres regressando)
-        await fetchAllPagesForType('&type=return');
 
         console.log(`[TW Tactical] Comandos recolhidos de ${results.length} páginas (${seenCommandIds.size} comandos únicos detetados).`);
 
@@ -1011,7 +1058,8 @@
                 row.includes('command-row') || 
                 row.includes('widget-command-timer') || 
                 /data-command-type=/i.test(row) || 
-                /class="[^"]*command/i.test(row)) {
+                /class="[^"]*command/i.test(row) ||
+                (row.includes('nowrap') && (row.includes('hoje') || row.includes('amanhã') || /às\s*\d{1,2}:\d{2}/i.test(row) || /\d{1,3}\|\d{1,3}/.test(row)))) {
                 rows.push(row);
             }
         }
@@ -1026,19 +1074,15 @@
             if (cmdIdMatch) {
                 commandId = cmdIdMatch[1];
             } else {
-                const hrefMatch = row.match(/href="([^"]*info_command[^"]*)"/i) || row.match(/href="([^"]*id=\d+[^"]*)"/i);
+                const hrefMatch = row.match(/href="([^"]*(?:info_command)[^"]*)"/i) || row.match(/href="([^"]*[?&;]id=\d+[^"]*)"/i);
                 if (hrefMatch) {
                     const idParam = hrefMatch[1].match(/[?&;]id=(\d+)/i);
                     if (idParam) commandId = idParam[1];
                 }
             }
-            if (!commandId) {
-                const coordM = row.match(/(\d{1,3}\|\d{1,3})/g);
-                commandId = coordM ? `${coordM.join('_')}_${idx}` : `cmd_${idx}`;
-            }
 
             const linkMatch = row.match(/href="([^"]*screen=info_command[^"]*)"/i);
-            const commandLink = linkMatch ? linkMatch[1].replace(/&amp;/g, '&') : `/game.php?screen=info_command&id=${commandId}`;
+            const commandLink = linkMatch ? linkMatch[1].replace(/&amp;/g, '&') : `/game.php?screen=info_command&id=${commandId || idx}`;
 
             const tds = row.match(/<td[^>]*>([\s\S]*?)<\/td>/gi) || [];
 
@@ -1090,6 +1134,13 @@
             }
             if (!readyAtMs) {
                 readyAtMs = Date.now() + 60000;
+            }
+
+            if (!commandId) {
+                const coordM = row.match(/(\d{1,3}\|\d{1,3})/g) || [];
+                const cTimeM = row.match(/(\d{1,2}:\d{2}:\d{2}(?::\d{1,3})?)/);
+                const timePart = cTimeM ? cTimeM[1] : (completionStr || idx);
+                commandId = `${coordM.join('_')}_${timePart}_${idx}`;
             }
 
             let label = '';
@@ -6545,10 +6596,16 @@
 
             const safeFetchCmd = async (url) => {
                 if (!url) return '';
-                try {
-                    const r = await fetch(url);
-                    if (r.ok) return await r.text();
-                } catch (_) {}
+                for (let i = 0; i < 3; i++) {
+                    try {
+                        const r = await fetch(url);
+                        if (r.ok) {
+                            const text = await r.text();
+                            if (text && text.length > 50) return text;
+                        }
+                    } catch (_) {}
+                    if (i < 2) await new Promise(res => setTimeout(res, 200));
+                }
                 return '';
             };
 
@@ -6669,7 +6726,7 @@
                         <div class="tw-kpi-value" id="tw-kpi-cmd-snobs">${snobCmds}</div>
                         <div class="tw-kpi-sub">Conquistas / Retornos nobre</div>
                     </div>
-                    <div class="tw-kpi-card tw-kpi-green">
+                    <div class="tw-kpi-card tw-kpi-gold">
                         <div class="tw-kpi-label">SAQUES / FARMS <span>🌾</span></div>
                         <div class="tw-kpi-value" id="tw-kpi-cmd-farms">${farmCmds}</div>
                         <div class="tw-kpi-sub">Farm e pilhagem</div>
@@ -6681,10 +6738,10 @@
                     </div>
                 </div>
 
-                <!-- CONTROLS AND FILTERS -->
-                <div style="display:flex; justify-content:space-between; align-items:center; background:#0f172a; border:1px solid #1e293b; padding:8px 12px; border-radius:8px; gap:8px; flex-wrap:wrap;">
-                    <div class="tw-pill-group" id="tw-cmd-filter-pills">
-                        <span style="font-size:11px; font-weight:bold; color:#64748b; margin-right:4px;">FILTRO:</span>
+                <!-- CONTROLS & FILTERS BAR -->
+                <div style="display:flex; justify-content:space-between; align-items:center; background:#1e293b; padding:8px 12px; border-radius:6px; border:1px solid #334155; flex-wrap:wrap; gap:8px;">
+                    <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;" id="tw-cmd-filter-pills">
+                        <span style="font-size:11px; color:#94a3b8; font-weight:bold; margin-right:4px;">FILTRO:</span>
                         <div class="tw-pill ${commandsFilter==='all'?'active':''}" data-cf="all">Todos (<span id="tw-cf-cnt-all">${totalCmds}</span>)</div>
                         <div class="tw-pill ${commandsFilter==='attack'?'active':''}" data-cf="attack">⚔️ Ataques (<span id="tw-cf-cnt-attack">${attackCmds}</span>)</div>
                         <div class="tw-pill ${commandsFilter==='return'?'active':''}" data-cf="return">↩️ Retornos (<span id="tw-cf-cnt-return">${returnCmds}</span>)</div>
@@ -6694,7 +6751,7 @@
                     </div>
 
                     <div style="display:flex; gap:6px; align-items:center;">
-                        <input type="text" id="tw-cmd-search" class="tw-input" style="width:200px;" placeholder="🔍 Filtrar aldeia/coord..." value="${escapeHtml(commandsSearch)}">
+                        <input type="text" id="tw-cmd-search" class="tw-input" style="width:160px;" placeholder="🔍 Filtrar..." value="${escapeHtml(commandsSearch)}">
                         <select id="tw-cmd-sort" class="tw-select" style="padding:4px 6px; font-size:11px;">
                             <option value="time_asc" ${commandsSort==='time_asc'?'selected':''}>⏱️ Mais Próximos Primeiro</option>
                             <option value="time_desc" ${commandsSort==='time_desc'?'selected':''}>⏱️ Mais Tardios Primeiro</option>
@@ -6702,8 +6759,16 @@
                             <option value="origin" ${commandsSort==='origin'?'selected':''}>🏰 Por Origem</option>
                             <option value="target" ${commandsSort==='target'?'selected':''}>🎯 Por Destino</option>
                         </select>
+                        <a href="/game.php?screen=overview_villages&mode=commands&type=all&group=0" class="tw-btn" style="text-decoration:none; padding:4px 9px; font-size:11px; background:#1e293b; border:1px solid #334155; color:#94a3b8; border-radius:5px;" title="Abre a tela nativa de comandos do Tribos">🔗 Tela Oficial</a>
+                        <button type="button" class="tw-btn" id="tw-btn-diag-commands" style="padding:4px 8px; font-size:11px; background:#1e293b; border:1px solid #334155; color:#38bdf8;" title="Ver detalhes técnicos da recolha de comandos">📡 Diagnóstico</button>
                         <button class="tw-btn tw-btn-blue" id="tw-btn-refresh-commands" style="padding:4px 10px; font-size:11px;" title="Recarregar comandos da conta">🔄 Atualizar Comandos</button>
                     </div>
+                </div>
+
+                <!-- DIAGNOSTIC BAR -->
+                <div id="tw-cmd-diag-summary" style="display:flex; justify-content:space-between; align-items:center; background:rgba(15,23,42,0.6); padding:3px 10px; border-radius:4px; font-size:10.5px; color:#94a3b8; border:1px solid #1e293b;">
+                    <span id="tw-cmd-diag-text">📡 <b>Sincronização:</b> ${allParsedCommands.length} comandos carregados</span>
+                    <span style="color:#64748b; font-size:10px;">Varredura multi-fonte com tolerância ativa</span>
                 </div>
 
                 <!-- TABLE PANEL -->
@@ -6752,6 +6817,14 @@
         const refreshBtn = document.getElementById('tw-btn-refresh-commands');
         if (refreshBtn) {
             refreshBtn.addEventListener('click', refreshCommands);
+        }
+
+        const diagBtn = document.getElementById('tw-btn-diag-commands');
+        if (diagBtn) {
+            diagBtn.addEventListener('click', () => {
+                const text = window.twCommandDiagnostics ? window.twCommandDiagnostics.getSummaryText() : 'Sem dados de diagnóstico.';
+                alert('📡 RELATÓRIO DE SINCRONIZAÇÃO DE COMANDOS:\n\n' + text + '\n\nTotal de comandos identificados: ' + allParsedCommands.length);
+            });
         }
 
         const pills = document.querySelectorAll('#tw-cmd-filter-pills .tw-pill');
