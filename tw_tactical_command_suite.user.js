@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW Tactical Command Suite
 // @namespace    https://tribalwars.com.pt/
-// @version      3.0.7
+// @version      3.0.8
 // @description  Suite militar avançada para Tribal Wars PT: Módulo Tático de Comandos (Ataques & Retornos de tropas com filtros e timers em tempo real), Rastreio de Nobres a Caminho & em Retorno de Comandos + Treino na Academia, Validação Precisa de Envio & Horário Mínimo de Ataque (⚡ com 5m folga e seleção do Nuke Full mais perto), Suporte Automático a Modelos NT (NT 33% para 3 nobres, NT 25% para 4 nobres), Bunkers Desligados por Default, Alvo Cats do Nuke Muralha por Default, Fakes Inteligentes 1% Dinâmico, Arsenal Tático de Fakes, UI de Limpezas/Nobres/Demolição, e Planeador Tático.
 // @author       Diogo & Antigravity
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -12,7 +12,7 @@
 // ==/UserScript==
 
 (async function () {
-    const SCRIPT_VERSION = '3.0.7';
+    const SCRIPT_VERSION = '3.0.8';
 
     // Auto-selecionar alvo de catapulta na confirmação de ataque na Praça de Reunião se especificado no URL
     try {
@@ -725,6 +725,64 @@
         return prods;
     }
 
+    async function fetchAllAccountCommandsHtml(customMakeUrl = null, customSafeFetch = null) {
+        const doFetch = customSafeFetch || (typeof safeFetch === 'function' ? safeFetch : fetch);
+        const mkUrl = customMakeUrl || (typeof makeUrl === 'function' ? makeUrl : (p => `/game.php?screen=${p}`));
+
+        // Prioridade 1: URLs limpas de overview_villages (sem atrelamento a aldeia específica)
+        // Prioridade 2: URLs via makeUrl (com village= atual)
+        const candidates = [
+            '/game.php?screen=overview_villages&mode=commands&group=0&page=-1',
+            '/game.php?screen=overview_villages&mode=commands&group=0',
+            '/game.php?screen=overview_villages&mode=commands&page=-1',
+            '/game.php?screen=overview_villages&mode=commands',
+            typeof mkUrl === 'function' ? mkUrl('overview_villages&mode=commands&group=0&page=-1') : '',
+            typeof mkUrl === 'function' ? mkUrl('overview_villages&mode=commands&group=0') : '',
+            typeof mkUrl === 'function' ? mkUrl('overview_villages&mode=commands&page=-1') : '',
+            typeof mkUrl === 'function' ? mkUrl('overview_villages&mode=commands') : '',
+            '/game.php?screen=overview_villages&mode=commands&type=all&group=0&page=-1',
+            '/game.php?screen=overview_villages&mode=commands&type=all'
+        ].filter(Boolean);
+
+        let primaryHtml = '';
+        for (const url of candidates) {
+            try {
+                const res = await doFetch(url, {}, 2);
+                if (res && (
+                    res.includes('commands_table') ||
+                    res.includes('screen=info_command') ||
+                    res.includes('data-command-id') ||
+                    res.includes('command_hover_details') ||
+                    (res.includes('overview_table') && res.includes('mode=commands'))
+                )) {
+                    console.log('[TW Tactical] Visão geral de comandos da conta obtida com sucesso via:', url);
+                    primaryHtml = res;
+                    break;
+                }
+            } catch (e) {
+                console.warn('[TW Tactical] Falha na tentativa de URL:', url, e);
+            }
+        }
+
+        if (!primaryHtml) return [];
+
+        const results = [primaryHtml];
+
+        // Se houver navegação paginada (caso page=-1 não tenha sido honrado), recolhe páginas adicionais
+        try {
+            const pageLinks = Array.from(primaryHtml.matchAll(/href="([^"]*(?:overview_villages[^"]*mode=commands|mode=commands[^"]*overview_villages)[^"]*page=\d+[^"]*)"/gi))
+                .map(m => m[1].replace(/&amp;/g, '&'))
+                .filter(u => !u.includes('page=-1') && !u.includes('page=0'));
+            const uniquePages = [...new Set(pageLinks)].slice(0, 5);
+            for (const pUrl of uniquePages) {
+                const pRes = await doFetch(pUrl, {}, 2);
+                if (pRes) results.push(pRes);
+            }
+        } catch (_) {}
+
+        return results;
+    }
+
     function parseCommandsNobleReturns(html, fallbackVillageId = null, fallbackCoords = null) {
         if (!html) return [];
         const returns = [];
@@ -733,8 +791,11 @@
         const rowMatches = [];
         while ((trM = trRegex.exec(html)) !== null) {
             const row = trM[0];
-            if ((row.includes('snob') || row.includes('nobre')) && 
-                (row.includes('return') || row.includes('retorno') || row.includes('regresso') || row.includes('cancel') || row.includes('other_back') || row.includes('back.webp'))) {
+            if ((row.includes('snob') || row.includes('nobre') || row.includes('return_snob')) && 
+                (row.includes('return') || row.includes('retorno') || row.includes('regresso') || row.includes('other_back') || row.includes('back.webp')) &&
+                !/data-command-type="attack"/i.test(row) &&
+                !/\/command\/attack/i.test(row) &&
+                !/<a[^>]*>(?:Ataque|Saque)\b/i.test(row)) {
                 rowMatches.push(row);
             }
         }
@@ -942,22 +1003,47 @@
                 else label = tds[0].replace(/<[^>]+>/g, '').trim();
             }
 
-            const isReturn = /return|retorno|regresso|cancel|cancelar|other_back|command\/back|\/back\.webp/i.test(row) || 
-                             /data-command-type="(return|other_back)"/i.test(row) ||
-                             /retorno de/i.test(label) || /regresso de/i.test(label) || /enviado de volta por/i.test(label);
+            // Deteção autoritária e precisa do tipo de comando (sem falsos positivos por botões de cancelar)
+            const cmdTypeAttr = (row.match(/data-command-type="([^"]+)"/i) || [])[1] || '';
+            const iconSrcMatch = row.match(/src="([^"]*(?:command|graphic)[^"]*\.(?:png|webp|gif))"/i) ||
+                                 row.match(/src="([^"]*(?:attack|return|support|back|cancel)[^"]*\.(?:png|webp|gif))"/i);
+            const iconSrc = iconSrcMatch ? iconSrcMatch[1].toLowerCase() : '';
+            const cleanLabel = (label || '').toLowerCase();
 
-            const isAttack = !isReturn && (
-                /data-command-type="attack"/i.test(row) || 
-                /attack/i.test(row) || 
-                /ataque/i.test(label) || 
-                /saque/i.test(label)
-            );
+            let isReturn = false;
+            let isAttack = false;
+            let isSupport = false;
 
-            const isSupport = !isReturn && !isAttack && (
-                /data-command-type="support"/i.test(row) || 
-                /support/i.test(row) || 
-                /apoio/i.test(label)
-            );
+            if (cmdTypeAttr === 'attack') {
+                isAttack = true;
+            } else if (cmdTypeAttr === 'return' || cmdTypeAttr === 'other_back' || cmdTypeAttr === 'cancel') {
+                isReturn = true;
+            } else if (cmdTypeAttr === 'support') {
+                isSupport = true;
+            } else {
+                const isReturnIcon = /command\/(?:return|back|cancel)|return_\w+\.(?:png|webp)|\/back\.(?:png|webp)|\/cancel\.(?:png|webp)/i.test(iconSrc);
+                const isReturnLabel = /^(?:retorno\b|regresso\b|enviado de volta|cancelamento\b)/i.test(cleanLabel);
+
+                const isAttackIcon = /command\/attack|attack_\w+\.(?:png|webp)|\/attack\.(?:png|webp)/i.test(iconSrc);
+                const isAttackLabel = /^(?:ataque\b|saque\b)/i.test(cleanLabel);
+
+                const isSupportIcon = /command\/support|\/support\.(?:png|webp)/i.test(iconSrc);
+                const isSupportLabel = /^apoio\b/i.test(cleanLabel);
+
+                if (isReturnIcon || isReturnLabel) {
+                    isReturn = true;
+                } else if (isAttackIcon || isAttackLabel) {
+                    isAttack = true;
+                } else if (isSupportIcon || isSupportLabel) {
+                    isSupport = true;
+                } else if (/retorno|regresso/i.test(cleanLabel)) {
+                    isReturn = true;
+                } else if (/ataque|saque/i.test(cleanLabel)) {
+                    isAttack = true;
+                } else if (/apoio/i.test(cleanLabel)) {
+                    isSupport = true;
+                }
+            }
 
             let type = 'other';
             if (isReturn) type = 'return';
@@ -986,7 +1072,7 @@
                 if (oLink) originName = oLink[1].replace(/<[^>]+>/g, '').trim();
                 else originName = origTd.replace(/<[^>]+>/g, '').trim();
 
-                const dLink = destTd.match(/<a[^>]*>([\s\S]*?)<\/a>/i);
+                const dLink = destTd.match(/<a[^>]*screen=info_command[^>]*>([\s\S]*?)<\/a>/i) || destTd.match(/<a[^>]*>([\s\S]*?)<\/a>/i);
                 if (dLink) targetName = dLink[1].replace(/<[^>]+>/g, '').trim();
                 else targetName = destTd.replace(/<[^>]+>/g, '').trim();
 
@@ -995,19 +1081,21 @@
 
                 const dCoordMatch = destTd.match(/(\d{1,3}\|\d{1,3})/);
                 if (dCoordMatch) targetCoords = dCoordMatch[1];
+
+                // Limpar prefixos repetidos do nome de destino
+                targetName = targetName.replace(/^(?:Ataque a|Saque a|Apoio a|Retorno de|Regresso de|Enviado de volta por)\s*/i, '').trim();
             } else {
                 // Layout B: Village Overview widget (commands_outgoings)
                 const rowCoords = row.match(/(\d{1,3}\|\d{1,3})/g) || [];
+                // originCoords é sempre a aldeia do jogador (home)
+                originCoords = fallbackCoords || '';
+                originName = fallbackVillageName || '';
+                // targetCoords é a aldeia remota
+                targetCoords = rowCoords.length > 0 ? rowCoords[0] : '';
                 if (isReturn) {
-                    targetCoords = fallbackCoords || (rowCoords.length > 0 ? rowCoords[rowCoords.length - 1] : '');
-                    targetName = fallbackVillageName || '';
-                    originCoords = rowCoords.length > 0 ? rowCoords[0] : '';
-                    originName = label.replace(/^Enviado de volta por /i, '').replace(/^Retorno de /i, '').trim();
+                    targetName = label.replace(/^(?:Enviado de volta por|Retorno de|Regresso de)\s*/i, '').trim();
                 } else {
-                    originCoords = fallbackCoords || (rowCoords.length > 0 ? rowCoords[0] : '');
-                    originName = fallbackVillageName || '';
-                    targetCoords = rowCoords.length > 0 ? rowCoords[rowCoords.length - 1] : '';
-                    targetName = label.replace(/^Ataque a /i, '').replace(/^Apoio a /i, '').trim();
+                    targetName = label.replace(/^(?:Ataque a|Apoio a|Saque a)\s*/i, '').trim();
                 }
             }
 
@@ -1412,28 +1500,7 @@
                 villageOverviewUrl ? safeFetch(villageOverviewUrl) : Promise.resolve('')
             ]);
 
-            const fetchCmds = async (type) => {
-                const candidates = [
-                    makeUrl(`overview_villages&mode=commands&type=${type}&group=0&page=-1`),
-                    makeUrl(`overview_villages&mode=commands&type=${type}&page=-1`),
-                    makeUrl(`overview_villages&mode=commands&type=${type}&group=0`),
-                    makeUrl(`overview_villages&mode=commands&type=${type}`)
-                ];
-                for (const url of candidates) {
-                    const res = await safeFetch(url, {}, 2);
-                    if (res && res.includes('commands_table')) {
-                        return res;
-                    }
-                }
-                return '';
-            };
-
-            const [rCmdAttack, rCmdReturn, rCmdAll] = await Promise.all([
-                fetchCmds('attack'),
-                fetchCmds('return'),
-                fetchCmds('all')
-            ]);
-            const rCmdResponses = [rCmdAttack, rCmdReturn, rCmdAll].filter(Boolean);
+            const rCmdResponses = await fetchAllAccountCommandsHtml(makeUrl, safeFetch);
 
             // Deteção de Nobres em Treino na Academia (DOM da página atual + página snob direta + popup + train)
             const allSnobProductions = [];
@@ -6384,32 +6451,12 @@
                 return '';
             };
 
-            const fetchCmds = async (type) => {
-                const candidates = [
-                    makeUrl(`overview_villages&mode=commands&type=${type}&group=0&page=-1`),
-                    makeUrl(`overview_villages&mode=commands&type=${type}&page=-1`),
-                    makeUrl(`overview_villages&mode=commands&type=${type}&group=0`),
-                    makeUrl(`overview_villages&mode=commands&type=${type}`)
-                ];
-                for (const url of candidates) {
-                    const res = await safeFetchCmd(url);
-                    if (res && res.includes('commands_table')) {
-                        return res;
-                    }
-                }
-                return '';
-            };
-
             const villageOverviewUrl = currentVId ? `/game.php?village=${currentVId}&screen=overview` : '';
 
-            const [rVillageOverview, rCmdAttack, rCmdReturn, rCmdAll] = await Promise.all([
-                villageOverviewUrl ? safeFetchCmd(villageOverviewUrl) : Promise.resolve(''),
-                fetchCmds('attack'),
-                fetchCmds('return'),
-                fetchCmds('all')
+            const [rCmdResponses, rVillageOverview] = await Promise.all([
+                fetchAllAccountCommandsHtml(makeUrl, safeFetchCmd),
+                villageOverviewUrl ? safeFetchCmd(villageOverviewUrl) : Promise.resolve('')
             ]);
-
-            const rCmdResponses = [rCmdAttack, rCmdReturn, rCmdAll].filter(Boolean);
 
             const currentDocHtml = (typeof document !== 'undefined' && document.body) ? document.body.innerHTML : '';
             const cmdMap = new Map();
