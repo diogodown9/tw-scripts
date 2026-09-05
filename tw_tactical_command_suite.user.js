@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW Tactical Command Suite
 // @namespace    https://tribalwars.com.pt/
-// @version      3.0.5
+// @version      3.0.6
 // @description  Suite militar avançada para Tribal Wars PT: Módulo Tático de Comandos (Ataques & Retornos de tropas com filtros e timers em tempo real), Rastreio de Nobres a Caminho & em Retorno de Comandos + Treino na Academia, Validação Precisa de Envio & Horário Mínimo de Ataque (⚡ com 5m folga e seleção do Nuke Full mais perto), Suporte Automático a Modelos NT (NT 33% para 3 nobres, NT 25% para 4 nobres), Bunkers Desligados por Default, Alvo Cats do Nuke Muralha por Default, Fakes Inteligentes 1% Dinâmico, Arsenal Tático de Fakes, UI de Limpezas/Nobres/Demolição, e Planeador Tático.
 // @author       Diogo & Antigravity
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -12,7 +12,7 @@
 // ==/UserScript==
 
 (async function () {
-    const SCRIPT_VERSION = '3.0.5';
+    const SCRIPT_VERSION = '3.0.6';
 
     // Auto-selecionar alvo de catapulta na confirmação de ataque na Praça de Reunião se especificado no URL
     try {
@@ -1377,35 +1377,47 @@
                 : (baseUrl.includes('screen=') ? baseUrl + 'snob&ajax=production_popup' : baseUrl + 'screen=snob&ajax=production_popup');
             const snobTrainUrl = baseUrl.includes('screen=') ? baseUrl + 'snob&mode=train' : baseUrl + 'screen=snob&mode=train';
 
+            const safeFetch = async (url, options = {}, retries = 2) => {
+                if (!url) return '';
+                for (let i = 0; i < retries; i++) {
+                    try {
+                        const r = await fetch(url, options);
+                        if (r.ok) {
+                            const text = await r.text();
+                            if (text && text.length > 50) return text;
+                        }
+                    } catch (_) {}
+                    if (i < retries - 1) await new Promise(res => setTimeout(res, 250));
+                }
+                return '';
+            };
+
             const makeUrl = (param) => {
                 if (baseUrl.includes('screen=')) return baseUrl + param;
                 return baseUrl + (baseUrl.includes('?') ? '&screen=' : '?screen=') + param;
             };
 
-            const cmdEndpoints = [
-                'overview_villages&mode=commands&type=all&group=0',
-                'overview_villages&mode=commands&type=attack&group=0',
-                'overview_villages&mode=commands&type=return&group=0',
-                'overview_villages&mode=commands&group=0',
-                'overview_villages&mode=commands&type=all&group=0&page=-1',
-                'overview_villages&mode=commands&type=attack&group=0&page=-1',
-                'overview_villages&mode=commands&type=return&group=0&page=-1',
-                'overview_villages&mode=commands&group=0&page=-1',
-                'overview_villages&mode=incomings&group=0',
-                'overview_villages&mode=incomings&subtype=attacks&group=0'
-            ];
-            const cmdFetches = cmdEndpoints.map(ep => fetch(makeUrl(ep)).then(r => r.text()).catch(() => ''));
-
-            const [rU, rP, rS, rSnobDirect, rSnobPopup, rSnobTrain, rVillageOverview, ...rCmdResponses] = await Promise.all([
-                fetch(baseUrl + 'overview_villages&mode=units&type=complete&group=0&page=-1').then(r => r.text()),
-                fetch(baseUrl + 'overview_villages&mode=prod&group=0&page=-1').then(r => r.text()),
-                fetch(statueUrl).then(r => r.text()).catch(() => ''),
-                fetch(snobScreenUrl).then(r => r.text()).catch(() => ''),
-                fetch(snobPopupUrl, { headers: { 'X-Requested-With': 'XMLHttpRequest' } }).then(r => r.text()).catch(() => ''),
-                fetch(snobTrainUrl).then(r => r.text()).catch(() => ''),
-                villageOverviewUrl ? fetch(villageOverviewUrl).then(r => r.text()).catch(() => '') : Promise.resolve(''),
-                ...cmdFetches
+            const [rU, rP, rS, rSnobDirect, rSnobPopup, rSnobTrain, rCmdAll, rCmdReturn, rVillageOverview] = await Promise.all([
+                safeFetch(makeUrl('overview_villages&mode=units&type=complete&group=0&page=-1')).then(async (res) => {
+                    if (res && res.includes('units_table')) return res;
+                    return await safeFetch(makeUrl('overview_villages&mode=units&group=0')) ||
+                           await safeFetch(makeUrl('overview_villages&mode=units&type=complete')) ||
+                           await safeFetch(makeUrl('overview_villages&mode=units'));
+                }),
+                safeFetch(makeUrl('overview_villages&mode=prod&group=0&page=-1')),
+                safeFetch(statueUrl),
+                safeFetch(snobScreenUrl),
+                safeFetch(snobPopupUrl, { headers: { 'X-Requested-With': 'XMLHttpRequest' } }),
+                safeFetch(snobTrainUrl),
+                safeFetch(makeUrl('overview_villages&mode=commands&group=0')).then(async (res) => {
+                    if (res && res.includes('commands_table')) return res;
+                    return await safeFetch(makeUrl('overview_villages&mode=commands&type=all&group=0')) ||
+                           await safeFetch(makeUrl('overview_villages&mode=commands'));
+                }),
+                safeFetch(makeUrl('overview_villages&mode=commands&type=return&group=0')),
+                villageOverviewUrl ? safeFetch(villageOverviewUrl) : Promise.resolve('')
             ]);
+            const rCmdResponses = [rCmdAll, rCmdReturn].filter(Boolean);
 
             // Deteção de Nobres em Treino na Academia (DOM da página atual + página snob direta + popup + train)
             const allSnobProductions = [];
@@ -1551,20 +1563,31 @@
                 });
             });
 
-            const uTable = dU.querySelector('#units_table');
-            if (!uTable) throw new Error("Tabela de tropas não encontrada (requer Conta Premium).");
-
-            const headers = Array.from(uTable.querySelectorAll('thead th')).filter(th => th.querySelector('img[src*="unit_"]'));
-            unitConfigs = headers.map(th => {
-                const img = th.querySelector('img');
-                return { name: (img.src.match(/unit_([a-z0-9_]+)/i)||[])[1]||'', src: img.src, isHidden: th.classList.contains('hidden') || img.src.includes('militia') };
-            });
+            let uTable = dU ? dU.querySelector('#units_table') : null;
+            if (!uTable && typeof document !== 'undefined') {
+                uTable = document.querySelector('#units_table');
+            }
+            if (!uTable) {
+                const rescue = await safeFetch(makeUrl('overview_villages&mode=units&type=complete&group=0'), {}, 2) ||
+                               await safeFetch(makeUrl('overview_villages&mode=units'), {}, 2);
+                if (rescue) {
+                    const dR = parser.parseFromString(rescue, 'text/html');
+                    uTable = dR.querySelector('#units_table');
+                }
+            }
 
             const summary = { totalPop: 0, units: {}, categories: {}, offCount: 0, defCount: 0, snobCount: 0, fullTrain22kCount: 0, semiTrainCount: 0, fullNuke22kCount: 0, fullBunk22kCount: 0 };
-            unitConfigs.forEach(u => { if(u.name) summary.units[u.name] = { count: 0, pop: 0, src: u.src }; });
             Object.keys(outputCategories).forEach(cat => summary.categories[cat] = { count: 0, coords: [], villageIds: [] });
 
-            Array.from(uTable.querySelectorAll('tbody')).forEach(tb => {
+            if (uTable) {
+                const headers = Array.from(uTable.querySelectorAll('thead th')).filter(th => th.querySelector('img[src*="unit_"]'));
+                unitConfigs = headers.map(th => {
+                    const img = th.querySelector('img');
+                    return { name: (img.src.match(/unit_([a-z0-9_]+)/i)||[])[1]||'', src: img.src, isHidden: th.classList.contains('hidden') || img.src.includes('militia') };
+                });
+                unitConfigs.forEach(u => { if(u.name) summary.units[u.name] = { count: 0, pop: 0, src: u.src }; });
+
+                Array.from(uTable.querySelectorAll('tbody')).forEach(tb => {
                 const a = tb.querySelector('a[href*="village="]');
                 if (!a) return;
                 const vId = (a.href.match(/village=(\d+)/)||[])[1];
@@ -1788,6 +1811,24 @@
                 allVillages.push(vObj);
                 villagesById[vId] = vObj;
             });
+            } else {
+                console.warn('[TW Tactical] uTable não disponível. Módulo militar e comandos continuam operacionais.');
+                showToast('⚠️ Aviso: Visão geral de tropas indisponível (requer CP). Comandos carregados!', 4000);
+                if (currentVId && currentVCoords) {
+                    const vObj = {
+                        id: currentVId, name: currentVName || 'Aldeia Atual', coords: currentVCoords, points: 0, troops: [], troopsDict: {}, homeTroopsDict: {},
+                        movingTroopsDict: {}, awayTroopsDict: {},
+                        knightAvailable: 0, rowClass: 'tw-row-other', roleTag: { label: 'Atual', css: 'tw-tag-growth' },
+                        farm: { txt:'N/A', used: 0, max: 24000, perc: 0, color:'#8b949e', lvl:'?' },
+                        snobsAvailable: 0, snobsHome: 0, snobsTotal: 0, snobsOutside: 0, snobsInProd: 0, snobsReturning: 0,
+                        noblePendingEvents: [], hasSnobsAway: false, totalOffPop: 0, totalDefPop: 0, homeOffPop: 0, paladin: null,
+                        homePopTotal: 0, totalPopTotal: 0, movingPopTotal: 0, awayPopTotal: 0, hasTroopsAway: false, isFarming: false,
+                        troopsAwayPop: 0, troopsAwayPerc: 0
+                    };
+                    allVillages.push(vObj);
+                    villagesById[currentVId] = vObj;
+                }
+            }
 
             // Enriquecer allParsedCommands com nomes de aldeias e distâncias
             allParsedCommands.forEach(c => {
@@ -1823,7 +1864,9 @@
             
             switchTab('overview');
         } catch (e) {
-            document.getElementById('tw-main-body').innerHTML = `<div style="padding:40px; color:#f85149; text-align:center;">Erro: ${e.message}</div>`;
+            console.error('[TW Tactical] Erro em loadData:', e);
+            const mb = document.getElementById('tw-main-body');
+            if (mb) mb.innerHTML = `<div style="padding:40px; color:#f85149; text-align:center;">Erro: ${e.message}</div>`;
         }
     }
 
@@ -6316,26 +6359,30 @@
                 return baseUrl + (baseUrl.includes('?') ? '&screen=' : '?screen=') + param;
             };
 
-            const cmdEndpoints = [
-                'overview_villages&mode=commands&type=all&group=0',
-                'overview_villages&mode=commands&type=attack&group=0',
-                'overview_villages&mode=commands&type=return&group=0',
-                'overview_villages&mode=commands&group=0',
-                'overview_villages&mode=commands&type=all&group=0&page=-1',
-                'overview_villages&mode=commands&type=attack&group=0&page=-1',
-                'overview_villages&mode=commands&type=return&group=0&page=-1',
-                'overview_villages&mode=commands&group=0&page=-1',
-                'overview_villages&mode=incomings&group=0',
-                'overview_villages&mode=incomings&subtype=attacks&group=0'
-            ];
-            const cmdFetches = cmdEndpoints.map(ep => fetch(makeUrl(ep)).then(r => r.text()).catch(() => ''));
+            const safeFetchCmd = async (url) => {
+                if (!url) return '';
+                try {
+                    const r = await fetch(url);
+                    if (r.ok) return await r.text();
+                } catch (_) {}
+                return '';
+            };
 
             const villageOverviewUrl = currentVId ? `/game.php?village=${currentVId}&screen=overview` : '';
 
-            const [rVillageOverview, ...rCmdResponses] = await Promise.all([
-                villageOverviewUrl ? fetch(villageOverviewUrl).then(r => r.text()).catch(() => '') : Promise.resolve(''),
-                ...cmdFetches
+            let [rVillageOverview, rCmdAll, rCmdReturn] = await Promise.all([
+                villageOverviewUrl ? safeFetchCmd(villageOverviewUrl) : Promise.resolve(''),
+                safeFetchCmd(makeUrl('overview_villages&mode=commands&group=0')),
+                safeFetchCmd(makeUrl('overview_villages&mode=commands&type=return&group=0'))
             ]);
+
+            if (!rCmdAll || !rCmdAll.includes('commands_table')) {
+                const fallbackCmd = await safeFetchCmd(makeUrl('overview_villages&mode=commands&type=all&group=0')) ||
+                                    await safeFetchCmd(makeUrl('overview_villages&mode=commands'));
+                if (fallbackCmd) rCmdAll = fallbackCmd;
+            }
+
+            const rCmdResponses = [rCmdAll, rCmdReturn].filter(Boolean);
 
             const currentDocHtml = (typeof document !== 'undefined' && document.body) ? document.body.innerHTML : '';
             const cmdMap = new Map();
