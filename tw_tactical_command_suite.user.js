@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TW Tactical Command Suite
 // @namespace    https://tribalwars.com.pt/
-// @version      3.2.6
-// @description  Suite militar avançada para Tribal Wars PT: Módulo Tático de Comandos (Ataques & Retornos com filtros, agrupamento por alvos, purga automática de comandos expirados/concluídos e timers sincronizados com o servidor), Rastreio de Nobres a Caminho & em Retorno de Comandos + Treino na Academia, Validação Precisa de Envio & Horário Mínimo de Ataque (⚡ com 5m folga e seleção do Nuke Full mais perto), Suporte Automático a Modelos NT (NT 33% para 3 nobres, NT 25% para 4 nobres), Bunkers Desligados por Default, Alvo Cats do Nuke Muralha por Default, Fakes Inteligentes 1% Dinâmico, Arsenal Tático de Fakes, UI de Limpezas/Nobres/Demolição, e Planeador Tático.
+// @version      3.2.7
+// @description  Suite militar avançada para Tribal Wars PT: Módulo Tático de Comandos (Ataques & Retornos com filtros, agrupamento por alvos, exclusão opcional de micro-saques Modo Turbo para velocidade máxima, purga automática de comandos expirados e timers sincronizados com o servidor), Rastreio de Nobres a Caminho & em Retorno de Comandos + Treino na Academia, Validação Precisa de Envio & Horário Mínimo de Ataque (⚡ com 5m folga e seleção do Nuke Full mais perto), Suporte Automático a Modelos NT (NT 33% para 3 nobres, NT 25% para 4 nobres), Bunkers Desligados por Default, Alvo Cats do Nuke Muralha por Default, Fakes Inteligentes 1% Dinâmico, Arsenal Tático de Fakes, UI de Limpezas/Nobres/Demolição, e Planeador Tático.
 // @author       Diogo & Antigravity
 // @match        https://*.tribalwars.com.pt/game.php*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=tribalwars.com.pt
@@ -12,7 +12,7 @@
 // ==/UserScript==
 
 (async function () {
-    const SCRIPT_VERSION = '3.2.6';
+    const SCRIPT_VERSION = '3.2.7';
 
     // Auto-selecionar alvo de catapulta na confirmação de ataque na Praça de Reunião se especificado no URL
     try {
@@ -457,6 +457,22 @@
     let grabbedTargets = new Set();
     let mapInterval = null;
     let activeCounterCategory = null;
+    // Preferências de localStorage persistentes
+    const STORAGE_KEY = 'tw_tactical_prefs_v2';
+    function savePrefs(key, val) {
+        try {
+            const cur = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+            cur[key] = val;
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(cur));
+        } catch (e) {}
+    }
+    function getPref(key, defaultVal) {
+        try {
+            const cur = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+            return cur[key] !== undefined ? cur[key] : defaultVal;
+        } catch (e) { return defaultVal; }
+    }
+
     let savedCounterTarget = '';
     let savedCounterUnit = 'ram';
     let lastGeneratedCommands = [];
@@ -467,7 +483,8 @@
     let commandsFilter = 'players'; // 'players' (padrão: ataques e retornos a jogadores), 'all', 'attack', 'return', 'snob', 'farm', 'support'
     let commandsSearch = '';
     let commandsSort = 'time_asc'; // 'time_asc', 'time_desc', 'origin', 'target', 'snob_first'
-    let commandsGroupByTarget = false; // Alternar agrupamento de comandos por aldeia alvo
+    let commandsGroupByTarget = getPref('tw_cmd_group_targets', false); // Alternar agrupamento de comandos por aldeia alvo
+    let commandsIgnoreFarms = getPref('tw_cmd_ignore_farms', true); // Modo Turbo: excluir micro-saques automáticos a bárbaras para velocidade máxima
     let collapsedTargetGroups = new Set(); // Conjunto de chaves de grupos recolhidos
     let commandsTimerInterval = null;
 
@@ -2235,6 +2252,8 @@
                 const now = getTwServerTimeMs();
                 list.forEach(c => {
                     if (!c) return;
+                    // Exclusão de micro-saques a bárbaras para velocidade máxima (Modo Turbo)
+                    if (commandsIgnoreFarms && c.isFarm) return;
                     // Ignorar comandos que já chegaram / expiraram
                     if (c.readyAtMs && c.readyAtMs <= (now - 2000)) return;
                     const k = c.commandId ? String(c.commandId) : `${c.originCoords}_${c.targetCoords}_${c.readyAtMs}_${c.completionStr || ''}_${c.type}`;
@@ -2264,7 +2283,7 @@
 
             const nowCmds = getTwServerTimeMs();
             allParsedCommands = Array.from(cmdMap.values())
-                .filter(c => !c.readyAtMs || c.readyAtMs > (nowCmds - 2000))
+                .filter(c => (!commandsIgnoreFarms || !c.isFarm) && (!c.readyAtMs || c.readyAtMs > (nowCmds - 2000)))
                 .sort((a, b) => a.readyAtMs - b.readyAtMs);
 
             // Sincronizar todos os retornos com nobre para enriquecer a deteção militar
@@ -6764,22 +6783,6 @@
         if (e.target.closest('[data-vid]')) document.getElementById(`${modalId}-tooltip`).classList.remove('show');
     });
 
-    // Preferências de localStorage
-    const STORAGE_KEY = 'tw_tactical_prefs_v2';
-    function savePrefs(key, val) {
-        try {
-            const cur = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
-            cur[key] = val;
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(cur));
-        } catch (e) {}
-    }
-    function getPref(key, defaultVal) {
-        try {
-            const cur = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
-            return cur[key] !== undefined ? cur[key] : defaultVal;
-        } catch (e) { return defaultVal; }
-    }
-
     function safeCopyText(text) {
         if (navigator.clipboard && navigator.clipboard.writeText) {
             navigator.clipboard.writeText(text).catch(() => {});
@@ -6905,6 +6908,8 @@
                 const now = getTwServerTimeMs();
                 list.forEach((c, idx) => {
                     if (!c) return;
+                    // Exclusão de micro-saques a bárbaras para velocidade máxima (Modo Turbo)
+                    if (commandsIgnoreFarms && c.isFarm) return;
                     // Filtro estrito: descartar qualquer comando cujo tempo de chegada já tenha passado
                     if (c.readyAtMs && c.readyAtMs <= (now - 2000)) return;
                     const k = c.commandId ? String(c.commandId) : `${c.originCoords}_${c.targetCoords}_${c.readyAtMs}_${c.completionStr || ''}_${c.type}_${idx}`;
@@ -6933,7 +6938,7 @@
 
             const nowCmds = getTwServerTimeMs();
             allParsedCommands = Array.from(cmdMap.values())
-                .filter(c => !c.readyAtMs || c.readyAtMs > (nowCmds - 2000))
+                .filter(c => (!commandsIgnoreFarms || !c.isFarm) && (!c.readyAtMs || c.readyAtMs > (nowCmds - 2000)))
                 .sort((a, b) => a.readyAtMs - b.readyAtMs);
 
             allParsedCommands.forEach(c => {
@@ -6959,7 +6964,7 @@
             if (cmdBadge) cmdBadge.textContent = playerCmdsCount;
 
             renderCommandsTable();
-            showToast(`📡 ${playerCmdsCount} comandos de jogadores atualizados (${allParsedCommands.length} totais)!`);
+            showToast(`📡 ${playerCmdsCount} comandos de guerra atualizados (${allParsedCommands.length} ativos${commandsIgnoreFarms ? ' | Saques excluídos ⚡' : ''})!`);
         } catch (err) {
             showToast(`❌ Erro ao atualizar comandos: ${err.message}`);
         } finally {
@@ -7026,10 +7031,10 @@
                         <div class="tw-kpi-value" id="tw-kpi-cmd-snobs">${snobCmds}</div>
                         <div class="tw-kpi-sub">Conquistas / Retornos nobre</div>
                     </div>
-                    <div class="tw-kpi-card tw-kpi-gold">
+                    <div class="tw-kpi-card ${commandsIgnoreFarms ? 'tw-kpi-green' : 'tw-kpi-gold'}" id="tw-kpi-card-farms" style="cursor:pointer;" title="Clica para alternar a exclusão de micro-saques (Modo Turbo)">
                         <div class="tw-kpi-label">SAQUES / FARMS <span>🌾</span></div>
-                        <div class="tw-kpi-value" id="tw-kpi-cmd-farms">${farmCmds}</div>
-                        <div class="tw-kpi-sub">Farm automático</div>
+                        <div class="tw-kpi-value" id="tw-kpi-cmd-farms">${commandsIgnoreFarms ? '⚡ Turbo' : farmCmds}</div>
+                        <div class="tw-kpi-sub">${commandsIgnoreFarms ? 'Excluídos p/ velocidade' : 'Farm automático'}</div>
                     </div>
                     <div class="tw-kpi-card tw-kpi-blue">
                         <div class="tw-kpi-label">APOIOS / SUPORTES <span>🛡️</span></div>
@@ -7046,7 +7051,7 @@
                         <div class="tw-pill ${commandsFilter==='attack'?'active':''}" data-cf="attack">⚔️ Ataques (<span id="tw-cf-cnt-attack">${attackCmds}</span>)</div>
                         <div class="tw-pill ${commandsFilter==='return'?'active':''}" data-cf="return">↩️ Retornos (<span id="tw-cf-cnt-return">${returnCmds}</span>)</div>
                         <div class="tw-pill ${commandsFilter==='snob'?'active':''}" data-cf="snob">👑 Com Nobre (<span id="tw-cf-cnt-snob">${snobCmds}</span>)</div>
-                        <div class="tw-pill ${commandsFilter==='farm'?'active':''}" data-cf="farm">🌾 Saques (<span id="tw-cf-cnt-farm">${farmCmds}</span>)</div>
+                        <div class="tw-pill ${commandsFilter==='farm'?'active':''}" data-cf="farm">🌾 Saques (<span id="tw-cf-cnt-farm">${commandsIgnoreFarms ? '⚡' : farmCmds}</span>)</div>
                         <div class="tw-pill ${commandsFilter==='support'?'active':''}" data-cf="support">🛡️ Apoios (<span id="tw-cf-cnt-support">${supportCmds}</span>)</div>
                         <div class="tw-pill ${commandsFilter==='all'?'active':''}" data-cf="all">Todos (<span id="tw-cf-cnt-all">${totalCmds}</span>)</div>
                     </div>
@@ -7062,6 +7067,9 @@
                         </select>
                         <button type="button" class="tw-btn" id="tw-btn-group-targets" style="padding:4px 9px; font-size:11px; ${commandsGroupByTarget ? 'background:#0284c7; color:#fff; border-color:#0369a1; box-shadow:0 0 8px rgba(2,132,199,0.4); font-weight:bold;' : 'background:#1e293b; color:#cbd5e1; border-color:#334155;'}" title="Alternar agrupamento de comandos por aldeia alvo">
                             ${commandsGroupByTarget ? '🗂️ Agrupado por Alvos' : '🗂️ Agrupar por Alvos'}
+                        </button>
+                        <button type="button" class="tw-btn" id="tw-btn-toggle-farms" style="padding:4px 9px; font-size:11px; ${commandsIgnoreFarms ? 'background:rgba(16,185,129,0.15); color:#10b981; border:1px solid rgba(16,185,129,0.4); font-weight:bold;' : 'background:#1e293b; color:#94a3b8; border:1px solid #334155;'}" title="Excluir micro-saques a bárbaras para velocidade máxima (Modo Turbo)">
+                            ${commandsIgnoreFarms ? '⚡ Saques: Excluídos (Turbo)' : '🌾 Saques: Incluídos'}
                         </button>
                         <a href="/game.php?screen=overview_villages&mode=commands&type=all&group=0" class="tw-btn" style="text-decoration:none; padding:4px 9px; font-size:11px; background:#1e293b; border:1px solid #334155; color:#94a3b8; border-radius:5px;" title="Abre a tela nativa de comandos do Tribos">🔗 Tela Oficial</a>
                         <button type="button" class="tw-btn" id="tw-btn-diag-commands" style="padding:4px 8px; font-size:11px; background:#1e293b; border:1px solid #334155; color:#38bdf8;" title="Ver detalhes técnicos da recolha de comandos">📡 Diagnóstico</button>
@@ -7122,7 +7130,26 @@
         if (groupTargetsBtn) {
             groupTargetsBtn.addEventListener('click', () => {
                 commandsGroupByTarget = !commandsGroupByTarget;
+                savePrefs('tw_cmd_group_targets', commandsGroupByTarget);
                 renderCommands();
+            });
+        }
+
+        const toggleFarmsBtn = document.getElementById('tw-btn-toggle-farms');
+        if (toggleFarmsBtn) {
+            toggleFarmsBtn.addEventListener('click', () => {
+                commandsIgnoreFarms = !commandsIgnoreFarms;
+                savePrefs('tw_cmd_ignore_farms', commandsIgnoreFarms);
+                refreshCommands();
+            });
+        }
+
+        const kpiFarmsCard = document.getElementById('tw-kpi-card-farms');
+        if (kpiFarmsCard) {
+            kpiFarmsCard.addEventListener('click', () => {
+                commandsIgnoreFarms = !commandsIgnoreFarms;
+                savePrefs('tw_cmd_ignore_farms', commandsIgnoreFarms);
+                refreshCommands();
             });
         }
 
@@ -7184,7 +7211,7 @@
         const kpiSnobs = document.getElementById('tw-kpi-cmd-snobs');
         if (kpiSnobs) kpiSnobs.textContent = snobCmds;
         const kpiFarms = document.getElementById('tw-kpi-cmd-farms');
-        if (kpiFarms) kpiFarms.textContent = farmCmds;
+        if (kpiFarms) kpiFarms.textContent = commandsIgnoreFarms ? '⚡ Turbo' : farmCmds;
         const kpiSupports = document.getElementById('tw-kpi-cmd-supports');
         if (kpiSupports) kpiSupports.textContent = supportCmds;
 
@@ -7200,12 +7227,12 @@
         const cfSnob = document.getElementById('tw-cf-cnt-snob');
         if (cfSnob) cfSnob.textContent = snobCmds;
         const cfFarm = document.getElementById('tw-cf-cnt-farm');
-        if (cfFarm) cfFarm.textContent = farmCmds;
+        if (cfFarm) cfFarm.textContent = commandsIgnoreFarms ? '⚡' : farmCmds;
         const cfSupport = document.getElementById('tw-cf-cnt-support');
         if (cfSupport) cfSupport.textContent = supportCmds;
 
         const nowFilter = getTwServerTimeMs();
-        let filtered = allParsedCommands.filter(c => !c.readyAtMs || c.readyAtMs > (nowFilter - 2500));
+        let filtered = allParsedCommands.filter(c => (!commandsIgnoreFarms || !c.isFarm) && (!c.readyAtMs || c.readyAtMs > (nowFilter - 2500)));
 
         if (commandsFilter === 'players') filtered = filtered.filter(c => c.isPlayerTarget);
         else if (commandsFilter === 'attack') filtered = filtered.filter(c => c.isAttack && !c.isFarm);
