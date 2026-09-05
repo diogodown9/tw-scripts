@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW Tactical Command Suite
 // @namespace    https://tribalwars.com.pt/
-// @version      3.0.0
+// @version      3.0.2
 // @description  Suite militar avançada para Tribal Wars PT: Módulo Tático de Comandos (Ataques & Retornos de tropas com filtros e timers em tempo real), Rastreio de Nobres a Caminho & em Retorno de Comandos + Treino na Academia, Validação Precisa de Envio & Horário Mínimo de Ataque (⚡ com 5m folga e seleção do Nuke Full mais perto), Suporte Automático a Modelos NT (NT 33% para 3 nobres, NT 25% para 4 nobres), Bunkers Desligados por Default, Alvo Cats do Nuke Muralha por Default, Fakes Inteligentes 1% Dinâmico, Arsenal Tático de Fakes, UI de Limpezas/Nobres/Demolição, e Planeador Tático.
 // @author       Diogo & Antigravity
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -12,7 +12,7 @@
 // ==/UserScript==
 
 (async function () {
-    const SCRIPT_VERSION = '3.0.0';
+    const SCRIPT_VERSION = '3.0.2';
 
     // Auto-selecionar alvo de catapulta na confirmação de ataque na Praça de Reunião se especificado no URL
     try {
@@ -808,13 +808,28 @@
     function parseAllAccountCommands(html, fallbackVillageId = null, fallbackCoords = null, fallbackVillageName = null) {
         if (!html) return [];
         const commands = [];
-        const rowMatches = html.match(/<tr[^>]*>([\s\S]*?)<\/tr>/gi) || [];
+
+        // Isolar tabelas de comandos se presentes para evitar varrer tabelas não-militares (filas, mercado, etc.)
+        const tableMatches = html.match(/<table[^>]*id="(?:commands_table|commands_outgoings)"[\s\S]*?<\/table>/gi);
+        let rowMatches = [];
+        if (tableMatches && tableMatches.length > 0) {
+            tableMatches.forEach(tbl => {
+                const rows = tbl.match(/<tr[^>]*>([\s\S]*?)<\/tr>/gi) || [];
+                rowMatches.push(...rows);
+            });
+        } else {
+            // Apenas considerar linhas explicitamente marcadas com classes de comando
+            rowMatches = html.match(/<tr[^>]*class="[^"]*command-row[^"]*"[\s\S]*?<\/tr>/gi) || [];
+            if (rowMatches.length === 0) {
+                rowMatches = html.match(/<tr[^>]*>([\s\S]*?screen=info_command[\s\S]*?)<\/tr>/gi) || [];
+            }
+        }
 
         rowMatches.forEach(row => {
             if (/<th/i.test(row)) return;
 
-            const cmdIdMatch = row.match(/data-id="(\d+)"/) || 
-                               row.match(/data-command-id="(\d+)"/) || 
+            const cmdIdMatch = row.match(/data-command-id="(\d+)"/) ||
+                               row.match(/data-id="(\d+)"/) || 
                                row.match(/screen=info_command[^"']*id=(\d+)/i) ||
                                row.match(/id="command_(\d+)"/i);
             if (!cmdIdMatch) return;
@@ -823,14 +838,56 @@
             const linkMatch = row.match(/href="([^"]*screen=info_command[^"]*)"/i);
             const commandLink = linkMatch ? linkMatch[1].replace(/&amp;/g, '&') : `/game.php?screen=info_command&id=${commandId}`;
 
+            // Deteção do timestamp de chegada
+            let readyAtMs = 0;
+            const endtimeMatch = row.match(/data-endtime="(\d+)"/);
+            if (endtimeMatch) {
+                readyAtMs = parseInt(endtimeMatch[1], 10) * 1000;
+            }
+
+            const timerMatch = row.match(/class="(?:widget-command-)?timer"[^>]*>([^<]+)<\/span>/i) || 
+                               row.match(/timer">([^<]+)<\/span>/i);
+            const timerStr = timerMatch ? timerMatch[1].trim() : '';
+            
+            let remainingSec = 0;
+            if (timerStr) {
+                const parts = timerStr.split(':').map(p => parseInt(p, 10));
+                if (parts.length === 3) remainingSec = parts[0] * 3600 + parts[1] * 60 + parts[2];
+                else if (parts.length === 2) remainingSec = parts[0] * 60 + parts[1];
+            }
+
+            const timeMatch = row.match(/(hoje|amanhã|[0-9\.]+)\s*às\s*(\d{1,2}:\d{2}:\d{2}(?::\d{3})?)/i);
+            const completionStr = timeMatch ? timeMatch[0] : '';
+
+            if (!readyAtMs) {
+                if (completionStr) {
+                    readyAtMs = parseTwDateTime(completionStr);
+                } else if (remainingSec > 0) {
+                    readyAtMs = Date.now() + remainingSec * 1000;
+                }
+            }
+
+            // CRÍTICO: Um comando real em movimento DEVE ter um temporizador ou hora de chegada válida!
+            // Se não tiver, é uma linha de outra tabela não militar (filas, aldeias, etc.) e deve ser ignorada.
+            if (!readyAtMs || isNaN(readyAtMs) || readyAtMs <= 0) {
+                return;
+            }
+
+            const tds = row.match(/<td[^>]*>([\s\S]*?)<\/td>/gi) || [];
+
             let label = '';
             const labelMatch = row.match(/class="quickedit-label"[^>]*>([\s\S]*?)<\/span>/i) ||
+                               row.match(/class="quickedit-content"[^>]*>([\s\S]*?)<\/span>/i) ||
                                row.match(/<a[^>]*screen=info_command[^>]*>([\s\S]*?)<\/a>/i);
             if (labelMatch) {
                 label = labelMatch[1].replace(/<[^>]+>/g, '').trim();
+            } else if (tds.length > 0) {
+                const linkInFirstTd = tds[0].match(/<a[^>]*>([\s\S]*?)<\/a>/i);
+                if (linkInFirstTd) label = linkInFirstTd[1].replace(/<[^>]+>/g, '').trim();
+                else label = tds[0].replace(/<[^>]+>/g, '').trim();
             }
 
-            const isReturn = /return|retorno|regresso|cancel|cancelar|other_back/i.test(row) || 
+            const isReturn = /return|retorno|regresso|cancel|cancelar|other_back|command\/back|\/back\.webp/i.test(row) || 
                              /data-command-type="(return|other_back)"/i.test(row) ||
                              /retorno de/i.test(label) || /regresso de/i.test(label) || /enviado de volta por/i.test(label);
 
@@ -860,7 +917,6 @@
             const isMedium = /attack_medium|médio ataque/i.test(row);
             const isSmall = /attack_small|pequeno ataque/i.test(row);
 
-            const tds = row.match(/<td[^>]*>([\s\S]*?)<\/td>/gi) || [];
             let originName = fallbackVillageName || '';
             let originCoords = fallbackCoords || '';
             let targetName = '';
@@ -892,31 +948,6 @@
             if (!targetCoords) {
                 const anyCoord = row.match(/(\d{3}\|\d{3})/g) || [];
                 if (anyCoord.length > 0) targetCoords = anyCoord[anyCoord.length - 1];
-            }
-
-            let readyAtMs = 0;
-            const endtimeMatch = row.match(/data-endtime="(\d+)"/);
-            if (endtimeMatch) {
-                readyAtMs = parseInt(endtimeMatch[1], 10) * 1000;
-            }
-
-            const timerMatch = row.match(/class="(?:widget-command-)?timer"[^>]*>([^<]+)<\/span>/i) || 
-                               row.match(/timer">([^<]+)<\/span>/i);
-            const timerStr = timerMatch ? timerMatch[1].trim() : '';
-            
-            let remainingSec = 0;
-            if (timerStr) {
-                const parts = timerStr.split(':').map(p => parseInt(p, 10));
-                if (parts.length === 3) remainingSec = parts[0] * 3600 + parts[1] * 60 + parts[2];
-                else if (parts.length === 2) remainingSec = parts[0] * 60 + parts[1];
-            }
-
-            const timeMatch = row.match(/(hoje|amanhã|[0-9\.]+)\s*às\s*(\d{1,2}:\d{2}:\d{2}(?::\d{3})?)/i);
-            const completionStr = timeMatch ? timeMatch[0] : '';
-
-            if (!readyAtMs) {
-                const now = Date.now();
-                readyAtMs = remainingSec > 0 ? (now + remainingSec * 1000) : (parseTwDateTime(completionStr) || now);
             }
 
             commands.push({
@@ -1254,7 +1285,7 @@
     async function loadData() {
         fetchWorldVillages();
         try {
-            const baseUrl = (typeof game_data !== 'undefined' && game_data.link_base_pure) ? game_data.link_base_pure : '/game.php?';
+            const baseUrl = (typeof game_data !== 'undefined' && game_data.link_base_pure) ? game_data.link_base_pure : '/game.php?screen=';
             const currentVId = (typeof game_data !== 'undefined' && game_data.village) ? game_data.village.id : null;
             const currentVCoords = (typeof game_data !== 'undefined' && game_data.village && game_data.village.coord) ? game_data.village.coord : '';
             const currentDocHtml = (typeof document !== 'undefined' && document.body) ? document.body.innerHTML : '';
@@ -1273,7 +1304,7 @@
                 ? `/game.php?village=${currentVId}&screen=snob&ajax=production_popup`
                 : (baseUrl.includes('screen=') ? baseUrl + 'snob&ajax=production_popup' : baseUrl + 'screen=snob&ajax=production_popup');
             const snobTrainUrl = baseUrl.includes('screen=') ? baseUrl + 'snob&mode=train' : baseUrl + 'screen=snob&mode=train';
-            const commandsUrl = baseUrl + 'overview_villages&mode=commands&type=all&group=0&page=-1';
+            const commandsUrl = (baseUrl.includes('screen=') ? baseUrl : baseUrl + 'screen=') + 'overview_villages&mode=commands&group=0&page=-1';
 
             const [rU, rP, rS, rSnobDirect, rSnobPopup, rSnobTrain, rCommands, rVillageOverview] = await Promise.all([
                 fetch(baseUrl + 'overview_villages&mode=units&type=complete&group=0&page=-1').then(r => r.text()),
@@ -6184,11 +6215,11 @@
             btn.innerHTML = '<span class="tw-spinner"></span> A atualizar...';
         }
         try {
-            const baseUrl = (typeof game_data !== 'undefined' && game_data.link_base_pure) ? game_data.link_base_pure : '/game.php?';
+            const baseUrl = (typeof game_data !== 'undefined' && game_data.link_base_pure) ? game_data.link_base_pure : '/game.php?screen=';
             const currentVId = (typeof game_data !== 'undefined' && game_data.village) ? game_data.village.id : null;
             const currentVCoords = (typeof game_data !== 'undefined' && game_data.village && game_data.village.coord) ? game_data.village.coord : '';
             const currentVName = (typeof game_data !== 'undefined' && game_data.village && game_data.village.name) ? game_data.village.name : '';
-            const commandsUrl = baseUrl + 'overview_villages&mode=commands&type=all&group=0&page=-1';
+            const commandsUrl = (baseUrl.includes('screen=') ? baseUrl : baseUrl + 'screen=') + 'overview_villages&mode=commands&group=0&page=-1';
             const villageOverviewUrl = currentVId ? `/game.php?village=${currentVId}&screen=overview` : '';
 
             const [rCommands, rVillageOverview] = await Promise.all([
