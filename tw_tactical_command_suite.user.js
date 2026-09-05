@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW Tactical Command Suite
 // @namespace    https://tribalwars.com.pt/
-// @version      3.0.8
+// @version      3.0.9
 // @description  Suite militar avançada para Tribal Wars PT: Módulo Tático de Comandos (Ataques & Retornos de tropas com filtros e timers em tempo real), Rastreio de Nobres a Caminho & em Retorno de Comandos + Treino na Academia, Validação Precisa de Envio & Horário Mínimo de Ataque (⚡ com 5m folga e seleção do Nuke Full mais perto), Suporte Automático a Modelos NT (NT 33% para 3 nobres, NT 25% para 4 nobres), Bunkers Desligados por Default, Alvo Cats do Nuke Muralha por Default, Fakes Inteligentes 1% Dinâmico, Arsenal Tático de Fakes, UI de Limpezas/Nobres/Demolição, e Planeador Tático.
 // @author       Diogo & Antigravity
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -12,7 +12,7 @@
 // ==/UserScript==
 
 (async function () {
-    const SCRIPT_VERSION = '3.0.8';
+    const SCRIPT_VERSION = '3.0.9';
 
     // Auto-selecionar alvo de catapulta na confirmação de ataque na Praça de Reunião se especificado no URL
     try {
@@ -729,56 +729,75 @@
         const doFetch = customSafeFetch || (typeof safeFetch === 'function' ? safeFetch : fetch);
         const mkUrl = customMakeUrl || (typeof makeUrl === 'function' ? makeUrl : (p => `/game.php?screen=${p}`));
 
-        // Prioridade 1: URLs limpas de overview_villages (sem atrelamento a aldeia específica)
-        // Prioridade 2: URLs via makeUrl (com village= atual)
-        const candidates = [
-            '/game.php?screen=overview_villages&mode=commands&group=0&page=-1',
-            '/game.php?screen=overview_villages&mode=commands&group=0',
-            '/game.php?screen=overview_villages&mode=commands&page=-1',
-            '/game.php?screen=overview_villages&mode=commands',
-            typeof mkUrl === 'function' ? mkUrl('overview_villages&mode=commands&group=0&page=-1') : '',
-            typeof mkUrl === 'function' ? mkUrl('overview_villages&mode=commands&group=0') : '',
-            typeof mkUrl === 'function' ? mkUrl('overview_villages&mode=commands&page=-1') : '',
-            typeof mkUrl === 'function' ? mkUrl('overview_villages&mode=commands') : '',
-            '/game.php?screen=overview_villages&mode=commands&type=all&group=0&page=-1',
-            '/game.php?screen=overview_villages&mode=commands&type=all'
-        ].filter(Boolean);
+        const results = [];
+        const seenCommandIds = new Set();
 
-        let primaryHtml = '';
-        for (const url of candidates) {
-            try {
-                const res = await doFetch(url, {}, 2);
-                if (res && (
-                    res.includes('commands_table') ||
-                    res.includes('screen=info_command') ||
-                    res.includes('data-command-id') ||
-                    res.includes('command_hover_details') ||
-                    (res.includes('overview_table') && res.includes('mode=commands'))
-                )) {
-                    console.log('[TW Tactical] Visão geral de comandos da conta obtida com sucesso via:', url);
-                    primaryHtml = res;
-                    break;
+        const extractIds = (html) => {
+            if (!html) return [];
+            const m1 = Array.from(html.matchAll(/data-command-id="(\d+)"/g)).map(m => m[1]);
+            const m2 = Array.from(html.matchAll(/href="[^"]*(?:info_command|screen=info_command)[^"]*[?&;]id=(\d+)[^"]*"/gi)).map(m => m[1]);
+            const m3 = Array.from(html.matchAll(/data-id="(\d+)"/g)).map(m => m[1]);
+            const m4 = Array.from(html.matchAll(/id="command_(\d+)"/gi)).map(m => m[1]);
+            return [...new Set([...m1, ...m2, ...m3, ...m4])];
+        };
+
+        const fetchPagedType = async (typeParam) => {
+            for (let page = 0; page <= 8; page++) {
+                const urls = [
+                    typeof mkUrl === 'function' ? mkUrl(`overview_villages&mode=commands${typeParam}&group=0&page=${page}`) : '',
+                    typeof mkUrl === 'function' ? mkUrl(`overview_villages&mode=commands${typeParam}&page=${page}`) : '',
+                    `/game.php?screen=overview_villages&mode=commands${typeParam}&group=0&page=${page}`,
+                    `/game.php?screen=overview_villages&mode=commands${typeParam}&page=${page}`
+                ].filter(Boolean);
+
+                let pageHtml = '';
+                for (const url of urls) {
+                    try {
+                        const res = await doFetch(url, {}, 2);
+                        if (res && (
+                            res.includes('commands_table') ||
+                            res.includes('screen=info_command') ||
+                            res.includes('data-command-id') ||
+                            res.includes('command_hover_details') ||
+                            (res.includes('overview_table') && res.includes('mode=commands'))
+                        )) {
+                            pageHtml = res;
+                            break;
+                        }
+                    } catch (_) {}
                 }
-            } catch (e) {
-                console.warn('[TW Tactical] Falha na tentativa de URL:', url, e);
+
+                if (!pageHtml) break;
+
+                const ids = extractIds(pageHtml);
+                if (page === 0) {
+                    results.push(pageHtml);
+                    ids.forEach(id => seenCommandIds.add(id));
+                    if (ids.length === 0 && !pageHtml.includes('class="nowrap"')) break;
+                } else {
+                    const newIds = ids.filter(id => !seenCommandIds.has(id));
+                    if (ids.length === 0 || newIds.length === 0) {
+                        break;
+                    }
+                    ids.forEach(id => seenCommandIds.add(id));
+                    results.push(pageHtml);
+                }
             }
+        };
+
+        // 1. Obter comandos a sair (ataques, apoios, fakes) em todas as páginas
+        await fetchPagedType('');
+        if (results.length === 0) {
+            await fetchPagedType('&type=all');
+        }
+        if (results.length === 0) {
+            await fetchPagedType('&type=out');
         }
 
-        if (!primaryHtml) return [];
+        // 2. Obter comandos em retorno (tropas e nobres regressando)
+        await fetchPagedType('&type=return');
 
-        const results = [primaryHtml];
-
-        // Se houver navegação paginada (caso page=-1 não tenha sido honrado), recolhe páginas adicionais
-        try {
-            const pageLinks = Array.from(primaryHtml.matchAll(/href="([^"]*(?:overview_villages[^"]*mode=commands|mode=commands[^"]*overview_villages)[^"]*page=\d+[^"]*)"/gi))
-                .map(m => m[1].replace(/&amp;/g, '&'))
-                .filter(u => !u.includes('page=-1') && !u.includes('page=0'));
-            const uniquePages = [...new Set(pageLinks)].slice(0, 5);
-            for (const pUrl of uniquePages) {
-                const pRes = await doFetch(pUrl, {}, 2);
-                if (pRes) results.push(pRes);
-            }
-        } catch (_) {}
+        console.log(`[TW Tactical] Comandos recolhidos de ${results.length} páginas (${seenCommandIds.size} comandos únicos detetados).`);
 
         return results;
     }
