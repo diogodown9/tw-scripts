@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW Tactical Command Suite
 // @namespace    https://tribalwars.com.pt/
-// @version      2.7.3
+// @version      2.7.4
 // @description  Suite militar avançada para Tribal Wars PT: Fakes Inteligentes (Auto Fake Limit 1% Dinâmico por Pontos), Arsenal Tático de Fakes (Raio Livre, Fake NT 4x, Saturação do Alvo Real & Modo Campanha), UI Intuitiva de Limpezas/Nobres/Demolição, Seleção Independente de Alvo de Catapulta com Auto-Seleção na Praça, Deteção e Alerta de Nobres em Comandos/Trânsito (⚠️), Deteção de Tropas Fora (⚠️), Seletor Inteligente de Full Nuke, e Planeador Tático.
 // @author       Diogo & Antigravity
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -10,7 +10,7 @@
 // ==/UserScript==
 
 (async function () {
-    const SCRIPT_VERSION = '2.7.3';
+    const SCRIPT_VERSION = '2.7.4';
 
     // Auto-selecionar alvo de catapulta na confirmação de ataque na Praça de Reunião se especificado no URL
     try {
@@ -811,27 +811,30 @@
                 const troopsAwayPop = outsidePop;
 
                 const is22kFull = farmInfo.used >= 22000;
-                const snobTotal = dict.snob || 0;
-                const snobHome = homeDict.snob || 0;
-                const snobMoving = movingDict.snob || 0;
-                const snobAway = awayDict.snob || 0;
-                const snobOutside = Math.max(snobMoving + snobAway, Math.max(0, snobTotal - snobHome));
+                const snobsTotal = dict.snob || 0;
+                const snobsHome = homeDict.snob || 0;
+                const snobsMoving = movingDict.snob || 0;
+                const snobsAway = awayDict.snob || 0;
+                const snobsOutside = Math.max(snobsMoving + snobsAway, Math.max(0, snobsTotal - snobsHome));
+                const snobHome = snobsHome;
+                const snobTotal = snobsTotal;
+                const snobOutside = snobsOutside;
 
                 let roleTag = { label: 'Em Recrutamento', css: 'tw-tag-growth' };
-                if (snobTotal >= 4) {
-                    const awayBadge = snobOutside > 0 ? ` ⚠️ ${snobHome}/${snobTotal}` : ` (${snobTotal}N)`;
+                if (snobsTotal >= 4) {
+                    const awayBadge = snobsOutside > 0 ? ` ⚠️ ${snobsHome}/${snobsTotal}` : ` (${snobsTotal}N)`;
                     if (is22kFull) {
                         roleTag = { label: `👑 Full Train${awayBadge}`, css: 'tw-tag-train4' };
                         summary.fullTrain22kCount++;
                     } else {
                         roleTag = { label: `👑 Train${awayBadge} <22k`, css: 'tw-tag-train4-rec' };
                     }
-                } else if (snobTotal >= 2) {
-                    const awayBadge = snobOutside > 0 ? ` ⚠️ ${snobHome}/${snobTotal}` : ` (${snobTotal}N)`;
+                } else if (snobsTotal >= 2) {
+                    const awayBadge = snobsOutside > 0 ? ` ⚠️ ${snobsHome}/${snobsTotal}` : ` (${snobsTotal}N)`;
                     roleTag = { label: `👑 Train${awayBadge}`, css: 'tw-tag-train2' };
                     summary.semiTrainCount++;
-                } else if (snobTotal === 1) {
-                    const awayBadge = snobOutside > 0 ? ` ⚠️ 0/1` : ` (1N)`;
+                } else if (snobsTotal === 1) {
+                    const awayBadge = snobsOutside > 0 ? ` ⚠️ 0/1` : ` (1N)`;
                     roleTag = { label: `👑 Nobre${awayBadge}`, css: 'tw-tag-snob1' };
                 } else if (rowClass === 'tw-row-off') {
                     if (is22kFull) {
@@ -862,11 +865,11 @@
                     movingTroopsDict: movingDict, awayTroopsDict: awayDict,
                     knightAvailable, rowClass, roleTag,
                     farm: farmInfo,
-                    snobsAvailable: snobHome,
-                    snobsHome,
-                    snobsTotal,
-                    snobsOutside,
-                    hasSnobsAway: snobOutside > 0,
+                    snobsAvailable: snobsHome,
+                    snobsHome: snobsHome,
+                    snobsTotal: snobsTotal,
+                    snobsOutside: snobsOutside,
+                    hasSnobsAway: snobsOutside > 0,
                     totalOffPop: vTot.offense,
                     totalDefPop: vTot.defense,
                     homeOffPop,
