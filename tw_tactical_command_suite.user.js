@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TW Tactical Command Suite
 // @namespace    https://tribalwars.com.pt/
-// @version      2.8.8
-// @description  Suite militar avançada para Tribal Wars PT: Rastreio de Nobres a Caminho & em Retorno de Comandos + Treino na Academia, Calculadora de Horário Mínimo de Ataque (⚡ com 5m folga e seleção do Nuke Full mais perto), Suporte Automático a Modelos NT (NT 33% para 3 nobres, NT 25% para 4 nobres), Bunkers Desligados por Default, Fakes Inteligentes 1% Dinâmico, Arsenal Tático de Fakes, UI de Limpezas/Nobres/Demolição, e Planeador Tático.
+// @version      2.8.9
+// @description  Suite militar avançada para Tribal Wars PT: Rastreio de Nobres a Caminho & em Retorno de Comandos + Treino na Academia, Calculadora de Horário Mínimo de Ataque (⚡ com 5m folga e seleção do Nuke Full mais perto), Suporte Automático a Modelos NT (NT 33% para 3 nobres, NT 25% para 4 nobres), Bunkers Desligados por Default, Alvo Cats do Nuke Muralha por Default, Fakes Inteligentes 1% Dinâmico, Arsenal Tático de Fakes, UI de Limpezas/Nobres/Demolição, e Planeador Tático.
 // @author       Diogo & Antigravity
 // @match        https://*.tribalwars.com.pt/game.php*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=tribalwars.com.pt
@@ -12,7 +12,7 @@
 // ==/UserScript==
 
 (async function () {
-    const SCRIPT_VERSION = '2.8.8';
+    const SCRIPT_VERSION = '2.8.9';
 
     // Auto-selecionar alvo de catapulta na confirmação de ataque na Praça de Reunião se especificado no URL
     try {
@@ -2446,8 +2446,8 @@
                             <div style="display:flex; flex-direction:column; gap:1px;">
                                 <span style="font-size:9px; color:#f87171; font-weight:bold;">🎯 Alvo Cats (Nuke):</span>
                                 <select id="tw-nt-nuke-cat-target" class="tw-select" style="padding:4px 6px; font-size:10.5px; font-weight:bold; color:#f87171;" title="Alvo caso o modelo de Nuke leve catapultas">
-                                    <option value="place" selected>Praça (place)</option>
-                                    <option value="wall">Muralha (wall)</option>
+                                    <option value="wall" selected>Muralha (wall)</option>
+                                    <option value="place">Praça (place)</option>
                                     <option value="farm">Fazenda (farm)</option>
                                     <option value="smith">Ferreiro (smith)</option>
                                     <option value="main">Ed. Principal (main)</option>
@@ -2887,7 +2887,7 @@
                 if (leadNukesInput) leadNukesInput.value = '0';
                 if (antiModeSelect) antiModeSelect.value = 'none';
                 if (bunkerCountSelect) bunkerCountSelect.value = '0';
-                if (nukeCatTargetSelect) nukeCatTargetSelect.value = 'place';
+                if (nukeCatTargetSelect) nukeCatTargetSelect.value = 'wall';
                 if (antiCatTargetSelect) antiCatTargetSelect.value = 'none';
                 if (catTargetSelect) catTargetSelect.value = 'none';
                 const snobEl = document.getElementById('tw-nt-model-snob');
@@ -2898,7 +2898,7 @@
                 if (leadNukesInput) leadNukesInput.value = '1';
                 if (antiModeSelect) antiModeSelect.value = 'none';
                 if (bunkerCountSelect) bunkerCountSelect.value = '0';
-                if (nukeCatTargetSelect) nukeCatTargetSelect.value = 'place';
+                if (nukeCatTargetSelect) nukeCatTargetSelect.value = 'wall';
                 if (antiCatTargetSelect) antiCatTargetSelect.value = 'none';
                 if (catTargetSelect) catTargetSelect.value = 'none';
                 const snobEl = document.getElementById('tw-nt-model-snob');
@@ -2911,7 +2911,7 @@
                 if (leadNukesInput) leadNukesInput.value = '1';
                 if (antiModeSelect) antiModeSelect.value = 'anti_full_3';
                 if (bunkerCountSelect) bunkerCountSelect.value = '0';
-                if (nukeCatTargetSelect) nukeCatTargetSelect.value = 'place';
+                if (nukeCatTargetSelect) nukeCatTargetSelect.value = 'wall';
                 if (antiCatTargetSelect) antiCatTargetSelect.value = 'none';
                 if (catTargetSelect) catTargetSelect.value = 'place';
                 const snobEl = document.getElementById('tw-nt-model-snob');
@@ -2926,7 +2926,7 @@
                 if (leadNukesInput) leadNukesInput.value = '1';
                 if (antiModeSelect) antiModeSelect.value = 'anti_50_2';
                 if (bunkerCountSelect) bunkerCountSelect.value = '0';
-                if (nukeCatTargetSelect) nukeCatTargetSelect.value = 'place';
+                if (nukeCatTargetSelect) nukeCatTargetSelect.value = 'wall';
                 if (antiCatTargetSelect) antiCatTargetSelect.value = 'none';
                 if (catTargetSelect) catTargetSelect.value = 'place';
                 const snobEl = document.getElementById('tw-nt-model-snob');
@@ -2941,7 +2941,7 @@
                 if (leadNukesInput) leadNukesInput.value = '1';
                 if (antiModeSelect) antiModeSelect.value = 'anti_50_2';
                 if (bunkerCountSelect) bunkerCountSelect.value = '0';
-                if (nukeCatTargetSelect) nukeCatTargetSelect.value = 'place';
+                if (nukeCatTargetSelect) nukeCatTargetSelect.value = 'wall';
                 if (antiCatTargetSelect) antiCatTargetSelect.value = 'none';
                 if (catTargetSelect) catTargetSelect.value = 'place';
                 const snobEl = document.getElementById('tw-nt-model-snob');
@@ -2989,7 +2989,7 @@
                 if (leadNukesInput) leadNukesInput.value = '1';
                 if (antiModeSelect) antiModeSelect.value = 'none';
                 if (bunkerCountSelect) bunkerCountSelect.value = '0';
-                if (nukeCatTargetSelect) nukeCatTargetSelect.value = 'place';
+                if (nukeCatTargetSelect) nukeCatTargetSelect.value = 'wall';
                 if (antiCatTargetSelect) antiCatTargetSelect.value = 'none';
                 if (catTargetSelect) catTargetSelect.value = 'main';
                 const catsEl = document.getElementById('tw-nt-model-cats');
@@ -3000,7 +3000,7 @@
                 if (leadNukesInput) leadNukesInput.value = '2';
                 if (antiModeSelect) antiModeSelect.value = 'anti_full_3';
                 if (bunkerCountSelect) bunkerCountSelect.value = '0';
-                if (nukeCatTargetSelect) nukeCatTargetSelect.value = 'place';
+                if (nukeCatTargetSelect) nukeCatTargetSelect.value = 'wall';
                 if (antiCatTargetSelect) antiCatTargetSelect.value = 'none';
                 if (catTargetSelect) catTargetSelect.value = 'place';
                 const snobEl = document.getElementById('tw-nt-model-snob');
@@ -4019,7 +4019,11 @@
         const savedFakeEnable = getPref('tw_nt_fake_enable', 'false');
         const savedPreferFull = getPref('tw_nt_prefer_full_nukes', 'true');
         const savedReqPaladinNuke = getPref('tw_nt_req_paladin_nuke', 'true');
-        const savedNukeCat = getPref('tw_nt_nuke_cat_target', 'place');
+        let savedNukeCat = getPref('tw_nt_nuke_cat_target', 'wall');
+        if (savedNukeCat === 'place') {
+            savedNukeCat = 'wall';
+            savePrefs('tw_nt_nuke_cat_target', 'wall');
+        }
         const savedAntiCat = getPref('tw_nt_anti_cat_target', 'none');
         const savedMsInterval = getPref('tw_nt_ms_interval', '200');
         const savedCatDemolishTarget = getPref('tw_nt_cat_target_building', 'main');
@@ -4207,7 +4211,7 @@
             const modelAnti = document.getElementById('tw-nt-model-anti').value.trim() || 'Ataque Full';
             const modelSnob = document.getElementById('tw-nt-model-snob').value.trim() || (nobleCount === 3 ? 'NT 33%' : (nobleCount === 2 ? 'NT - 2 - 50%' : (nobleCount === 1 ? 'Nobre' : 'NT 25%')));
             const catTargetBuilding = document.getElementById('tw-nt-cat-target-building').value;
-            const nukeCatTarget = document.getElementById('tw-nt-nuke-cat-target') ? document.getElementById('tw-nt-nuke-cat-target').value : 'place';
+            const nukeCatTarget = document.getElementById('tw-nt-nuke-cat-target') ? document.getElementById('tw-nt-nuke-cat-target').value : 'wall';
             const antiCatTarget = document.getElementById('tw-nt-anti-cat-target') ? document.getElementById('tw-nt-anti-cat-target').value : 'none';
             const modelCats = document.getElementById('tw-nt-model-cats') ? document.getElementById('tw-nt-model-cats').value.trim() || 'Cats' : 'Cats';
 
@@ -4848,7 +4852,7 @@
         const modelAnti = document.getElementById('tw-nt-model-anti').value.trim() || 'Ataque Full';
         const modelSnob = document.getElementById('tw-nt-model-snob').value.trim() || (needed1 === 3 ? 'NT 33%' : (needed1 === 2 ? 'NT - 2 - 50%' : (needed1 === 1 ? 'Nobre' : 'NT 25%')));
         const catTargetBuilding = document.getElementById('tw-nt-cat-target-building').value;
-        const nukeCatTarget = document.getElementById('tw-nt-nuke-cat-target') ? document.getElementById('tw-nt-nuke-cat-target').value : 'place';
+        const nukeCatTarget = document.getElementById('tw-nt-nuke-cat-target') ? document.getElementById('tw-nt-nuke-cat-target').value : 'wall';
         const antiCatTarget = document.getElementById('tw-nt-anti-cat-target') ? document.getElementById('tw-nt-anti-cat-target').value : 'none';
 
         const now = Date.now();
