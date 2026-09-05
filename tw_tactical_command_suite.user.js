@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TW Tactical Command Suite
 // @namespace    https://tribalwars.com.pt/
-// @version      3.2.11
-// @description  Suite militar avançada para Tribal Wars PT: Módulo Tático de Comandos (Ataques & Retornos com filtros, agrupamento por alvos, ordenação interativa por clique nos cabeçalhos de coluna, exclusão opcional de micro-saques Modo Turbo para velocidade máxima, purga automática de comandos expirados e timers sincronizados com o servidor), Rastreio em Tempo Real de Nobres a Caminho & em Retorno de Comandos + Treino na Academia, Deteção Fiel de 0 Nobres em Casa via Server-Live, Deduplicação Rigorosa de Nobres & Teto Físico de Tropas Fora, Sincronização Server-Live sem Cache, Validação Precisa de Envio & Horário Mínimo de Ataque à Prova de Falhas (⚡ com 5m folga, cálculo inteligente de nobres a regressar e seleção do Nuke Full mais perto), Suporte Automático a Modelos NT (NT 33% para 3 nobres, NT 25% para 4 nobres), Bunkers Desligados por Default, Alvo Cats do Nuke Muralha por Default, Fakes Inteligentes 1% Dinâmico, Arsenal Tático de Fakes, UI de Limpezas/Nobres/Demolição, e Planeador Tático.
+// @version      3.2.12
+// @description  Suite militar avançada para Tribal Wars PT: Módulo Tático de Comandos (Ataques & Retornos com filtros, agrupamento por alvos, ordenação interativa por clique nos cabeçalhos de coluna, exclusão opcional de micro-saques Modo Turbo para velocidade máxima, purga automática de comandos expirados e timers sincronizados com o servidor), Rastreio em Tempo Real de Nobres a Caminho & em Retorno de Comandos + Treino na Academia, Deteção Rigorosa de 0 Nobres em Casa por Isolamento de Linhas HTML & Cruzamento de Comandos Ativos, Deduplicação Rigorosa de Nobres & Teto Físico de Tropas Fora, Sincronização Server-Live sem Cache, Validação Precisa de Envio & Horário Mínimo de Ataque à Prova de Falhas (⚡ com 5m folga, cálculo inteligente de nobres a regressar e seleção do Nuke Full mais perto), Suporte Automático a Modelos NT (NT 33% para 3 nobres, NT 25% para 4 nobres), Bunkers Desligados por Default, Alvo Cats do Nuke Muralha por Default, Fakes Inteligentes 1% Dinâmico, Arsenal Tático de Fakes, UI de Limpezas/Nobres/Demolição, e Planeador Tático.
 // @author       Diogo & Antigravity
 // @match        https://*.tribalwars.com.pt/game.php*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=tribalwars.com.pt
@@ -12,7 +12,7 @@
 // ==/UserScript==
 
 (async function () {
-    const SCRIPT_VERSION = '3.2.11';
+    const SCRIPT_VERSION = '3.2.12';
 
     // Auto-selecionar alvo de catapulta na confirmação de ataque na Praça de Reunião se especificado no URL
     try {
@@ -2010,24 +2010,45 @@
 
             // 1. Extrair tropas em casa e fora a partir do overview da aldeia
             if (ovHtml) {
-                const homeSnobMatch = ovHtml.match(/<tr[^>]*class="[^"]*(?:home_unit|all_unit)[^"]*"[^>]*>[\s\S]*?data-unit="snob"[\s\S]*?<strong[^>]*data-count="snob">(\d+)<\/strong>/i) ||
-                                      ovHtml.match(/<tr[^>]*class="[^"]*(?:home_unit|all_unit)[^"]*"[^>]*>[\s\S]*?<strong[^>]*data-count="snob">(\d+)<\/strong>/i);
-                if (homeSnobMatch) {
-                    v.snobsHome = parseInt(homeSnobMatch[1], 10);
-                } else {
-                    // SE NÃO HÁ NOBRES NA TABELA DE UNIDADES EM CASA, SÃO 0 NOBRES EM CASA!
-                    v.snobsHome = 0;
+                let snobsHome = 0;
+                let snobsMoving = 0;
+                let snobsTotalFound = 0;
+                let foundTable = false;
+
+                // Processar cada <tr> individualmente para não misturar classes entre linhas diferentes
+                const trBlocks = ovHtml.match(/<tr\b[^>]*>[\s\S]*?<\/tr>/gi) || [];
+                for (const tr of trBlocks) {
+                    const isHome = /class="[^"]*\bhome_unit\b[^"]*"/i.test(tr);
+                    const isMoving = /class="[^"]*\bmoving_unit\b[^"]*"/i.test(tr);
+                    const isAll = /class="[^"]*\ball_unit\b[^"]*"/i.test(tr);
+                    if (isHome || isMoving || isAll) foundTable = true;
+
+                    const isSnob = /data-unit="snob"/i.test(tr) || /unit_snob/i.test(tr) || />\s*Nobres?\s*</i.test(tr);
+                    if (isSnob) {
+                        const countMatch = tr.match(/<strong[^>]*data-count="snob"[^>]*>(\d+)<\/strong>/i) ||
+                                           tr.match(/<strong[^>]*>(\d+)<\/strong>/i) ||
+                                           tr.match(/<td[^>]*>(\d+)<\/td>/i);
+                        const count = countMatch ? parseInt(countMatch[1], 10) : 0;
+                        if (isHome) snobsHome += count;
+                        else if (isMoving) snobsMoving += count;
+                        else if (isAll) snobsTotalFound = Math.max(snobsTotalFound, count);
+                    }
                 }
 
-                const movingSnobMatch = ovHtml.match(/<tr[^>]*class="[^"]*moving_unit[^"]*"[^>]*>[\s\S]*?data-unit="snob"[\s\S]*?<strong[^>]*data-count="snob">(\d+)<\/strong>/i);
-                if (movingSnobMatch) {
-                    v.snobsOutside = parseInt(movingSnobMatch[1], 10);
-                } else {
-                    // Se a tabela moving_unit não tiver linha de snob, verificar comandos ativos desta aldeia
+                if (foundTable) {
+                    v.snobsHome = snobsHome;
                     const activeSnobCmds = allParsedCommands.filter(c => c.originCoords === v.coords && c.hasSnob && (!c.readyAtMs || c.readyAtMs > (ts - 2000))).length;
-                    v.snobsOutside = activeSnobCmds;
+                    v.snobsOutside = Math.max(snobsMoving, activeSnobCmds);
+                    v.snobsTotal = Math.max(snobsTotalFound, (v.snobsHome || 0) + (v.snobsOutside || 0));
+                    v.snobsAvailable = v.snobsHome;
+                } else {
+                    const activeSnobCmds = allParsedCommands.filter(c => c.originCoords === v.coords && c.hasSnob && (!c.readyAtMs || c.readyAtMs > (ts - 2000))).length;
+                    if (activeSnobCmds > 0) {
+                        v.snobsOutside = Math.max(v.snobsOutside || 0, activeSnobCmds);
+                        v.snobsHome = Math.max(0, (v.snobsTotal || 0) - v.snobsOutside);
+                        v.snobsAvailable = v.snobsHome;
+                    }
                 }
-                v.snobsTotal = (v.snobsHome || 0) + (v.snobsOutside || 0);
             }
 
             // 2. Extrair produções na academia
@@ -2584,10 +2605,23 @@
                 .filter(c => (!commandsIgnoreFarms || !c.isFarm) && (!c.readyAtMs || c.readyAtMs > (nowCmds - 2000)))
                 .sort((a, b) => a.readyAtMs - b.readyAtMs);
 
-            // 9. Sincronizar todos os eventos e status de Nobres em todas as aldeias
+            // 9. Cruzamento inteligente de Comandos Ativos com allVillages para deduzir nobres fora e em casa
+            allVillages.forEach(v => {
+                const activeNobleCmds = allParsedCommands.filter(c => c.originCoords === v.coords && c.hasSnob && (!c.readyAtMs || c.readyAtMs > (nowCmds - 2000)));
+                if (activeNobleCmds.length > 0) {
+                    v.snobsOutside = Math.max(v.snobsOutside || 0, activeNobleCmds.length);
+                    if ((v.snobsHome + v.snobsOutside) > (v.snobsTotal || 0)) {
+                        v.snobsHome = Math.max(0, (v.snobsTotal || 0) - v.snobsOutside);
+                    }
+                    v.snobsTotal = Math.max(v.snobsTotal || 0, (v.snobsHome || 0) + v.snobsOutside);
+                    v.snobsAvailable = v.snobsHome;
+                }
+            });
+
+            // 10. Sincronizar todos os eventos e status de Nobres em todas as aldeias
             syncNobleEventsAcrossVillages();
 
-            // 10. Enriquecer allParsedCommands com nomes de aldeias, propriedade e distâncias
+            // 11. Enriquecer allParsedCommands com nomes de aldeias, propriedade e distâncias
             allParsedCommands.forEach(c => {
                 if (c.originCoords && !c.originName) {
                     const foundV = allVillages.find(v => v.coords === c.originCoords);
@@ -4727,7 +4761,9 @@
             }
 
             // Seleção da aldeia no dropdown
-            if (isUserManualChange && prevSelectedPrimary && selPrimary.querySelector(`option[value="${prevSelectedPrimary}"]`)) {
+            if (preferredPrimaryId && selPrimary.querySelector(`option[value="${preferredPrimaryId}"]`)) {
+                selPrimary.value = preferredPrimaryId;
+            } else if (isUserManualChange && prevSelectedPrimary && selPrimary.querySelector(`option[value="${prevSelectedPrimary}"]`)) {
                 selPrimary.value = prevSelectedPrimary;
             } else if (!isUserManualChange) {
                 if (closestWithEnough) {
