@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TW Tactical Command Suite
 // @namespace    https://tribalwars.com.pt/
-// @version      2.7.4
-// @description  Suite militar avançada para Tribal Wars PT: Fakes Inteligentes (Auto Fake Limit 1% Dinâmico por Pontos), Arsenal Tático de Fakes (Raio Livre, Fake NT 4x, Saturação do Alvo Real & Modo Campanha), UI Intuitiva de Limpezas/Nobres/Demolição, Seleção Independente de Alvo de Catapulta com Auto-Seleção na Praça, Deteção e Alerta de Nobres em Comandos/Trânsito (⚠️), Deteção de Tropas Fora (⚠️), Seletor Inteligente de Full Nuke, e Planeador Tático.
+// @version      2.7.5
+// @description  Suite militar avançada para Tribal Wars PT: Fakes Inteligentes (Auto Fake Limit 1% Dinâmico por Pontos), Arsenal Tático de Fakes (Raio Livre, Fake NT 4x, Saturação do Alvo Real & Modo Campanha), UI Intuitiva de Limpezas/Nobres/Demolição, Seleção Independente de Alvo de Catapulta com Auto-Seleção na Praça, Deteção e Alerta de Nobres em Comandos/Trânsito (⚠️), Percentagem de Tropas Fora (⚠️ X% tropas fora), Seletor Inteligente de Full Nuke, e Planeador Tático.
 // @author       Diogo & Antigravity
 // @match        https://*.tribalwars.com.pt/game.php*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=tribalwars.com.pt
@@ -12,7 +12,7 @@
 // ==/UserScript==
 
 (async function () {
-    const SCRIPT_VERSION = '2.7.4';
+    const SCRIPT_VERSION = '2.7.5';
 
     // Auto-selecionar alvo de catapulta na confirmação de ataque na Praça de Reunião se especificado no URL
     try {
@@ -811,6 +811,8 @@
                 const isFarming = movingPopTotal >= 300;
                 const hasTroopsAway = (movingPopTotal >= 300) || (outsidePop >= 1000) || (outsideOffPop >= 1000);
                 const troopsAwayPop = outsidePop;
+                const totalTroopsArmyPop = totalPopTotal > 0 ? totalPopTotal : Math.max(1, (farmInfo.used - 3500));
+                const troopsAwayPerc = Math.min(100, Math.max(0, Math.round((troopsAwayPop / totalTroopsArmyPop) * 100)));
 
                 const is22kFull = farmInfo.used >= 22000;
                 const snobsTotal = dict.snob || 0;
@@ -882,7 +884,8 @@
                     awayPopTotal,
                     hasTroopsAway,
                     isFarming,
-                    troopsAwayPop
+                    troopsAwayPop,
+                    troopsAwayPerc
                 };
 
                 for (const [catName, catData] of Object.entries(outputCategories)) {
@@ -1003,7 +1006,7 @@
                 <tr class="${v.rowClass}" data-vid="${v.id}">
                     <td style="text-align:left; padding-left:10px; font-weight:bold;">
                         <a href="javascript:void(0);" class="tw-v-coord" data-coord="${v.coords}" style="color:#38bdf8; text-decoration:none;" title="Clica para copiar as coordenadas">${v.name}</a>
-                        ${v.hasTroopsAway ? `<span class="tw-pill" style="font-size:9.5px; padding:1px 5px; margin-left:5px; background:rgba(245,158,11,0.15); border:1px solid #f59e0b; color:#fbbf24; vertical-align:middle;" title="Tropas fora de casa / a farmar: ~${(v.troopsAwayPop/1000).toFixed(1)}k pop">⚠️ ${(v.troopsAwayPop/1000).toFixed(1)}k fora</span>` : ''}
+                        ${v.hasTroopsAway ? `<span class="tw-pill" style="font-size:9.5px; padding:1px 5px; margin-left:5px; background:rgba(245,158,11,0.15); border:1px solid #f59e0b; color:#fbbf24; vertical-align:middle;" title="Tropas fora de casa / a farmar: ${v.troopsAwayPerc}% (~${(v.troopsAwayPop/1000).toFixed(1)}k pop de ${(v.totalPopTotal/1000).toFixed(1)}k)">⚠️ ${v.troopsAwayPerc}% tropas fora</span>` : ''}
                         ${v.paladin ? `<span class="tw-pill" style="font-size:9.5px; padding:1px 5px; margin-left:6px; background:rgba(124,58,237,0.25); border:1px solid #c084fc; color:#e9d5ff; vertical-align:middle;" title="Paladino: ${v.paladin.name} (Lvl ${v.paladin.level} • ${v.paladin.isOffense ? 'Ofensivo ⚔️' : 'Defensivo 🛡️'})">${v.paladin.name} ${v.paladin.isOffense ? '⚔️' : '🛡️'}</span>` : ''}
                         ${commBadge ? `<div style="margin-top:2px;">${commBadge}</div>` : ''}
                     </td>
@@ -3175,7 +3178,7 @@
                 defaultOptions += offPool.map(v => {
                     const isFull = (v.farm && v.farm.used >= 20000);
                     const tag = isFull ? '⭐ [FULL]' : '⚠️ [SEMI]';
-                    const awayWarn = v.hasTroopsAway ? ` ⚠️ [Tropas Fora: ${(v.troopsAwayPop/1000).toFixed(1)}k]` : '';
+                    const awayWarn = v.hasTroopsAway ? ` ⚠️ [${v.troopsAwayPerc}% Tropas Fora]` : '';
                     const pal = (v.paladin && v.paladin.isHome) ? ` [${v.paladin.name} ⚔️]` : '';
                     const comm = committedMap[v.id] ? ' [🔒 Reservada]' : '';
                     const farmK = (v.farm && v.farm.used) ? (v.farm.used/1000).toFixed(1) : '?';
@@ -3237,7 +3240,7 @@
                 const v = item.village;
                 const isFull = item.isFull;
                 const tag = isFull ? '⭐ [FULL]' : '⚠️ [SEMI]';
-                const awayWarn = v.hasTroopsAway ? ` ⚠️ [Tropas Fora: ${(v.troopsAwayPop/1000).toFixed(1)}k]` : '';
+                const awayWarn = v.hasTroopsAway ? ` ⚠️ [${v.troopsAwayPerc}% Tropas Fora]` : '';
                 const isBest = (v.id === bestAuto.village.id);
                 const prefix = isBest ? '⭐ [1º RECOMENDADO] ' : `[#${idx + 1}] `;
                 const pal = (v.paladin && v.paladin.isHome) ? ` [${v.paladin.name} ⚔️]` : '';
@@ -3269,7 +3272,7 @@
                 if (cV.hasTroopsAway) {
                     awayBanner = `
                         <div style="margin-top:5px; padding:4px 8px; background:rgba(245, 158, 11, 0.12); border:1px solid #f59e0b; border-radius:4px; color:#fbbf24; font-size:11px;">
-                            ⚠️ <b>Aviso: Tropas Fora de Casa / A Farmar!</b> Esta aldeia tem cerca de <b>${(cV.troopsAwayPop/1000).toFixed(1)}k tropas no exterior/trânsito</b>.<br>
+                            ⚠️ <b>Aviso: Tropas Fora de Casa!</b> Esta aldeia tem cerca de <b>${cV.troopsAwayPerc}% das tropas fora (~${(cV.troopsAwayPop/1000).toFixed(1)}k pop em trânsito)</b>.<br>
                             Em casa: <b>${formatTroopsShort(cV)}</b>. Confirma se as tropas regressam antes do horário de lançamento!
                         </div>
                     `;
@@ -4373,7 +4376,7 @@
                 const troopsInline = (axe || lc || ram || cat) ? `• ${axe}${lc}${ram}${cat}`.trim() : '';
                 let extraInfo = isLeadNuke ? `${farmK} ${troopsInline}`.trim() : 'Full Off';
                 if (cand.village.hasTroopsAway) {
-                    extraInfo += ` • ⚠️ ${(cand.village.troopsAwayPop/1000).toFixed(1)}k fora`;
+                    extraInfo += ` • ⚠️ ${cand.village.troopsAwayPerc}% fora`;
                 }
 
                 if (cand.paladin && cand.paladin.isHome) {
@@ -4382,14 +4385,14 @@
                     finalBadge = 'tw-badge-paladino';
                     extraInfo = `Buff ${pal.name} ⚔️ Lvl ${pal.level} ${troopsInline}`.trim();
                     if (cand.village.hasTroopsAway) {
-                        extraInfo += ` • ⚠️ ${(cand.village.troopsAwayPop/1000).toFixed(1)}k fora`;
+                        extraInfo += ` • ⚠️ ${cand.village.troopsAwayPerc}% fora`;
                     }
                 } else if (isPaladinOff) {
                     finalType = `${typeLabel} (Paladino)`;
                     finalBadge = 'tw-badge-paladino';
                     extraInfo = `Buff Paladino ⚔️ ${troopsInline}`.trim();
                     if (cand.village.hasTroopsAway) {
-                        extraInfo += ` • ⚠️ ${(cand.village.troopsAwayPop/1000).toFixed(1)}k fora`;
+                        extraInfo += ` • ⚠️ ${cand.village.troopsAwayPerc}% fora`;
                     }
                 }
 
