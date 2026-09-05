@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW Tactical Command Suite
 // @namespace    https://tribalwars.com.pt/
-// @version      3.2.3
+// @version      3.2.4
 // @description  Suite militar avançada para Tribal Wars PT: Módulo Tático de Comandos (Ataques & Retornos de tropas com filtros e timers em tempo real), Rastreio de Nobres a Caminho & em Retorno de Comandos + Treino na Academia, Validação Precisa de Envio & Horário Mínimo de Ataque (⚡ com 5m folga e seleção do Nuke Full mais perto), Suporte Automático a Modelos NT (NT 33% para 3 nobres, NT 25% para 4 nobres), Bunkers Desligados por Default, Alvo Cats do Nuke Muralha por Default, Fakes Inteligentes 1% Dinâmico, Arsenal Tático de Fakes, UI de Limpezas/Nobres/Demolição, e Planeador Tático.
 // @author       Diogo & Antigravity
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -12,7 +12,7 @@
 // ==/UserScript==
 
 (async function () {
-    const SCRIPT_VERSION = '3.2.3';
+    const SCRIPT_VERSION = '3.2.4';
 
     // Auto-selecionar alvo de catapulta na confirmação de ataque na Praça de Reunião se especificado no URL
     try {
@@ -593,15 +593,43 @@
     let worldPlayers = {};
     let worldPlayersLoaded = false;
 
+    // Recuperar cache do mapa se já carregado previamente nesta aba do navegador
+    if (typeof window !== 'undefined' && window.__tw_world_cache && window.__tw_world_cache.villagesLoaded && window.__tw_world_cache.playersLoaded) {
+        worldVillages = window.__tw_world_cache.villages || [];
+        worldVillageByCoord = window.__tw_world_cache.villageByCoord || new Map();
+        worldPlayers = window.__tw_world_cache.players || {};
+        worldVillagesLoaded = true;
+        worldPlayersLoaded = true;
+    }
+
     async function fetchWorldData() {
         if (worldVillagesLoaded && worldPlayersLoaded) return;
         try {
             const fetches = [];
             const originBase = (typeof window !== 'undefined' && window.location && window.location.origin) ? window.location.origin : '';
-            if (!worldVillagesLoaded) {
-                fetches.push(fetch(originBase + '/map/village.txt').then(async res => {
+
+            const fetchText = async (path) => {
+                const url = originBase + path;
+                try {
+                    const res = await fetch(url);
                     if (res.ok) {
-                        const text = await res.text();
+                        const t = await res.text();
+                        if (t && t.length > 50) return t;
+                    }
+                } catch (_) {}
+                if (typeof $ !== 'undefined' && $.ajax) {
+                    try {
+                        const t = await $.ajax({ url, dataType: 'text', cache: true });
+                        if (t && t.length > 50) return t;
+                    } catch (_) {}
+                }
+                return '';
+            };
+
+            if (!worldVillagesLoaded) {
+                fetches.push((async () => {
+                    const text = await fetchText('/map/village.txt');
+                    if (text) {
                         const lines = text.trim().split('\n');
                         const vList = [];
                         const vMap = new Map();
@@ -609,9 +637,11 @@
                             const parts = line.split(',');
                             if (parts.length >= 4) {
                                 const coord = `${parts[2]}|${parts[3]}`;
+                                let vName = parts[1] || '';
+                                try { vName = decodeURIComponent(vName).replace(/\+/g, ' '); } catch (_) { vName = vName.replace(/\+/g, ' '); }
                                 const vObj = {
                                     id: parts[0],
-                                    name: decodeURIComponent(parts[1] || '').replace(/\+/g, ' '),
+                                    name: vName,
                                     x: parseInt(parts[2], 10),
                                     y: parseInt(parts[3], 10),
                                     playerId: parts[4] || '0',
@@ -626,26 +656,53 @@
                         worldVillageByCoord = vMap;
                         worldVillagesLoaded = true;
                     }
-                }).catch(() => {}));
+                })());
             }
+
             if (!worldPlayersLoaded) {
-                fetches.push(fetch(originBase + '/map/player.txt').then(async res => {
-                    if (res.ok) {
-                        const text = await res.text();
+                fetches.push((async () => {
+                    const text = await fetchText('/map/player.txt');
+                    if (text) {
                         const lines = text.trim().split('\n');
                         const pMap = {};
                         lines.forEach(line => {
                             const parts = line.split(',');
                             if (parts.length >= 2) {
-                                pMap[parts[0]] = decodeURIComponent(parts[1] || '').replace(/\+/g, ' ');
+                                let pName = parts[1] || '';
+                                try { pName = decodeURIComponent(pName).replace(/\+/g, ' '); } catch (_) { pName = pName.replace(/\+/g, ' '); }
+                                pMap[parts[0]] = pName;
                             }
                         });
                         worldPlayers = pMap;
                         worldPlayersLoaded = true;
                     }
-                }).catch(() => {}));
+                })());
             }
+
             await Promise.all(fetches);
+
+            if (typeof window !== 'undefined' && worldVillagesLoaded && worldPlayersLoaded) {
+                window.__tw_world_cache = {
+                    villages: worldVillages,
+                    villageByCoord: worldVillageByCoord,
+                    players: worldPlayers,
+                    villagesLoaded: true,
+                    playersLoaded: true,
+                    loadedAt: Date.now()
+                };
+            }
+
+            // Auto-atualizar reativamente comandos já em memória assim que os dados do mundo carregam
+            if (typeof allParsedCommands !== 'undefined' && Array.isArray(allParsedCommands) && allParsedCommands.length > 0) {
+                allParsedCommands.forEach(c => {
+                    c.targetOwner = getCoordOwnership(c.targetCoords);
+                    c.targetPlayerName = c.targetOwner.playerName || (c.targetOwner.isOwn ? 'Própria' : (c.targetOwner.isBarbarian ? 'Bárbara' : 'Player'));
+                    if (!c.targetName && c.targetOwner.villageName) c.targetName = c.targetOwner.villageName;
+                });
+                if (typeof renderCommandsTable === 'function' && document.getElementById('tw-cmd-tbody')) {
+                    renderCommandsTable();
+                }
+            }
         } catch (e) {
             console.warn('[TW] Erro ao carregar dados do mapa e jogadores', e);
         }
@@ -6958,7 +7015,7 @@
                     <table class="tw-table">
                         <thead>
                             <tr>
-                                <th style="text-align:left; width:130px; padding-left:10px;">Tipo / Comando</th>
+                                <th style="text-align:left; width:160px; padding-left:10px;">Tipo / Comando</th>
                                 <th style="text-align:left; width:140px;">Composição & Destaques</th>
                                 <th style="text-align:left; width:220px;">Aldeia Base (Origem)</th>
                                 <th style="text-align:left; width:250px;">Aldeia Alvo / Remota</th>
@@ -7005,7 +7062,8 @@
         if (diagBtn) {
             diagBtn.addEventListener('click', () => {
                 const text = window.twCommandDiagnostics ? window.twCommandDiagnostics.getSummaryText() : 'Sem dados de diagnóstico.';
-                alert('📡 RELATÓRIO DE SINCRONIZAÇÃO DE COMANDOS:\n\n' + text + '\n\nTotal de comandos identificados: ' + allParsedCommands.length);
+                const worldInfo = `Mundo: ${worldVillages.length} aldeias, ${Object.keys(worldPlayers).length} jogadores carregados no cache.`;
+                alert('📡 RELATÓRIO DE SINCRONIZAÇÃO DE COMANDOS:\n\n' + text + '\n\n' + worldInfo + '\nTotal de comandos identificados: ' + allParsedCommands.length);
             });
         }
 
@@ -7169,11 +7227,18 @@
             const dist = (c.dist || (c.originCoords && c.targetCoords && typeof calcDistance === 'function' ? calcDistance(c.originCoords, c.targetCoords).toFixed(1) : null));
             const actionCoord = c.targetCoords || c.originCoords || '';
 
+            const cleanDisplayLabel = (c.label || 'Ver Comando')
+                .replace(/^(?:cancelamento\s+de\s+)?(?:ataque\s+a|attack\s+on|angriff\s+auf)\s*/i, '')
+                .replace(/^(?:retorno\s+de|regresso\s+de|return\s+from|r[üu]ckkehr\s+von|enviado\s+de\s+volta\s+por)\s*/i, '')
+                .replace(/^(?:apoio\s+a|suporte\s+a|support\s+for|unterst[üu]tzung\s+f[üu]r)\s*/i, '')
+                .replace(/^(?:saque\s+a|raid\s+on)\s*/i, '')
+                .trim() || c.label || 'Ver Comando';
+
             rowsHtml += `
                 <tr style="${rowBorder}">
                     <td style="text-align:left; padding-left:10px;">
                         <div>${typeBadge}</div>
-                        <a href="${c.commandLink || 'javascript:void(0);'}" target="_blank" style="color:#f8fafc; text-decoration:none; font-weight:600; display:block; font-size:11.5px; margin-top:3px; max-width:170px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escapeHtml(c.label)}">${escapeHtml(c.label || 'Ver Comando')}</a>
+                        <a href="${c.commandLink || 'javascript:void(0);'}" target="_blank" style="color:#f8fafc; text-decoration:none; font-weight:600; display:block; font-size:11.5px; margin-top:3px; max-width:185px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escapeHtml(c.label || cleanDisplayLabel)}">${escapeHtml(cleanDisplayLabel)}</a>
                     </td>
                     <td style="text-align:left; white-space:normal;">
                         <div style="display:flex; flex-wrap:wrap; gap:3px; align-items:center;">${badges}</div>
