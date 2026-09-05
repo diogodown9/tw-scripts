@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TW Tactical Command Suite
 // @namespace    https://tribalwars.com.pt/
-// @version      2.9.0
-// @description  Suite militar avançada para Tribal Wars PT: Rastreio de Nobres a Caminho & em Retorno de Comandos + Treino na Academia, Validação Precisa de Envio & Horário Mínimo de Ataque (⚡ com 5m folga e seleção do Nuke Full mais perto), Suporte Automático a Modelos NT (NT 33% para 3 nobres, NT 25% para 4 nobres), Bunkers Desligados por Default, Alvo Cats do Nuke Muralha por Default, Fakes Inteligentes 1% Dinâmico, Arsenal Tático de Fakes, UI de Limpezas/Nobres/Demolição, e Planeador Tático.
+// @version      3.0.0
+// @description  Suite militar avançada para Tribal Wars PT: Módulo Tático de Comandos (Ataques & Retornos de tropas com filtros e timers em tempo real), Rastreio de Nobres a Caminho & em Retorno de Comandos + Treino na Academia, Validação Precisa de Envio & Horário Mínimo de Ataque (⚡ com 5m folga e seleção do Nuke Full mais perto), Suporte Automático a Modelos NT (NT 33% para 3 nobres, NT 25% para 4 nobres), Bunkers Desligados por Default, Alvo Cats do Nuke Muralha por Default, Fakes Inteligentes 1% Dinâmico, Arsenal Tático de Fakes, UI de Limpezas/Nobres/Demolição, e Planeador Tático.
 // @author       Diogo & Antigravity
 // @match        https://*.tribalwars.com.pt/game.php*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=tribalwars.com.pt
@@ -12,7 +12,7 @@
 // ==/UserScript==
 
 (async function () {
-    const SCRIPT_VERSION = '2.9.0';
+    const SCRIPT_VERSION = '3.0.0';
 
     // Auto-selecionar alvo de catapulta na confirmação de ataque na Praça de Reunião se especificado no URL
     try {
@@ -180,6 +180,11 @@
         .tw-badge-paladino { background: #134e4a; color: #5eead4; padding: 2px 6px; border-radius: 4px; font-weight: bold; font-size: 10px; border: 1px solid #14b8a6; box-shadow: 0 0 6px rgba(20, 184, 166, 0.4); }
         .tw-badge-warn { background: #78350f; color: #fed7aa; padding: 2px 6px; border-radius: 4px; font-weight: bold; font-size: 10px; border: 1px solid #f97316; }
         .tw-badge-reserved { background: #312e81; color: #c7d2fe; padding: 2px 6px; border-radius: 4px; font-weight: bold; font-size: 10px; border: 1px solid #6366f1; }
+        .tw-badge-cmd-attack { background: #7f1d1d; color: #fca5a5; border: 1px solid #ef4444; padding: 2px 7px; border-radius: 4px; font-weight: bold; font-size: 10px; }
+        .tw-badge-cmd-return { background: #1e1b4b; color: #c7d2fe; border: 1px solid #6366f1; padding: 2px 7px; border-radius: 4px; font-weight: bold; font-size: 10px; }
+        .tw-badge-cmd-snob { background: #78350f; color: #fde68a; border: 1px solid #f59e0b; padding: 2px 7px; border-radius: 4px; font-weight: bold; font-size: 10px; box-shadow: 0 0 6px rgba(245, 158, 11, 0.35); }
+        .tw-badge-cmd-farm { background: #451a03; color: #fed7aa; border: 1px solid #d97706; padding: 2px 7px; border-radius: 4px; font-weight: bold; font-size: 10px; }
+        .tw-badge-cmd-support { background: #064e3b; color: #a7f3d0; border: 1px solid #10b981; padding: 2px 7px; border-radius: 4px; font-weight: bold; font-size: 10px; }
 
         #${modalId}-tooltip {
             position: fixed; z-index: 10000000; background: #020617; border: 1px solid #38bdf8;
@@ -224,6 +229,7 @@
                 <button class="tw-tab" id="tab-btn-counter">⚔️ Contador Tático</button>
                 <button class="tw-tab" id="tab-btn-fakes">🎭 Fakes & Mascaramento</button>
                 <button class="tw-tab tw-tab-special" id="tab-btn-nt">👑 Planeador de Ataques</button>
+                <button class="tw-tab" id="tab-btn-commands" style="border-left:1px solid #334155; margin-left:4px;">📡 Comandos & Retornos <span id="tw-commands-count-badge" style="font-size:10px; background:rgba(56,189,248,0.2); color:#38bdf8; padding:1px 6px; border-radius:10px; margin-left:4px; font-weight:bold;">0</span></button>
             </div>
         </div>
         <div id="tw-main-body" style="flex-grow:1; display:flex; flex-direction:column; overflow:hidden;"></div>
@@ -457,6 +463,16 @@
     let lastGeneratedTarget = '';
     let plannerMode = 'single'; // 'single' ou 'multi'
     let allAccountPaladins = [];
+    let allParsedCommands = [];
+    let commandsFilter = 'all'; // 'all', 'attack', 'return', 'snob', 'farm', 'support'
+    let commandsSearch = '';
+    let commandsSort = 'time_asc'; // 'time_asc', 'time_desc', 'origin', 'target', 'snob_first'
+    let commandsTimerInterval = null;
+
+    function escapeHtml(str) {
+        if (!str) return '';
+        return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
 
     const STANDARD_RELOCATE_MS = (3 * 3600 + 31 * 60 + 45) * 1000;
 
@@ -780,6 +796,149 @@
         });
 
         return returns;
+    }
+
+    function parseAllAccountCommands(html, fallbackVillageId = null, fallbackCoords = null, fallbackVillageName = null) {
+        if (!html) return [];
+        const commands = [];
+        const rowMatches = html.match(/<tr[^>]*>([\s\S]*?)<\/tr>/gi) || [];
+
+        rowMatches.forEach(row => {
+            if (/<th/i.test(row)) return;
+
+            const cmdIdMatch = row.match(/data-id="(\d+)"/) || 
+                               row.match(/data-command-id="(\d+)"/) || 
+                               row.match(/screen=info_command[^"']*id=(\d+)/i) ||
+                               row.match(/id="command_(\d+)"/i);
+            if (!cmdIdMatch) return;
+            const commandId = cmdIdMatch[1];
+
+            const linkMatch = row.match(/href="([^"]*screen=info_command[^"]*)"/i);
+            const commandLink = linkMatch ? linkMatch[1].replace(/&amp;/g, '&') : `/game.php?screen=info_command&id=${commandId}`;
+
+            let label = '';
+            const labelMatch = row.match(/class="quickedit-label"[^>]*>([\s\S]*?)<\/span>/i) ||
+                               row.match(/<a[^>]*screen=info_command[^>]*>([\s\S]*?)<\/a>/i);
+            if (labelMatch) {
+                label = labelMatch[1].replace(/<[^>]+>/g, '').trim();
+            }
+
+            const isReturn = /return|retorno|regresso|cancel|cancelar|other_back/i.test(row) || 
+                             /data-command-type="(return|other_back)"/i.test(row) ||
+                             /retorno de/i.test(label) || /regresso de/i.test(label) || /enviado de volta por/i.test(label);
+
+            const isAttack = !isReturn && (
+                /data-command-type="attack"/i.test(row) || 
+                /attack/i.test(row) || 
+                /ataque/i.test(label) || 
+                /saque/i.test(label)
+            );
+
+            const isSupport = !isReturn && !isAttack && (
+                /data-command-type="support"/i.test(row) || 
+                /support/i.test(row) || 
+                /apoio/i.test(label)
+            );
+
+            let type = 'other';
+            if (isReturn) type = 'return';
+            else if (isAttack) type = 'attack';
+            else if (isSupport) type = 'support';
+
+            const hasSnob = /snob/i.test(row) || /nobre/i.test(row) || /snob\.webp/i.test(row);
+            const hasPaladin = /knight|paladino/i.test(row) || /knight\.webp/i.test(row);
+            const hasSpy = /spy|batedor/i.test(row) || /spy\.webp/i.test(row);
+            const isFarm = /farm/i.test(row) || /saque/i.test(label);
+            const isLarge = /attack_large|grande ataque/i.test(row);
+            const isMedium = /attack_medium|médio ataque/i.test(row);
+            const isSmall = /attack_small|pequeno ataque/i.test(row);
+
+            const tds = row.match(/<td[^>]*>([\s\S]*?)<\/td>/gi) || [];
+            let originName = fallbackVillageName || '';
+            let originCoords = fallbackCoords || '';
+            let targetName = '';
+            let targetCoords = '';
+
+            const isOverviewTable = tds.length >= 4 && !/(hoje|amanhã|[0-9\.]+)\s*às/i.test(tds[1]);
+
+            if (isOverviewTable) {
+                const originTd = tds[1];
+                const targetTd = tds[2];
+
+                const oLink = originTd.match(/<a[^>]*>([\s\S]*?)<\/a>/i);
+                if (oLink) originName = oLink[1].replace(/<[^>]+>/g, '').trim();
+
+                const tLink = targetTd.match(/<a[^>]*>([\s\S]*?)<\/a>/i);
+                if (tLink) targetName = tLink[1].replace(/<[^>]+>/g, '').trim();
+
+                const oCoord = originTd.match(/(\d{3}\|\d{3})/);
+                if (oCoord) originCoords = oCoord[1];
+
+                const tCoord = targetTd.match(/(\d{3}\|\d{3})/);
+                if (tCoord) targetCoords = tCoord[1];
+            } else {
+                targetName = label.replace(/^Ataque a /i, '').replace(/^Retorno de /i, '').replace(/^Enviado de volta por /i, '');
+                const tCoord = targetName.match(/(\d{3}\|\d{3})/);
+                if (tCoord) targetCoords = tCoord[1];
+            }
+
+            if (!targetCoords) {
+                const anyCoord = row.match(/(\d{3}\|\d{3})/g) || [];
+                if (anyCoord.length > 0) targetCoords = anyCoord[anyCoord.length - 1];
+            }
+
+            let readyAtMs = 0;
+            const endtimeMatch = row.match(/data-endtime="(\d+)"/);
+            if (endtimeMatch) {
+                readyAtMs = parseInt(endtimeMatch[1], 10) * 1000;
+            }
+
+            const timerMatch = row.match(/class="(?:widget-command-)?timer"[^>]*>([^<]+)<\/span>/i) || 
+                               row.match(/timer">([^<]+)<\/span>/i);
+            const timerStr = timerMatch ? timerMatch[1].trim() : '';
+            
+            let remainingSec = 0;
+            if (timerStr) {
+                const parts = timerStr.split(':').map(p => parseInt(p, 10));
+                if (parts.length === 3) remainingSec = parts[0] * 3600 + parts[1] * 60 + parts[2];
+                else if (parts.length === 2) remainingSec = parts[0] * 60 + parts[1];
+            }
+
+            const timeMatch = row.match(/(hoje|amanhã|[0-9\.]+)\s*às\s*(\d{1,2}:\d{2}:\d{2}(?::\d{3})?)/i);
+            const completionStr = timeMatch ? timeMatch[0] : '';
+
+            if (!readyAtMs) {
+                const now = Date.now();
+                readyAtMs = remainingSec > 0 ? (now + remainingSec * 1000) : (parseTwDateTime(completionStr) || now);
+            }
+
+            commands.push({
+                commandId,
+                commandLink,
+                label,
+                type,
+                isReturn,
+                isAttack,
+                isSupport,
+                hasSnob,
+                hasPaladin,
+                hasSpy,
+                isFarm,
+                isLarge,
+                isMedium,
+                isSmall,
+                originName,
+                originCoords,
+                targetName,
+                targetCoords,
+                timerStr,
+                remainingSec,
+                completionStr,
+                readyAtMs
+            });
+        });
+
+        return commands;
     }
 
     function calculateEarliestViableNobleTime(village, neededNobles) {
@@ -1173,6 +1332,49 @@
                 addNobleReturns(parseCommandsNobleReturns(rCommands, currentVId, currentVCoords));
             }
 
+            // 4. Extração completa de todos os Comandos & Retornos da Conta para o Módulo de Comandos
+            const cmdMap = new Map();
+            const addAllCmds = (list) => {
+                list.forEach(c => {
+                    if (!c) return;
+                    const k = c.commandId ? String(c.commandId) : `${c.originCoords}_${c.targetCoords}_${c.readyAtMs}_${c.type}`;
+                    if (!cmdMap.has(k)) {
+                        cmdMap.set(k, c);
+                    } else {
+                        const ex = cmdMap.get(k);
+                        if (!ex.originName && c.originName) ex.originName = c.originName;
+                        if (!ex.targetName && c.targetName) ex.targetName = c.targetName;
+                        if (!ex.hasSnob && c.hasSnob) ex.hasSnob = true;
+                        if (!ex.hasPaladin && c.hasPaladin) ex.hasPaladin = true;
+                    }
+                });
+            };
+
+            const currentVName = (typeof game_data !== 'undefined' && game_data.village && game_data.village.name) ? game_data.village.name : '';
+            if (rCommands) addAllCmds(parseAllAccountCommands(rCommands, currentVId, currentVCoords, currentVName));
+            if (currentDocHtml) addAllCmds(parseAllAccountCommands(currentDocHtml, currentVId, currentVCoords, currentVName));
+            if (rVillageOverview) addAllCmds(parseAllAccountCommands(rVillageOverview, currentVId, currentVCoords, currentVName));
+
+            allParsedCommands = Array.from(cmdMap.values()).sort((a, b) => a.readyAtMs - b.readyAtMs);
+
+            // Sincronizar todos os retornos com nobre para enriquecer a deteção militar
+            allParsedCommands.forEach(c => {
+                if (c.isReturn && c.hasSnob) {
+                    addNobleReturns([{
+                        commandId: c.commandId,
+                        villageId: currentVId,
+                        coords: c.originCoords || currentVCoords,
+                        remoteCoords: c.targetCoords,
+                        type: 'return',
+                        isReturn: true,
+                        timerStr: c.timerStr,
+                        remainingSec: c.remainingSec,
+                        completionStr: c.completionStr,
+                        readyAtMs: c.readyAtMs
+                    }]);
+                }
+            });
+
             const allPendingNobleEvents = [...allSnobProductions, ...allNobleReturns];
 
             allAccountPaladins = parseKnightsFromHtml(rS);
@@ -1453,6 +1655,24 @@
                 villagesById[vId] = vObj;
             });
 
+            // Enriquecer allParsedCommands com nomes de aldeias e distâncias
+            allParsedCommands.forEach(c => {
+                if (c.originCoords && !c.originName) {
+                    const foundV = allVillages.find(v => v.coords === c.originCoords);
+                    if (foundV) c.originName = foundV.name;
+                }
+                if (c.targetCoords && !c.targetName) {
+                    const foundV = allVillages.find(v => v.coords === c.targetCoords);
+                    if (foundV) c.targetName = foundV.name;
+                }
+                if (c.originCoords && c.targetCoords && typeof calcDistance === 'function') {
+                    c.dist = calcDistance(c.originCoords, c.targetCoords).toFixed(1);
+                }
+            });
+
+            const cmdBadge = document.getElementById('tw-commands-count-badge');
+            if (cmdBadge) cmdBadge.textContent = allParsedCommands.length;
+
             counterSummaryData = summary;
             updateMemoryHUD();
             document.getElementById('tw-tabs-container').style.display = 'flex';
@@ -1462,6 +1682,9 @@
             document.getElementById('tab-btn-counter').onclick = () => switchTab('counter');
             document.getElementById('tab-btn-fakes').onclick = () => switchTab('fakes');
             document.getElementById('tab-btn-nt').onclick = () => switchTab('nt');
+            if (document.getElementById('tab-btn-commands')) {
+                document.getElementById('tab-btn-commands').onclick = () => switchTab('commands');
+            }
             document.getElementById('tw-btn-close').onclick = closeSuite;
             
             switchTab('overview');
@@ -1472,15 +1695,24 @@
 
     async function switchTab(tab) {
         activeTab = tab;
+        if (commandsTimerInterval) {
+            clearInterval(commandsTimerInterval);
+            commandsTimerInterval = null;
+        }
+
         document.getElementById('tab-btn-overview').classList.toggle('active', tab === 'overview');
         document.getElementById('tab-btn-counter').classList.toggle('active', tab === 'counter');
         document.getElementById('tab-btn-fakes').classList.toggle('active', tab === 'fakes');
         document.getElementById('tab-btn-nt').classList.toggle('active', tab === 'nt');
+        if (document.getElementById('tab-btn-commands')) {
+            document.getElementById('tab-btn-commands').classList.toggle('active', tab === 'commands');
+        }
         
         if (tab === 'overview') renderOverview();
         else if (tab === 'counter') renderCounter();
         else if (tab === 'fakes') renderFakes();
         else if (tab === 'nt') renderAttackPlanner();
+        else if (tab === 'commands') renderCommands();
     }
 
     // ==========================================
@@ -5896,6 +6128,461 @@
         } catch (e) { return defaultVal; }
     }
 
+    function safeCopyText(text) {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).catch(() => {});
+        } else {
+            const ta = document.createElement('textarea');
+            ta.value = text;
+            ta.style.position = 'fixed';
+            ta.style.opacity = '0';
+            document.body.appendChild(ta);
+            ta.select();
+            try { document.execCommand('copy'); } catch (_) {}
+            ta.remove();
+        }
+    }
+
+    // ==========================================
+    // ABA 5: MÓDULO TÁTICO DE COMANDOS & RETORNOS
+    // ==========================================
+    function updateCommandsTimers() {
+        const timerEls = document.querySelectorAll('.tw-cmd-timer[data-endtime-ms]');
+        if (!timerEls.length) return;
+        const now = Date.now();
+        timerEls.forEach(el => {
+            const endMs = parseInt(el.getAttribute('data-endtime-ms'), 10);
+            if (isNaN(endMs)) return;
+            const diffSec = Math.floor((endMs - now) / 1000);
+            if (diffSec <= 0) {
+                el.textContent = '00:00:00';
+                el.style.color = '#ef4444';
+            } else {
+                const h = String(Math.floor(diffSec / 3600)).padStart(2, '0');
+                const m = String(Math.floor((diffSec % 3600) / 60)).padStart(2, '0');
+                const s = String(diffSec % 60).padStart(2, '0');
+                el.textContent = `${h}:${m}:${s}`;
+            }
+        });
+    }
+
+    async function refreshCommands() {
+        const btn = document.getElementById('tw-btn-refresh-commands');
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<span class="tw-spinner"></span> A atualizar...';
+        }
+        try {
+            const baseUrl = (typeof game_data !== 'undefined' && game_data.link_base_pure) ? game_data.link_base_pure : '/game.php?';
+            const currentVId = (typeof game_data !== 'undefined' && game_data.village) ? game_data.village.id : null;
+            const currentVCoords = (typeof game_data !== 'undefined' && game_data.village && game_data.village.coord) ? game_data.village.coord : '';
+            const currentVName = (typeof game_data !== 'undefined' && game_data.village && game_data.village.name) ? game_data.village.name : '';
+            const commandsUrl = baseUrl + 'overview_villages&mode=commands&type=all&group=0&page=-1';
+            const villageOverviewUrl = currentVId ? `/game.php?village=${currentVId}&screen=overview` : '';
+
+            const [rCommands, rVillageOverview] = await Promise.all([
+                fetch(commandsUrl).then(r => r.text()).catch(() => ''),
+                villageOverviewUrl ? fetch(villageOverviewUrl).then(r => r.text()).catch(() => '') : Promise.resolve('')
+            ]);
+
+            const currentDocHtml = (typeof document !== 'undefined' && document.body) ? document.body.innerHTML : '';
+            const cmdMap = new Map();
+            const addAllCmds = (list) => {
+                list.forEach(c => {
+                    if (!c) return;
+                    const k = c.commandId ? String(c.commandId) : `${c.originCoords}_${c.targetCoords}_${c.readyAtMs}_${c.type}`;
+                    if (!cmdMap.has(k)) {
+                        cmdMap.set(k, c);
+                    } else {
+                        const ex = cmdMap.get(k);
+                        if (!ex.originName && c.originName) ex.originName = c.originName;
+                        if (!ex.targetName && c.targetName) ex.targetName = c.targetName;
+                        if (!ex.hasSnob && c.hasSnob) ex.hasSnob = true;
+                        if (!ex.hasPaladin && c.hasPaladin) ex.hasPaladin = true;
+                    }
+                });
+            };
+
+            if (rCommands) addAllCmds(parseAllAccountCommands(rCommands, currentVId, currentVCoords, currentVName));
+            if (currentDocHtml) addAllCmds(parseAllAccountCommands(currentDocHtml, currentVId, currentVCoords, currentVName));
+            if (rVillageOverview) addAllCmds(parseAllAccountCommands(rVillageOverview, currentVId, currentVCoords, currentVName));
+
+            allParsedCommands = Array.from(cmdMap.values()).sort((a, b) => a.readyAtMs - b.readyAtMs);
+
+            allParsedCommands.forEach(c => {
+                if (c.originCoords && !c.originName) {
+                    const foundV = allVillages.find(v => v.coords === c.originCoords);
+                    if (foundV) c.originName = foundV.name;
+                }
+                if (c.targetCoords && !c.targetName) {
+                    const foundV = allVillages.find(v => v.coords === c.targetCoords);
+                    if (foundV) c.targetName = foundV.name;
+                }
+                if (c.originCoords && c.targetCoords && typeof calcDistance === 'function') {
+                    c.dist = calcDistance(c.originCoords, c.targetCoords).toFixed(1);
+                }
+            });
+
+            const cmdBadge = document.getElementById('tw-commands-count-badge');
+            if (cmdBadge) cmdBadge.textContent = allParsedCommands.length;
+
+            renderCommandsTable();
+            showToast(`📡 ${allParsedCommands.length} comandos atualizados com sucesso!`);
+        } catch (err) {
+            showToast(`❌ Erro ao atualizar comandos: ${err.message}`);
+        } finally {
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = '🔄 Atualizar Comandos';
+            }
+        }
+    }
+
+    function setPlannerTargetAndSwitch(coord) {
+        if (!coord) return;
+        switchTab('nt');
+        setTimeout(() => {
+            const targetInput = document.getElementById('tw-nt-target');
+            if (targetInput) {
+                targetInput.value = coord;
+                targetInput.dispatchEvent(new Event('input', { bubbles: true }));
+                targetInput.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+            showToast(`🎯 Alvo ${coord} selecionado no Planeador de Ataques!`);
+        }, 60);
+    }
+
+    function renderCommands() {
+        const totalCmds = allParsedCommands.length;
+        const attackCmds = allParsedCommands.filter(c => c.isAttack).length;
+        const returnCmds = allParsedCommands.filter(c => c.isReturn).length;
+        const snobCmds = allParsedCommands.filter(c => c.hasSnob).length;
+        const farmCmds = allParsedCommands.filter(c => c.isFarm).length;
+        const supportCmds = allParsedCommands.filter(c => c.isSupport).length;
+
+        const container = document.getElementById('tw-main-body');
+        if (!container) return;
+
+        container.innerHTML = `
+            <div style="display:flex; flex-direction:column; gap:10px; height:100%; overflow:hidden;">
+                <!-- KPI SUMMARY CARDS -->
+                <div style="display:grid; grid-template-columns: repeat(6, 1fr); gap:8px;">
+                    <div class="tw-kpi-card tw-kpi-blue">
+                        <div class="tw-kpi-label">TOTAL COMANDOS <span>📡</span></div>
+                        <div class="tw-kpi-value" id="tw-kpi-cmd-total">${totalCmds}</div>
+                        <div class="tw-kpi-sub">Todos os movimentos</div>
+                    </div>
+                    <div class="tw-kpi-card tw-kpi-red">
+                        <div class="tw-kpi-label">ATAQUES A DECORRER <span>⚔️</span></div>
+                        <div class="tw-kpi-value" id="tw-kpi-cmd-attacks">${attackCmds}</div>
+                        <div class="tw-kpi-sub">Saídas militares ofensivas</div>
+                    </div>
+                    <div class="tw-kpi-card tw-kpi-purple">
+                        <div class="tw-kpi-label">TROPAS A REGRESSAR <span>↩️</span></div>
+                        <div class="tw-kpi-value" id="tw-kpi-cmd-returns">${returnCmds}</div>
+                        <div class="tw-kpi-sub">Em viagem de retorno</div>
+                    </div>
+                    <div class="tw-kpi-card tw-kpi-gold">
+                        <div class="tw-kpi-label">COMANDOS C/ NOBRE <span>👑</span></div>
+                        <div class="tw-kpi-value" id="tw-kpi-cmd-snobs">${snobCmds}</div>
+                        <div class="tw-kpi-sub">Conquistas / Retornos nobre</div>
+                    </div>
+                    <div class="tw-kpi-card tw-kpi-green">
+                        <div class="tw-kpi-label">SAQUES / FARMS <span>🌾</span></div>
+                        <div class="tw-kpi-value" id="tw-kpi-cmd-farms">${farmCmds}</div>
+                        <div class="tw-kpi-sub">Farm e pilhagem</div>
+                    </div>
+                    <div class="tw-kpi-card tw-kpi-blue">
+                        <div class="tw-kpi-label">APOIOS / SUPORTES <span>🛡️</span></div>
+                        <div class="tw-kpi-value" id="tw-kpi-cmd-supports">${supportCmds}</div>
+                        <div class="tw-kpi-sub">Reforços a caminho</div>
+                    </div>
+                </div>
+
+                <!-- CONTROLS AND FILTERS -->
+                <div style="display:flex; justify-content:space-between; align-items:center; background:#0f172a; border:1px solid #1e293b; padding:8px 12px; border-radius:8px; gap:8px; flex-wrap:wrap;">
+                    <div class="tw-pill-group" id="tw-cmd-filter-pills">
+                        <span style="font-size:11px; font-weight:bold; color:#64748b; margin-right:4px;">FILTRO:</span>
+                        <div class="tw-pill ${commandsFilter==='all'?'active':''}" data-cf="all">Todos (<span id="tw-cf-cnt-all">${totalCmds}</span>)</div>
+                        <div class="tw-pill ${commandsFilter==='attack'?'active':''}" data-cf="attack">⚔️ Ataques (<span id="tw-cf-cnt-attack">${attackCmds}</span>)</div>
+                        <div class="tw-pill ${commandsFilter==='return'?'active':''}" data-cf="return">↩️ Retornos (<span id="tw-cf-cnt-return">${returnCmds}</span>)</div>
+                        <div class="tw-pill ${commandsFilter==='snob'?'active':''}" data-cf="snob">👑 Com Nobre (<span id="tw-cf-cnt-snob">${snobCmds}</span>)</div>
+                        <div class="tw-pill ${commandsFilter==='farm'?'active':''}" data-cf="farm">🌾 Saques (<span id="tw-cf-cnt-farm">${farmCmds}</span>)</div>
+                        <div class="tw-pill ${commandsFilter==='support'?'active':''}" data-cf="support">🛡️ Apoios (<span id="tw-cf-cnt-support">${supportCmds}</span>)</div>
+                    </div>
+
+                    <div style="display:flex; gap:6px; align-items:center;">
+                        <input type="text" id="tw-cmd-search" class="tw-input" style="width:200px;" placeholder="🔍 Filtrar aldeia/coord..." value="${escapeHtml(commandsSearch)}">
+                        <select id="tw-cmd-sort" class="tw-select" style="padding:4px 6px; font-size:11px;">
+                            <option value="time_asc" ${commandsSort==='time_asc'?'selected':''}>⏱️ Mais Próximos Primeiro</option>
+                            <option value="time_desc" ${commandsSort==='time_desc'?'selected':''}>⏱️ Mais Tardios Primeiro</option>
+                            <option value="snob_first" ${commandsSort==='snob_first'?'selected':''}>👑 Com Nobre Primeiro</option>
+                            <option value="origin" ${commandsSort==='origin'?'selected':''}>🏰 Por Origem</option>
+                            <option value="target" ${commandsSort==='target'?'selected':''}>🎯 Por Destino</option>
+                        </select>
+                        <button class="tw-btn tw-btn-blue" id="tw-btn-refresh-commands" style="padding:4px 10px; font-size:11px;" title="Recarregar comandos da conta">🔄 Atualizar Comandos</button>
+                    </div>
+                </div>
+
+                <!-- TABLE PANEL -->
+                <div class="tw-panel" style="flex-grow:1; overflow-y:auto;">
+                    <table class="tw-table">
+                        <thead>
+                            <tr>
+                                <th style="text-align:left; width:130px; padding-left:10px;">Tipo / Comando</th>
+                                <th style="text-align:left; width:140px;">Composição & Destaques</th>
+                                <th style="text-align:left; width:220px;">Aldeia de Origem</th>
+                                <th style="text-align:left; width:250px;">Aldeia de Destino</th>
+                                <th style="width:140px;">Hora de Chegada</th>
+                                <th style="width:110px;">Tempo Restante</th>
+                                <th style="width:100px;">Ações Rápidas</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tw-cmd-tbody"></tbody>
+                    </table>
+                </div>
+
+                <!-- FOOTER BAR -->
+                <div style="display:flex; justify-content:space-between; align-items:center; padding:2px 4px; font-size:12px; color:#94a3b8;">
+                    <span id="tw-cmd-footer-summary">A apresentar <b>0</b> comandos</span>
+                    <span style="font-size:11px; color:#64748b;">Dica: Clica em 🎯 num destino para o carregar instantaneamente no Planeador de Ataques</span>
+                </div>
+            </div>
+        `;
+
+        // Event listeners
+        const searchInput = document.getElementById('tw-cmd-search');
+        if (searchInput) {
+            searchInput.addEventListener('input', (e) => {
+                commandsSearch = e.target.value.toLowerCase();
+                renderCommandsTable();
+            });
+        }
+
+        const sortSelect = document.getElementById('tw-cmd-sort');
+        if (sortSelect) {
+            sortSelect.addEventListener('change', (e) => {
+                commandsSort = e.target.value;
+                renderCommandsTable();
+            });
+        }
+
+        const refreshBtn = document.getElementById('tw-btn-refresh-commands');
+        if (refreshBtn) {
+            refreshBtn.addEventListener('click', refreshCommands);
+        }
+
+        const pills = document.querySelectorAll('#tw-cmd-filter-pills .tw-pill');
+        pills.forEach(p => {
+            p.addEventListener('click', function() {
+                commandsFilter = this.getAttribute('data-cf');
+                pills.forEach(other => other.classList.remove('active'));
+                this.classList.add('active');
+                renderCommandsTable();
+            });
+        });
+
+        // Start live ticking interval
+        if (commandsTimerInterval) {
+            clearInterval(commandsTimerInterval);
+            commandsTimerInterval = null;
+        }
+        commandsTimerInterval = setInterval(updateCommandsTimers, 1000);
+
+        renderCommandsTable();
+    }
+
+    function renderCommandsTable() {
+        const tbody = document.getElementById('tw-cmd-tbody');
+        if (!tbody) return;
+
+        const totalCmds = allParsedCommands.length;
+        const attackCmds = allParsedCommands.filter(c => c.isAttack).length;
+        const returnCmds = allParsedCommands.filter(c => c.isReturn).length;
+        const snobCmds = allParsedCommands.filter(c => c.hasSnob).length;
+        const farmCmds = allParsedCommands.filter(c => c.isFarm).length;
+        const supportCmds = allParsedCommands.filter(c => c.isSupport).length;
+
+        // Sync KPI cards if present
+        const kpiTotal = document.getElementById('tw-kpi-cmd-total');
+        if (kpiTotal) kpiTotal.textContent = totalCmds;
+        const kpiAttacks = document.getElementById('tw-kpi-cmd-attacks');
+        if (kpiAttacks) kpiAttacks.textContent = attackCmds;
+        const kpiReturns = document.getElementById('tw-kpi-cmd-returns');
+        if (kpiReturns) kpiReturns.textContent = returnCmds;
+        const kpiSnobs = document.getElementById('tw-kpi-cmd-snobs');
+        if (kpiSnobs) kpiSnobs.textContent = snobCmds;
+        const kpiFarms = document.getElementById('tw-kpi-cmd-farms');
+        if (kpiFarms) kpiFarms.textContent = farmCmds;
+        const kpiSupports = document.getElementById('tw-kpi-cmd-supports');
+        if (kpiSupports) kpiSupports.textContent = supportCmds;
+
+        // Sync filter pills if present
+        const cfAll = document.getElementById('tw-cf-cnt-all');
+        if (cfAll) cfAll.textContent = totalCmds;
+        const cfAttack = document.getElementById('tw-cf-cnt-attack');
+        if (cfAttack) cfAttack.textContent = attackCmds;
+        const cfReturn = document.getElementById('tw-cf-cnt-return');
+        if (cfReturn) cfReturn.textContent = returnCmds;
+        const cfSnob = document.getElementById('tw-cf-cnt-snob');
+        if (cfSnob) cfSnob.textContent = snobCmds;
+        const cfFarm = document.getElementById('tw-cf-cnt-farm');
+        if (cfFarm) cfFarm.textContent = farmCmds;
+        const cfSupport = document.getElementById('tw-cf-cnt-support');
+        if (cfSupport) cfSupport.textContent = supportCmds;
+
+        let filtered = [...allParsedCommands];
+
+        if (commandsFilter === 'attack') filtered = filtered.filter(c => c.isAttack);
+        else if (commandsFilter === 'return') filtered = filtered.filter(c => c.isReturn);
+        else if (commandsFilter === 'snob') filtered = filtered.filter(c => c.hasSnob);
+        else if (commandsFilter === 'farm') filtered = filtered.filter(c => c.isFarm);
+        else if (commandsFilter === 'support') filtered = filtered.filter(c => c.isSupport);
+
+        if (commandsSearch) {
+            const q = commandsSearch.trim().toLowerCase();
+            filtered = filtered.filter(c => {
+                return (c.label && c.label.toLowerCase().includes(q)) ||
+                       (c.originName && c.originName.toLowerCase().includes(q)) ||
+                       (c.originCoords && c.originCoords.includes(q)) ||
+                       (c.targetName && c.targetName.toLowerCase().includes(q)) ||
+                       (c.targetCoords && c.targetCoords.includes(q));
+            });
+        }
+
+        if (commandsSort === 'time_asc') {
+            filtered.sort((a, b) => a.readyAtMs - b.readyAtMs);
+        } else if (commandsSort === 'time_desc') {
+            filtered.sort((a, b) => b.readyAtMs - a.readyAtMs);
+        } else if (commandsSort === 'snob_first') {
+            filtered.sort((a, b) => (b.hasSnob ? 1 : 0) - (a.hasSnob ? 1 : 0) || (a.readyAtMs - b.readyAtMs));
+        } else if (commandsSort === 'origin') {
+            filtered.sort((a, b) => (a.originName || a.originCoords || '').localeCompare(b.originName || b.originCoords || '') || (a.readyAtMs - b.readyAtMs));
+        } else if (commandsSort === 'target') {
+            filtered.sort((a, b) => (a.targetName || a.targetCoords || '').localeCompare(b.targetName || b.targetCoords || '') || (a.readyAtMs - b.readyAtMs));
+        }
+
+        const footerSummary = document.getElementById('tw-cmd-footer-summary');
+        if (footerSummary) {
+            footerSummary.innerHTML = `A apresentar <b>${filtered.length}</b> de <b>${allParsedCommands.length}</b> comandos`;
+        }
+
+        if (filtered.length === 0) {
+            tbody.innerHTML = `
+                <tr>
+                    <td colspan="7" style="text-align:center; padding:35px 20px; color:#64748b;">
+                        <div style="font-size:28px; margin-bottom:8px;">📡</div>
+                        <div style="font-size:13px; font-weight:bold; color:#94a3b8;">Nenhum comando encontrado com os filtros atuais</div>
+                        <div style="font-size:11px; margin-top:4px;">Verifica o termo de pesquisa ou seleciona o filtro "Todos".</div>
+                    </td>
+                </tr>
+            `;
+            return;
+        }
+
+        let rowsHtml = '';
+        filtered.forEach(c => {
+            let typeBadge = '';
+            let rowBorder = 'border-left: 3px solid #334155;';
+            if (c.isReturn) {
+                typeBadge = '<span class="tw-badge-cmd-return">↩️ Regresso</span>';
+                rowBorder = 'border-left: 3px solid #6366f1; background: rgba(99, 102, 241, 0.03);';
+            } else if (c.isAttack) {
+                typeBadge = '<span class="tw-badge-cmd-attack">⚔️ Ataque</span>';
+                rowBorder = 'border-left: 3px solid #ef4444; background: rgba(244, 63, 94, 0.03);';
+            } else if (c.isSupport) {
+                typeBadge = '<span class="tw-badge-cmd-support">🛡️ Apoio</span>';
+                rowBorder = 'border-left: 3px solid #10b981; background: rgba(16, 185, 129, 0.03);';
+            } else {
+                typeBadge = '<span class="tw-pill" style="font-size:10px;">Comando</span>';
+            }
+
+            if (c.hasSnob) {
+                rowBorder = 'border-left: 3px solid #f59e0b; background: rgba(245, 158, 11, 0.04);';
+            }
+
+            let badges = '';
+            if (c.hasSnob) badges += '<span class="tw-badge-cmd-snob" title="Comando com Nobre!">👑 Nobre</span> ';
+            if (c.hasPaladin) badges += '<span class="tw-badge-paladino" style="font-size:9.5px; padding:1px 5px;" title="Comando com Paladino">🛡️ Paladino</span> ';
+            if (c.isFarm) badges += '<span class="tw-badge-cmd-farm" title="Saque / Farm">🌾 Saque</span> ';
+            if (c.hasSpy) badges += '<span class="tw-pill" style="font-size:9.5px; padding:1px 5px; background:#1e293b; color:#94a3b8;" title="Batedores">🏹 Batedores</span> ';
+            if (c.isLarge) badges += '<span class="tw-badge-nuke" style="font-size:9.5px; padding:1px 5px;" title="Ataque Grande (5k+ tropas)">🔥 5k+ Tropas</span> ';
+            if (!badges) badges = '<span style="color:#475569; font-size:11px;">Padrão</span>';
+
+            const origV = c.originCoords ? allVillages.find(v => v.coords === c.originCoords) : null;
+            const origName = c.originName || (origV ? origV.name : 'Aldeia');
+            const origCoords = c.originCoords || '--';
+            const targetName = c.targetName || 'Aldeia Destino';
+            const targetCoords = c.targetCoords || '--';
+            const dist = (c.dist || (c.originCoords && c.targetCoords && typeof calcDistance === 'function' ? calcDistance(c.originCoords, c.targetCoords).toFixed(1) : null));
+            const actionCoord = c.targetCoords || c.originCoords || '';
+
+            rowsHtml += `
+                <tr style="${rowBorder}">
+                    <td style="text-align:left; padding-left:10px;">
+                        <div>${typeBadge}</div>
+                        <a href="${c.commandLink || 'javascript:void(0);'}" target="_blank" style="color:#f8fafc; text-decoration:none; font-weight:600; display:block; font-size:11.5px; margin-top:3px; max-width:170px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escapeHtml(c.label)}">${escapeHtml(c.label || 'Ver Comando')}</a>
+                    </td>
+                    <td style="text-align:left; white-space:normal;">
+                        <div style="display:flex; flex-wrap:wrap; gap:3px; align-items:center;">${badges}</div>
+                    </td>
+                    <td style="text-align:left;">
+                        <div style="font-weight:600; color:#f8fafc; font-size:11.5px; max-width:210px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+                            <a href="javascript:void(0);" class="tw-cmd-copy-coord" data-coord="${origCoords}" style="color:#38bdf8; text-decoration:none;" title="Copiar coordenadas">${escapeHtml(origName)}</a>
+                        </div>
+                        <div style="font-size:11px; color:#94a3b8; margin-top:2px;">
+                            <span>(${origCoords})</span>
+                            ${origV ? `<a href="/game.php?village=${origV.id}&screen=place" target="_blank" style="font-size:9.5px; color:#38bdf8; text-decoration:none; margin-left:6px; padding:1px 5px; background:rgba(56,189,248,0.1); border:1px solid rgba(56,189,248,0.25); border-radius:3px;" title="Abrir Praça desta aldeia">Praça ↗</a>` : ''}
+                        </div>
+                    </td>
+                    <td style="text-align:left;">
+                        <div style="font-weight:600; color:#f8fafc; font-size:11.5px; max-width:240px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+                            <a href="javascript:void(0);" class="tw-cmd-copy-coord" data-coord="${targetCoords}" style="color:#f8fafc; text-decoration:none;" title="Copiar coordenadas">${escapeHtml(targetName)}</a>
+                        </div>
+                        <div style="font-size:11px; color:#94a3b8; margin-top:2px;">
+                            <span>(${targetCoords})</span>
+                            ${dist ? `<span style="font-size:10.5px; color:#64748b; margin-left:4px;">(${dist} campos)</span>` : ''}
+                        </div>
+                    </td>
+                    <td style="color:#cbd5e1; font-size:11.5px; font-weight:500;">
+                        ${escapeHtml(c.completionStr || (c.readyAtMs ? new Date(c.readyAtMs).toLocaleTimeString('pt-PT') : '--:--:--'))}
+                    </td>
+                    <td>
+                        <span class="tw-cmd-timer" data-endtime-ms="${c.readyAtMs}" style="font-family:monospace; font-weight:bold; font-size:12.5px; color:#38bdf8;">${c.timerStr || '--:--:--'}</span>
+                    </td>
+                    <td>
+                        <div style="display:flex; gap:4px; justify-content:center;">
+                            <button class="tw-btn tw-cmd-use-planner" data-coord="${actionCoord}" style="padding:2px 7px; font-size:10.5px; background:#0284c7; border-color:#0369a1; color:#fff;" title="Definir como alvo no Planeador de Ataques">🎯 Plan</button>
+                            <button class="tw-btn tw-cmd-copy-coord" data-coord="${actionCoord}" style="padding:2px 7px; font-size:10.5px;" title="Copiar coordenadas">📋</button>
+                        </div>
+                    </td>
+                </tr>
+            `;
+        });
+
+        tbody.innerHTML = rowsHtml;
+
+        // Bind quick action buttons
+        tbody.querySelectorAll('.tw-cmd-use-planner').forEach(btn => {
+            btn.addEventListener('click', function(e) {
+                e.stopPropagation();
+                const coord = this.getAttribute('data-coord');
+                if (coord) setPlannerTargetAndSwitch(coord);
+            });
+        });
+
+        tbody.querySelectorAll('.tw-cmd-copy-coord').forEach(btn => {
+            btn.addEventListener('click', function(e) {
+                e.stopPropagation();
+                const coord = this.getAttribute('data-coord');
+                if (coord) {
+                    safeCopyText(coord);
+                    showToast(`📋 Coordenadas ${coord} copiadas!`);
+                }
+            });
+        });
+    }
+
     // Fechar com ESC
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') {
@@ -5914,6 +6601,7 @@
 
     function closeSuite() {
         if (mapInterval) clearInterval(mapInterval);
+        if (commandsTimerInterval) { clearInterval(commandsTimerInterval); commandsTimerInterval = null; }
         if (ui) ui.remove();
         if (backdrop) backdrop.remove();
         if (tooltip) tooltip.remove();
