@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TW Tactical Command Suite
 // @namespace    https://tribalwars.com.pt/
-// @version      3.2.4
-// @description  Suite militar avançada para Tribal Wars PT: Módulo Tático de Comandos (Ataques & Retornos de tropas com filtros e timers em tempo real), Rastreio de Nobres a Caminho & em Retorno de Comandos + Treino na Academia, Validação Precisa de Envio & Horário Mínimo de Ataque (⚡ com 5m folga e seleção do Nuke Full mais perto), Suporte Automático a Modelos NT (NT 33% para 3 nobres, NT 25% para 4 nobres), Bunkers Desligados por Default, Alvo Cats do Nuke Muralha por Default, Fakes Inteligentes 1% Dinâmico, Arsenal Tático de Fakes, UI de Limpezas/Nobres/Demolição, e Planeador Tático.
+// @version      3.2.5
+// @description  Suite militar avançada para Tribal Wars PT: Módulo Tático de Comandos (Ataques & Retornos de tropas com filtros e timers em tempo real, agrupamento por alvos), Rastreio de Nobres a Caminho & em Retorno de Comandos + Treino na Academia, Validação Precisa de Envio & Horário Mínimo de Ataque (⚡ com 5m folga e seleção do Nuke Full mais perto), Suporte Automático a Modelos NT (NT 33% para 3 nobres, NT 25% para 4 nobres), Bunkers Desligados por Default, Alvo Cats do Nuke Muralha por Default, Fakes Inteligentes 1% Dinâmico, Arsenal Tático de Fakes, UI de Limpezas/Nobres/Demolição, e Planeador Tático.
 // @author       Diogo & Antigravity
 // @match        https://*.tribalwars.com.pt/game.php*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=tribalwars.com.pt
@@ -12,7 +12,7 @@
 // ==/UserScript==
 
 (async function () {
-    const SCRIPT_VERSION = '3.2.4';
+    const SCRIPT_VERSION = '3.2.5';
 
     // Auto-selecionar alvo de catapulta na confirmação de ataque na Praça de Reunião se especificado no URL
     try {
@@ -467,6 +467,8 @@
     let commandsFilter = 'players'; // 'players' (padrão: ataques e retornos a jogadores), 'all', 'attack', 'return', 'snob', 'farm', 'support'
     let commandsSearch = '';
     let commandsSort = 'time_asc'; // 'time_asc', 'time_desc', 'origin', 'target', 'snob_first'
+    let commandsGroupByTarget = false; // Alternar agrupamento de comandos por aldeia alvo
+    let collapsedTargetGroups = new Set(); // Conjunto de chaves de grupos recolhidos
     let commandsTimerInterval = null;
 
     function escapeHtml(str) {
@@ -6998,6 +7000,9 @@
                             <option value="origin" ${commandsSort==='origin'?'selected':''}>🏰 Por Origem</option>
                             <option value="target" ${commandsSort==='target'?'selected':''}>🎯 Por Destino</option>
                         </select>
+                        <button type="button" class="tw-btn" id="tw-btn-group-targets" style="padding:4px 9px; font-size:11px; ${commandsGroupByTarget ? 'background:#0284c7; color:#fff; border-color:#0369a1; box-shadow:0 0 8px rgba(2,132,199,0.4); font-weight:bold;' : 'background:#1e293b; color:#cbd5e1; border-color:#334155;'}" title="Alternar agrupamento de comandos por aldeia alvo">
+                            ${commandsGroupByTarget ? '🗂️ Agrupado por Alvos' : '🗂️ Agrupar por Alvos'}
+                        </button>
                         <a href="/game.php?screen=overview_villages&mode=commands&type=all&group=0" class="tw-btn" style="text-decoration:none; padding:4px 9px; font-size:11px; background:#1e293b; border:1px solid #334155; color:#94a3b8; border-radius:5px;" title="Abre a tela nativa de comandos do Tribos">🔗 Tela Oficial</a>
                         <button type="button" class="tw-btn" id="tw-btn-diag-commands" style="padding:4px 8px; font-size:11px; background:#1e293b; border:1px solid #334155; color:#38bdf8;" title="Ver detalhes técnicos da recolha de comandos">📡 Diagnóstico</button>
                         <button class="tw-btn tw-btn-blue" id="tw-btn-refresh-commands" style="padding:4px 10px; font-size:11px;" title="Recarregar comandos da conta">🔄 Atualizar Comandos</button>
@@ -7050,6 +7055,14 @@
             sortSelect.addEventListener('change', (e) => {
                 commandsSort = e.target.value;
                 renderCommandsTable();
+            });
+        }
+
+        const groupTargetsBtn = document.getElementById('tw-btn-group-targets');
+        if (groupTargetsBtn) {
+            groupTargetsBtn.addEventListener('click', () => {
+                commandsGroupByTarget = !commandsGroupByTarget;
+                renderCommands();
             });
         }
 
@@ -7167,7 +7180,12 @@
 
         const footerSummary = document.getElementById('tw-cmd-footer-summary');
         if (footerSummary) {
-            footerSummary.innerHTML = `A apresentar <b>${filtered.length}</b> de <b>${allParsedCommands.length}</b> comandos`;
+            if (commandsGroupByTarget) {
+                const uniqueTargets = new Set(filtered.map(c => c.targetCoords || c.targetName || '')).size;
+                footerSummary.innerHTML = `A apresentar <b>${filtered.length}</b> comandos agrupados em <b>${uniqueTargets}</b> alvos`;
+            } else {
+                footerSummary.innerHTML = `A apresentar <b>${filtered.length}</b> de <b>${allParsedCommands.length}</b> comandos`;
+            }
         }
 
         if (filtered.length === 0) {
@@ -7183,8 +7201,7 @@
             return;
         }
 
-        let rowsHtml = '';
-        filtered.forEach(c => {
+        function renderCommandRow(c, isGrouped = false) {
             let typeBadge = '';
             let rowBorder = 'border-left: 3px solid #334155;';
             if (c.isReturn) {
@@ -7234,9 +7251,11 @@
                 .replace(/^(?:saque\s+a|raid\s+on)\s*/i, '')
                 .trim() || c.label || 'Ver Comando';
 
-            rowsHtml += `
+            const indentStyle = isGrouped ? 'padding-left: 22px; background: rgba(15, 23, 42, 0.4);' : 'padding-left: 10px;';
+
+            return `
                 <tr style="${rowBorder}">
-                    <td style="text-align:left; padding-left:10px;">
+                    <td style="text-align:left; ${indentStyle}">
                         <div>${typeBadge}</div>
                         <a href="${c.commandLink || 'javascript:void(0);'}" target="_blank" style="color:#f8fafc; text-decoration:none; font-weight:600; display:block; font-size:11.5px; margin-top:3px; max-width:185px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escapeHtml(c.label || cleanDisplayLabel)}">${escapeHtml(cleanDisplayLabel)}</a>
                     </td>
@@ -7288,9 +7307,94 @@
                     </td>
                 </tr>
             `;
-        });
+        }
+
+        let rowsHtml = '';
+        if (!commandsGroupByTarget) {
+            filtered.forEach(c => {
+                rowsHtml += renderCommandRow(c, false);
+            });
+        } else {
+            const targetGroups = new Map();
+            filtered.forEach(c => {
+                const key = c.targetCoords || c.targetName || 'Desconhecido';
+                if (!targetGroups.has(key)) targetGroups.set(key, []);
+                targetGroups.get(key).push(c);
+            });
+
+            const sortedGroupEntries = Array.from(targetGroups.entries()).sort((a, b) => {
+                const minA = Math.min(...a[1].map(cmd => cmd.readyAtMs || 0));
+                const minB = Math.min(...b[1].map(cmd => cmd.readyAtMs || 0));
+                return minA - minB;
+            });
+
+            sortedGroupEntries.forEach(([key, groupCmds]) => {
+                const firstCmd = groupCmds[0] || {};
+                const tCoords = firstCmd.targetCoords || key;
+                const tName = firstCmd.targetName || 'Aldeia Alvo';
+                const isCollapsed = collapsedTargetGroups.has(key);
+                const snobCount = groupCmds.filter(cmd => cmd.hasSnob).length;
+                const sortedCmds = [...groupCmds].sort((a, b) => a.readyAtMs - b.readyAtMs);
+                const earliestCmd = sortedCmds[0];
+                const latestCmd = sortedCmds[sortedCmds.length - 1];
+                const earliestTimeStr = earliestCmd ? (earliestCmd.completionStr || (earliestCmd.readyAtMs ? new Date(earliestCmd.readyAtMs).toLocaleTimeString('pt-PT') : '--:--:--')) : '--:--:--';
+                const latestTimeStr = latestCmd ? (latestCmd.completionStr || (latestCmd.readyAtMs ? new Date(latestCmd.readyAtMs).toLocaleTimeString('pt-PT') : '--:--:--')) : '--:--:--';
+
+                let ownerBadge = '';
+                if (firstCmd.targetOwner && firstCmd.targetOwner.isOwn) {
+                    ownerBadge = '<span class="tw-pill" style="font-size:10px; background:rgba(16,185,129,0.15); color:#10b981; border:1px solid rgba(16,185,129,0.3);">🏰 Própria</span>';
+                } else if (firstCmd.targetOwner && firstCmd.targetOwner.isPlayer) {
+                    ownerBadge = `<span class="tw-pill" style="font-size:10px; background:rgba(56,189,248,0.15); color:#38bdf8; border:1px solid rgba(56,189,248,0.3);">👤 ${escapeHtml(firstCmd.targetPlayerName)}</span>`;
+                }
+
+                rowsHtml += `
+                    <tr class="tw-cmd-group-row" data-group-key="${escapeHtml(key)}" style="background:linear-gradient(90deg, #1e293b 0%, #0f172a 100%); cursor:pointer; user-select:none; border-top:2px solid #0284c7; border-bottom:1px solid #334155;">
+                        <td colspan="7" style="padding:7px 12px; text-align:left;">
+                            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+                                <div style="display:flex; align-items:center; gap:8px;">
+                                    <span style="font-size:11px; color:#38bdf8; font-weight:bold; width:12px; display:inline-block;">${isCollapsed ? '▶' : '▼'}</span>
+                                    <span style="font-size:12.5px; font-weight:700; color:#f8fafc;">🎯 ${escapeHtml(tName)} <span style="color:#38bdf8;">(${tCoords})</span></span>
+                                    ${ownerBadge}
+                                    <span class="tw-pill" style="font-size:10px; background:rgba(239,68,68,0.15); color:#f87171; border:1px solid rgba(239,68,68,0.3); font-weight:bold;">⚔️ ${groupCmds.length} ${groupCmds.length === 1 ? 'Comando' : 'Comandos'}</span>
+                                    ${snobCount > 0 ? `<span class="tw-badge-cmd-snob" style="font-size:9.5px; padding:1px 6px;">👑 ${snobCount} com Nobre</span>` : ''}
+                                </div>
+                                <div style="display:flex; gap:10px; align-items:center;">
+                                    <span style="font-size:11px; color:#94a3b8;">
+                                        Primeiro: <b style="color:#38bdf8; font-family:monospace;">${earliestTimeStr}</b>
+                                        ${earliestTimeStr !== latestTimeStr ? ` | Último: <b style="color:#cbd5e1; font-family:monospace;">${latestTimeStr}</b>` : ''}
+                                    </span>
+                                    <span class="tw-cmd-timer" data-endtime-ms="${earliestCmd ? earliestCmd.readyAtMs : 0}" style="font-family:monospace; font-weight:bold; font-size:12px; color:#f59e0b;">${earliestCmd ? (earliestCmd.timerStr || '--:--:--') : ''}</span>
+                                    <div style="display:flex; gap:4px;" onclick="event.stopPropagation();">
+                                        <button type="button" class="tw-btn tw-cmd-use-planner" data-coord="${tCoords}" style="padding:2px 7px; font-size:10.5px; background:#0284c7; border-color:#0369a1; color:#fff;" title="Definir no Planeador">🎯 Plan</button>
+                                        <button type="button" class="tw-btn tw-cmd-copy-coord" data-coord="${tCoords}" style="padding:2px 7px; font-size:10.5px;" title="Copiar coordenadas">📋</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+
+                if (!isCollapsed) {
+                    sortedCmds.forEach(c => {
+                        rowsHtml += renderCommandRow(c, true);
+                    });
+                }
+            });
+        }
 
         tbody.innerHTML = rowsHtml;
+
+        // Bind collapse/expand on group header rows
+        tbody.querySelectorAll('.tw-cmd-group-row').forEach(row => {
+            row.addEventListener('click', function() {
+                const key = this.getAttribute('data-group-key');
+                if (key) {
+                    if (collapsedTargetGroups.has(key)) collapsedTargetGroups.delete(key);
+                    else collapsedTargetGroups.add(key);
+                    renderCommandsTable();
+                }
+            });
+        });
 
         // Bind quick action buttons
         tbody.querySelectorAll('.tw-cmd-use-planner').forEach(btn => {
