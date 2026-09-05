@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW Tactical Command Suite
 // @namespace    https://tribalwars.com.pt/
-// @version      3.2.2
+// @version      3.2.3
 // @description  Suite militar avançada para Tribal Wars PT: Módulo Tático de Comandos (Ataques & Retornos de tropas com filtros e timers em tempo real), Rastreio de Nobres a Caminho & em Retorno de Comandos + Treino na Academia, Validação Precisa de Envio & Horário Mínimo de Ataque (⚡ com 5m folga e seleção do Nuke Full mais perto), Suporte Automático a Modelos NT (NT 33% para 3 nobres, NT 25% para 4 nobres), Bunkers Desligados por Default, Alvo Cats do Nuke Muralha por Default, Fakes Inteligentes 1% Dinâmico, Arsenal Tático de Fakes, UI de Limpezas/Nobres/Demolição, e Planeador Tático.
 // @author       Diogo & Antigravity
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -12,7 +12,7 @@
 // ==/UserScript==
 
 (async function () {
-    const SCRIPT_VERSION = '3.2.2';
+    const SCRIPT_VERSION = '3.2.3';
 
     // Auto-selecionar alvo de catapulta na confirmação de ataque na Praça de Reunião se especificado no URL
     try {
@@ -597,8 +597,9 @@
         if (worldVillagesLoaded && worldPlayersLoaded) return;
         try {
             const fetches = [];
+            const originBase = (typeof window !== 'undefined' && window.location && window.location.origin) ? window.location.origin : '';
             if (!worldVillagesLoaded) {
-                fetches.push(fetch('/map/village.txt').then(async res => {
+                fetches.push(fetch(originBase + '/map/village.txt').then(async res => {
                     if (res.ok) {
                         const text = await res.text();
                         const lines = text.trim().split('\n');
@@ -628,7 +629,7 @@
                 }).catch(() => {}));
             }
             if (!worldPlayersLoaded) {
-                fetches.push(fetch('/map/player.txt').then(async res => {
+                fetches.push(fetch(originBase + '/map/player.txt').then(async res => {
                     if (res.ok) {
                         const text = await res.text();
                         const lines = text.trim().split('\n');
@@ -1165,6 +1166,7 @@
                                   row.includes('arrowLeft') ||
                                   row.includes('arrowRight') ||
                                   row.includes('tooltip-delayed') ||
+                                  /atalho\s*teclado/i.test(row) ||
                                   (row.includes('<th') && !row.includes('<td'));
 
             if (isCommandRow && !isSpuriousRow) {
@@ -1262,6 +1264,8 @@
                 if (linkInFirstTd) label = linkInFirstTd[1].replace(/<[^>]+>/g, '').trim();
                 else label = tds[0].replace(/<[^>]+>/g, '').trim();
             }
+
+            if (/atalho\s*teclado/i.test(label) || /atalho\s*teclado/i.test(row)) return;
 
             // Deteção autoritária do tipo de comando
             const cmdTypeAttr = (row.match(/data-command-type="([^"]+)"/i) || [])[1] || '';
