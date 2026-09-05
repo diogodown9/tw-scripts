@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TW Tactical Command Suite
 // @namespace    https://tribalwars.com.pt/
-// @version      3.2.8
-// @description  Suite militar avançada para Tribal Wars PT: Módulo Tático de Comandos (Ataques & Retornos com filtros, agrupamento por alvos, ordenação interativa por clique nos cabeçalhos de coluna, exclusão opcional de micro-saques Modo Turbo para velocidade máxima, purga automática de comandos expirados e timers sincronizados com o servidor), Rastreio de Nobres a Caminho & em Retorno de Comandos + Treino na Academia, Validação Precisa de Envio & Horário Mínimo de Ataque (⚡ com 5m folga e seleção do Nuke Full mais perto), Suporte Automático a Modelos NT (NT 33% para 3 nobres, NT 25% para 4 nobres), Bunkers Desligados por Default, Alvo Cats do Nuke Muralha por Default, Fakes Inteligentes 1% Dinâmico, Arsenal Tático de Fakes, UI de Limpezas/Nobres/Demolição, e Planeador Tático.
+// @version      3.2.9
+// @description  Suite militar avançada para Tribal Wars PT: Módulo Tático de Comandos (Ataques & Retornos com filtros, agrupamento por alvos, ordenação interativa por clique nos cabeçalhos de coluna, exclusão opcional de micro-saques Modo Turbo para velocidade máxima, purga automática de comandos expirados e timers sincronizados com o servidor), Rastreio em Tempo Real de Nobres a Caminho & em Retorno de Comandos + Treino na Academia, Sincronização Server-Live sem Cache, Validação Precisa de Envio & Horário Mínimo de Ataque à Prova de Falhas (⚡ com 5m folga, cálculo inteligente de nobres a regressar e seleção do Nuke Full mais perto), Suporte Automático a Modelos NT (NT 33% para 3 nobres, NT 25% para 4 nobres), Bunkers Desligados por Default, Alvo Cats do Nuke Muralha por Default, Fakes Inteligentes 1% Dinâmico, Arsenal Tático de Fakes, UI de Limpezas/Nobres/Demolição, e Planeador Tático.
 // @author       Diogo & Antigravity
 // @match        https://*.tribalwars.com.pt/game.php*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=tribalwars.com.pt
@@ -12,7 +12,7 @@
 // ==/UserScript==
 
 (async function () {
-    const SCRIPT_VERSION = '3.2.8';
+    const SCRIPT_VERSION = '3.2.9';
 
     // Auto-selecionar alvo de catapulta na confirmação de ataque na Praça de Reunião se especificado no URL
     try {
@@ -480,6 +480,8 @@
     let plannerMode = 'single'; // 'single' ou 'multi'
     let allAccountPaladins = [];
     let allParsedCommands = [];
+    let allSnobProductions = [];
+    let allNobleReturns = [];
     let commandsFilter = 'players'; // 'players' (padrão: ataques e retornos a jogadores), 'all', 'attack', 'return', 'snob', 'farm', 'support'
     let commandsSearch = '';
     let commandsSort = getPref('tw_cmd_sort', 'time_asc'); // 'time_asc', 'time_desc', 'origin', 'target', 'snob_first'
@@ -1107,16 +1109,23 @@
         const rowMatches = [];
         while ((trM = trRegex.exec(html)) !== null) {
             const row = trM[0];
-            if ((row.includes('snob') || row.includes('nobre') || row.includes('return_snob')) && 
-                (row.includes('return') || row.includes('retorno') || row.includes('regresso') || row.includes('other_back') || row.includes('back.webp')) &&
-                !/data-command-type="attack"/i.test(row) &&
-                !/\/command\/attack/i.test(row) &&
-                !/<a[^>]*>(?:Ataque|Saque)\b/i.test(row)) {
-                rowMatches.push(row);
+            const hasSnob = row.includes('snob') || row.includes('nobre') || row.includes('return_snob');
+            if (!hasSnob) continue;
+
+            const isReturn = (row.includes('return') || row.includes('retorno') || row.includes('regresso') || row.includes('other_back') || row.includes('back.webp')) &&
+                             !/data-command-type="attack"/i.test(row) &&
+                             !/\/command\/attack/i.test(row) &&
+                             !/<a[^>]*>(?:Ataque|Saque)\b/i.test(row);
+
+            const isAttack = (/data-command-type="attack"/i.test(row) || /\/command\/attack/i.test(row) || /<a[^>]*>(?:Ataque)\b/i.test(row) || /quickedit-label[^>]*>\s*Ataque/i.test(row)) &&
+                             !row.includes('return_');
+
+            if (isReturn || isAttack) {
+                rowMatches.push({ row, isReturn, isAttack });
             }
         }
 
-        rowMatches.forEach(row => {
+        rowMatches.forEach(({ row, isReturn, isAttack }) => {
             if (/<th/i.test(row) && !/<td/i.test(row)) return;
 
             let commandId = null;
@@ -1158,15 +1167,15 @@
                 }
             }
 
-            // Deteção do timestamp de chegada
-            let readyAtMs = 0;
+            // Deteção do timestamp de impacto / chegada
+            let hitAtMs = 0;
             let timerStr = '';
             let remainingSec = 0;
             let completionStr = '';
 
             const endtimeMatch = row.match(/data-endtime="(\d+)"/);
             if (endtimeMatch) {
-                readyAtMs = parseInt(endtimeMatch[1], 10) * 1000;
+                hitAtMs = parseInt(endtimeMatch[1], 10) * 1000;
             }
 
             const timerMatch = row.match(/class="[^"]*(?:widget-command-)?timer[^"]*"[^>]*>([^<]+)<\/span>/i) || row.match(/timer">([^<]+)<\/span>/i);
@@ -1190,14 +1199,42 @@
                               row.match(/(\d{1,2}:\d{2}:\d{2}:\d{3})/i);
             if (timeMatch) {
                 completionStr = timeMatch[0];
-                if (!readyAtMs) readyAtMs = parseTwDateTime(completionStr);
+                if (!hitAtMs) hitAtMs = parseTwDateTime(completionStr);
             }
 
-            if (!readyAtMs && remainingSec > 0) {
-                readyAtMs = Date.now() + remainingSec * 1000;
+            if (!hitAtMs && remainingSec > 0) {
+                hitAtMs = Date.now() + remainingSec * 1000;
             }
-            if (!readyAtMs) {
-                readyAtMs = Date.now() + 60000;
+            if (!hitAtMs) {
+                hitAtMs = Date.now() + 60000;
+            }
+
+            let readyAtMs = hitAtMs;
+            let isAttackReturn = false;
+            let note = 'Regresso a casa';
+
+            if (isAttack) {
+                isAttackReturn = true;
+                const snobSpeedMin = (typeof unitSpeedMinutes !== 'undefined' && unitSpeedMinutes.snob) ? unitSpeedMinutes.snob : 35;
+                let travelSec = 0;
+                if (homeCoords && remoteCoords && typeof calcDistance === 'function') {
+                    const dist = calcDistance(homeCoords, remoteCoords);
+                    travelSec = Math.round(dist * snobSpeedMin * 60);
+                } else if (remainingSec > 0) {
+                    travelSec = remainingSec;
+                }
+                readyAtMs = hitAtMs + (travelSec * 1000);
+                const impactTimeLabel = new Date(hitAtMs).toLocaleTimeString('pt-PT');
+                const returnTimeLabel = new Date(readyAtMs).toLocaleTimeString('pt-PT');
+                const dayOffset = (new Date(readyAtMs).getDate() !== new Date().getDate()) ? ' (+1d)' : '';
+                completionStr = `${returnTimeLabel}${dayOffset}`;
+                note = `Regresso de Ataque a ${remoteCoords || 'alvo'} (impacto às ${impactTimeLabel})`;
+                const remReturnSec = Math.max(0, Math.floor((readyAtMs - Date.now()) / 1000));
+                timerStr = formatDuration(remReturnSec);
+            }
+
+            if (!commandId) {
+                commandId = `snob_${isAttack ? 'atk' : 'ret'}_${homeCoords || fallbackCoords || 'h'}_${remoteCoords || 'r'}_${readyAtMs}_${returns.length}`;
             }
 
             returns.push({
@@ -1207,10 +1244,13 @@
                 remoteCoords,
                 type: 'return',
                 isReturn: true,
+                isAttackReturn,
+                impactAtMs: isAttack ? hitAtMs : null,
                 timerStr,
-                remainingSec,
+                remainingSec: Math.max(0, Math.floor((readyAtMs - Date.now()) / 1000)),
                 completionStr: completionStr || (readyAtMs ? new Date(readyAtMs).toLocaleTimeString('pt-PT') : ''),
-                readyAtMs
+                readyAtMs,
+                note
             });
         });
 
@@ -1515,14 +1555,14 @@
         const events = (village.noblePendingEvents || []).slice().sort((a, b) => a.readyAtMs - b.readyAtMs);
         const inProdCount = events.filter(e => e.type === 'production').length;
         const inReturnCount = events.filter(e => e.type === 'return').length;
-        const availableTotal = readyNow + events.length;
+        const availableEvents = readyNow + events.length;
 
         if (readyNow >= neededNobles) {
             return {
                 readyAtMs: Date.now(),
                 neededNobles,
                 readyNow,
-                availableTotal,
+                availableTotal: readyNow,
                 isFullyReadyNow: true,
                 hasShortage: false,
                 summary: `${readyNow} Nobre(s) prontos na aldeia`
@@ -1534,36 +1574,57 @@
         if (events.length >= missing) {
             const targetEvent = events[missing - 1];
             const timeLabel = targetEvent.completionStr || (targetEvent.timerStr ? `em ${targetEvent.timerStr}` : new Date(targetEvent.readyAtMs).toLocaleTimeString('pt-PT'));
+            const returnNote = targetEvent.isAttackReturn ? ' (após ataque)' : '';
             return {
                 readyAtMs: targetEvent.readyAtMs,
                 neededNobles,
                 readyNow,
-                availableTotal,
+                availableTotal: availableEvents,
                 isFullyReadyNow: false,
                 hasShortage: false,
                 waitingForCount: missing,
                 targetEvent,
                 inProdCount,
                 inReturnCount,
-                summary: `${readyNow} na aldeia, ${inProdCount > 0 ? inProdCount + ' em treino' : ''}${inProdCount > 0 && inReturnCount > 0 ? ', ' : ''}${inReturnCount > 0 ? inReturnCount + ' em viagem' : ''} (${neededNobles}º nobre disponível às ${timeLabel})`
+                summary: `${readyNow} na aldeia, ${inProdCount > 0 ? inProdCount + ' em treino' : ''}${inProdCount > 0 && inReturnCount > 0 ? ', ' : ''}${inReturnCount > 0 ? inReturnCount + ' a caminho' : ''} (${neededNobles}º nobre disponível às ${timeLabel}${returnNote})`
             };
         }
 
-        // Falta de nobres mesmo considerando todos os eventos em treino e viagem
+        // Se o total de nobres conhecidos da aldeia (em casa + em treino + fora) cobre o necessário:
+        const potentialTotal = readyNow + inProdCount + Math.max(inReturnCount, village.snobsOutside || 0);
+        if (potentialTotal >= neededNobles) {
+            // Os nobres existem na conta! Estão fora/em trânsito ou a chegar
+            const lastMs = events.length > 0 ? events[events.length - 1].readyAtMs : Date.now();
+            const timeLabel = events.length > 0 ? (events[events.length - 1].completionStr || new Date(lastMs).toLocaleTimeString('pt-PT')) : 'agora/breve';
+            return {
+                readyAtMs: lastMs,
+                neededNobles,
+                readyNow,
+                availableTotal: potentialTotal,
+                isFullyReadyNow: false,
+                hasShortage: false, // NÃO bloquear! A aldeia tem os nobres!
+                waitingForCount: missing,
+                inProdCount,
+                inReturnCount: Math.max(inReturnCount, (village.snobsOutside || 0)),
+                summary: `${readyNow} na aldeia, ${inProdCount > 0 ? inProdCount + ' em treino, ' : ''}${village.snobsOutside || 0} fora (disponíveis às ${timeLabel})`
+            };
+        }
+
+        // Falta real de nobres mesmo considerando todos os eventos em treino, viagem e fora
         const lastMs = events.length > 0 ? events[events.length - 1].readyAtMs : Date.now();
-        const missingTotal = neededNobles - availableTotal;
+        const missingTotal = neededNobles - potentialTotal;
         return {
             readyAtMs: lastMs,
             neededNobles,
             readyNow,
-            availableTotal,
+            availableTotal: potentialTotal,
             isFullyReadyNow: false,
             hasShortage: true,
             waitingForCount: missing,
             missingTotal,
             inProdCount,
-            inReturnCount,
-            summary: `Apenas ${availableTotal}/${neededNobles} nobres possíveis (${readyNow} em casa, ${inProdCount} em treino, ${inReturnCount} a caminho). Faltam ${missingTotal} nobres!`
+            inReturnCount: Math.max(inReturnCount, village.snobsOutside || 0),
+            summary: `Apenas ${potentialTotal}/${neededNobles} nobres possíveis (${readyNow} em casa, ${inProdCount} em treino, ${Math.max(inReturnCount, village.snobsOutside || 0)} fora). Faltam ${missingTotal} nobres!`
         };
     }
 
@@ -1663,6 +1724,7 @@
         const reasons = [];
         let hasShortage = false;
         const shortageReasons = [];
+        let nobleReadiness1 = null;
 
         const attackMode = document.getElementById('tw-nt-attack-mode') ? document.getElementById('tw-nt-attack-mode').value : 'standard_anti';
         const architecture = document.getElementById('tw-nt-architecture') ? document.getElementById('tw-nt-architecture').value : '';
@@ -1679,6 +1741,7 @@
 
             const needed1 = (architecture === 'split_2x2' && attackMode === 'split_2x2') ? 2 : (attackMode === 'snob_solo' ? 1 : neededNobles);
             const readiness = calculateEarliestViableNobleTime(nobleV, needed1);
+            nobleReadiness1 = readiness;
             if (readiness.hasShortage) {
                 hasShortage = true;
                 shortageReasons.push(`${cleanVillageDisplayName(nobleV)}: ${readiness.summary}`);
@@ -1769,11 +1832,176 @@
             earliestLandMs,
             hasShortage,
             shortageReasons,
-            reasons
+            reasons,
+            readiness: nobleReadiness1
         };
     }
 
-    function applyMinimumViableLandTime() {
+    function syncNobleEventsAcrossVillages() {
+        if (!Array.isArray(allVillages) || allVillages.length === 0) return;
+        const now = Date.now();
+        const currentVId = (typeof game_data !== 'undefined' && game_data.village) ? game_data.village.id : null;
+        const currentVCoords = (typeof game_data !== 'undefined' && game_data.village) ? game_data.village.coord : '';
+        const snobSpeedMin = (typeof unitSpeedMinutes !== 'undefined' && unitSpeedMinutes.snob) ? unitSpeedMinutes.snob : 35;
+
+        allParsedCommands.forEach(c => {
+            if (c.hasSnob) {
+                if (c.isReturn) {
+                    const vTarget = allVillages.find(v => v.coords === c.originCoords);
+                    const retObj = {
+                        commandId: c.commandId,
+                        villageId: vTarget ? vTarget.id : ((c.originCoords && currentVCoords && c.originCoords !== currentVCoords) ? null : currentVId),
+                        coords: c.originCoords || currentVCoords,
+                        remoteCoords: c.targetCoords,
+                        type: 'return',
+                        isReturn: true,
+                        isAttackReturn: false,
+                        timerStr: c.timerStr,
+                        remainingSec: c.remainingSec,
+                        completionStr: c.completionStr,
+                        readyAtMs: c.readyAtMs,
+                        note: 'Regresso a casa'
+                    };
+                    if (!allNobleReturns.some(e => e.commandId && retObj.commandId && String(e.commandId) === String(retObj.commandId))) {
+                        allNobleReturns.push(retObj);
+                    }
+                } else if (c.isAttack || c.type === 'attack') {
+                    // Nobre em ataque de ida: estimar regresso home = impacto + tempo de viagem
+                    const vOrigin = allVillages.find(v => v.coords === c.originCoords);
+                    let travelSec = 0;
+                    if (c.originCoords && c.targetCoords && typeof calcDistance === 'function') {
+                        const dist = calcDistance(c.originCoords, c.targetCoords);
+                        travelSec = Math.round(dist * snobSpeedMin * 60);
+                    } else if (c.remainingSec) {
+                        travelSec = c.remainingSec;
+                    }
+                    const hitAtMs = c.readyAtMs || (now + (c.remainingSec || 0) * 1000);
+                    const returnHomeMs = hitAtMs + (travelSec * 1000);
+                    const remSec = Math.max(0, Math.floor((returnHomeMs - now) / 1000));
+                    const dRet = new Date(returnHomeMs);
+                    const dNow = new Date();
+                    const dayTag = (dRet.getDate() !== dNow.getDate()) ? ' (+1d)' : '';
+                    const timeTag = `${String(dRet.getHours()).padStart(2, '0')}:${String(dRet.getMinutes()).padStart(2, '0')}:${String(dRet.getSeconds()).padStart(2, '0')}${dayTag}`;
+
+                    const retObj = {
+                        commandId: c.commandId ? `${c.commandId}_ret_est` : `atk_ret_${c.originCoords}_${c.targetCoords}_${returnHomeMs}`,
+                        villageId: vOrigin ? vOrigin.id : null,
+                        coords: c.originCoords || currentVCoords,
+                        remoteCoords: c.targetCoords,
+                        type: 'return',
+                        isReturn: true,
+                        isAttackReturn: true,
+                        impactAtMs: hitAtMs,
+                        timerStr: formatDuration(remSec),
+                        remainingSec: remSec,
+                        completionStr: timeTag,
+                        readyAtMs: returnHomeMs,
+                        note: `Regresso de Ataque a ${c.targetCoords || 'alvo'} (impacto às ${c.completionStr || new Date(hitAtMs).toLocaleTimeString('pt-PT')})`
+                    };
+                    if (!allNobleReturns.some(e => e.commandId && retObj.commandId && String(e.commandId) === String(retObj.commandId))) {
+                        allNobleReturns.push(retObj);
+                    }
+                }
+            }
+        });
+
+        const validReturns = allNobleReturns.filter(e => !e.readyAtMs || e.readyAtMs > (now - 1000));
+        const validProds = allSnobProductions.filter(e => !e.readyAtMs || e.readyAtMs > (now - 1000));
+        const allPending = [...validProds, ...validReturns];
+
+        allVillages.forEach(v => {
+            const vEvents = allPending.filter(e => {
+                if (e.coords && v.coords) return e.coords === v.coords;
+                if (!e.coords && e.villageId && v.id) return String(e.villageId) === String(v.id);
+                return false;
+            });
+            vEvents.sort((a, b) => a.readyAtMs - b.readyAtMs);
+            v.noblePendingEvents = vEvents;
+            v.snobsInProd = vEvents.filter(e => e.type === 'production').length;
+            v.snobsReturning = vEvents.filter(e => e.type === 'return').length;
+            v.hasSnobsAway = (v.snobsOutside > 0) || (v.snobsInProd > 0) || (v.snobsReturning > 0);
+        });
+    }
+
+    async function syncVillageLiveTroopsAndCommands(v) {
+        if (!v || !v.id) return;
+        try {
+            const ts = Date.now();
+            const overviewUrl = `/game.php?village=${v.id}&screen=overview&_tw_ts=${ts}`;
+            const snobUrl = `/game.php?village=${v.id}&screen=snob&_tw_ts=${ts}`;
+
+            const [ovHtml, snobHtml] = await Promise.all([
+                fetch(overviewUrl, { cache: 'no-store' }).then(r => r.ok ? r.text() : '').catch(() => ''),
+                fetch(snobUrl, { cache: 'no-store' }).then(r => r.ok ? r.text() : '').catch(() => '')
+            ]);
+
+            // 1. Extrair tropas em casa e fora a partir do overview da aldeia
+            if (ovHtml) {
+                const homeSnobMatch = ovHtml.match(/<tr[^>]*class="[^"]*(?:home_unit|all_unit)[^"]*"[^>]*>[\s\S]*?data-unit="snob"[\s\S]*?<strong[^>]*data-count="snob">(\d+)<\/strong>/i) ||
+                                      ovHtml.match(/<tr[^>]*class="[^"]*(?:home_unit|all_unit)[^"]*"[^>]*>[\s\S]*?<strong[^>]*data-count="snob">(\d+)<\/strong>/i);
+                if (homeSnobMatch) {
+                    v.snobsHome = parseInt(homeSnobMatch[1], 10);
+                }
+                const movingSnobMatch = ovHtml.match(/<tr[^>]*class="[^"]*moving_unit[^"]*"[^>]*>[\s\S]*?data-unit="snob"[\s\S]*?<strong[^>]*data-count="snob">(\d+)<\/strong>/i);
+                if (movingSnobMatch) {
+                    v.snobsOutside = parseInt(movingSnobMatch[1], 10);
+                }
+            }
+
+            // 2. Extrair produções na academia
+            if (snobHtml) {
+                const newProds = parseAcademyProduction(snobHtml, v.id);
+                newProds.forEach(p => {
+                    if (!allSnobProductions.some(existing => existing.villageId === p.villageId && Math.abs(existing.readyAtMs - p.readyAtMs) < 30000)) {
+                        allSnobProductions.push(p);
+                    }
+                });
+            }
+
+            // 3. Extrair comandos de retorno no overview
+            if (ovHtml) {
+                const newReturns = parseCommandsNobleReturns(ovHtml, v.id, v.coords);
+                newReturns.forEach(ret => {
+                    if (!allNobleReturns.some(existing => existing.commandId && ret.commandId && String(existing.commandId) === String(ret.commandId))) {
+                        allNobleReturns.push(ret);
+                    }
+                });
+            }
+
+            // 4. Se algum comando com nobre já expirou/chegou a casa, promover as tropas
+            const now = Date.now();
+            let arrivedCount = 0;
+            const snobSpeedMin = (typeof unitSpeedMinutes !== 'undefined' && unitSpeedMinutes.snob) ? unitSpeedMinutes.snob : 35;
+            allParsedCommands.forEach(c => {
+                if (c.originCoords === v.coords && c.hasSnob) {
+                    if (c.isReturn) {
+                        if (c.readyAtMs && c.readyAtMs <= now) {
+                            arrivedCount++;
+                        }
+                    } else if (c.isAttack || c.type === 'attack') {
+                        const dist = (c.originCoords && c.targetCoords && typeof calcDistance === 'function') ? calcDistance(c.originCoords, c.targetCoords) : 0;
+                        const travelSec = Math.round(dist * snobSpeedMin * 60);
+                        const returnHomeMs = (c.readyAtMs || now) + (travelSec * 1000);
+                        if (returnHomeMs <= now) {
+                            arrivedCount++;
+                        }
+                    }
+                }
+            });
+            if (arrivedCount > 0 && v.snobsHome < arrivedCount) {
+                v.snobsHome = Math.min(v.snobsTotal || 4, arrivedCount);
+                v.snobsOutside = Math.max(0, (v.snobsOutside || 0) - arrivedCount);
+            }
+
+            // 5. Sincronizar eventos por todas as aldeias
+            syncNobleEventsAcrossVillages();
+            updateNobleProximityHUD(v.id, false);
+        } catch (e) {
+            console.warn('[TW Tactical] Erro ao sincronizar aldeia em tempo real:', e);
+        }
+    }
+
+    async function applyMinimumViableLandTime(forceSync = false) {
         const targetInput = (plannerMode === 'single') ? document.getElementById('tw-nt-target') : document.getElementById('tw-nt-targets-multi');
         let target = '';
         if (targetInput) {
@@ -1785,14 +2013,17 @@
             return null;
         }
 
+        const selNoble = document.getElementById('tw-nt-noble-village');
+        const nobleV = selNoble && villagesById[selNoble.value] ? villagesById[selNoble.value] : null;
+        const rawNobleCount = document.getElementById('tw-nt-noble-count') ? document.getElementById('tw-nt-noble-count').value : '4';
+        const neededNobles = parseInt(rawNobleCount, 10) || 4;
+
+        if (nobleV && (forceSync || nobleV.snobsHome < neededNobles)) {
+            await syncVillageLiveTroopsAndCommands(nobleV);
+        }
+
         const calc = calculateEarliestViableLandTime();
         if (!calc) return null;
-
-        if (calc.hasShortage) {
-            const shortMsg = calc.shortageReasons.length > 0 ? calc.shortageReasons.join('\n') : 'Não há nobres suficientes disponíveis nesta aldeia!';
-            alert(`⚠️ ATENÇÃO: NOBRES INSUFICIENTES!\n\n${shortMsg}\n\nNão é possível agendar o ataque com essa quantidade de nobres sem recrutar novos nobres ou aguardar pelo regresso de tropas.`);
-            return null;
-        }
 
         const d = calc.earliestLandDate;
         const yr = d.getFullYear();
@@ -1801,6 +2032,15 @@
         const ho = String(d.getHours()).padStart(2, '0');
         const mi = String(d.getMinutes()).padStart(2, '0');
         const se = String(d.getSeconds()).padStart(2, '0');
+        const recLandStr = `${ho}:${mi}:${se} (${da}/${mo})`;
+
+        if (calc.hasShortage) {
+            const shortMsg = calc.shortageReasons.length > 0 ? calc.shortageReasons.join('\n') : 'Não há nobres suficientes disponíveis nesta aldeia!';
+            const confirmMsg = `⚠️ ALERTA: NOBRES INSUFICIENTES!\n\n${shortMsg}\n\n⚡ Horário Mínimo Viável Estimado: ${recLandStr}\n\nDesejas preencher a data de chegada para ${recLandStr} mesmo assim?`;
+            if (!confirm(confirmMsg)) {
+                return null;
+            }
+        }
 
         const landInput = (plannerMode === 'single') ? document.getElementById('tw-nt-landtime') : document.getElementById('tw-nt-landtime-multi');
         if (landInput) {
@@ -1808,7 +2048,7 @@
         }
 
         const reasonTxt = calc.reasons.length > 0 ? ` (${calc.reasons.join('; ')})` : '';
-        showToast(`⚡ Horário Mínimo ajustado: ${ho}:${mi}:${se} (${da}/${mo})${reasonTxt}`);
+        showToast(`⚡ Horário Mínimo ajustado: ${recLandStr}${reasonTxt}`);
         return calc;
     }
 
@@ -1837,9 +2077,12 @@
 
             const safeFetch = async (url, options = {}, retries = 2) => {
                 if (!url) return '';
+                const sep = url.includes('?') ? '&' : '?';
+                const cacheBustUrl = url.includes('_tw_ts=') ? url : `${url}${sep}_tw_ts=${Date.now()}`;
+                const fetchOpts = Object.assign({ cache: 'no-store' }, options);
                 for (let i = 0; i < retries; i++) {
                     try {
-                        const r = await fetch(url, options);
+                        const r = await fetch(cacheBustUrl, fetchOpts);
                         if (r.ok) {
                             const text = await r.text();
                             if (text && text.length > 50) return text;
@@ -2196,7 +2439,7 @@
             const rCmdResponses = await fetchAllAccountCommandsHtml(makeUrl, safeFetch, activeWarVillages, warGroupIds);
 
             // 6. Deteção de Nobres em Treino na Academia (DOM da página atual + página snob direta + popup + train)
-            const allSnobProductions = [];
+            allSnobProductions.length = 0;
             const addSnobProds = (list) => {
                 list.forEach(p => {
                     const pVId = String(p.villageId || '');
@@ -2218,7 +2461,7 @@
             }
 
             // 7. Deteção de Nobres em Viagem / Comandos de Retorno
-            const allNobleReturns = [];
+            allNobleReturns.length = 0;
             const addNobleReturns = (list) => {
                 list.forEach(ret => {
                     const isDup = allNobleReturns.some(e => {
@@ -2286,39 +2529,8 @@
                 .filter(c => (!commandsIgnoreFarms || !c.isFarm) && (!c.readyAtMs || c.readyAtMs > (nowCmds - 2000)))
                 .sort((a, b) => a.readyAtMs - b.readyAtMs);
 
-            // Sincronizar todos os retornos com nobre para enriquecer a deteção militar
-            allParsedCommands.forEach(c => {
-                if (c.isReturn && c.hasSnob) {
-                    addNobleReturns([{
-                        commandId: c.commandId,
-                        villageId: (c.originCoords && currentVCoords && c.originCoords !== currentVCoords) ? null : currentVId,
-                        coords: c.originCoords || currentVCoords,
-                        remoteCoords: c.targetCoords,
-                        type: 'return',
-                        isReturn: true,
-                        timerStr: c.timerStr,
-                        remainingSec: c.remainingSec,
-                        completionStr: c.completionStr,
-                        readyAtMs: c.readyAtMs
-                    }]);
-                }
-            });
-
-            const allPendingNobleEvents = [...allSnobProductions, ...allNobleReturns];
-
-            // 9. Atualizar status de Nobres em cada aldeia de allVillages
-            allVillages.forEach(v => {
-                const vEvents = allPendingNobleEvents.filter(e => {
-                    if (e.coords && v.coords) return e.coords === v.coords;
-                    if (!e.coords && e.villageId && v.id) return String(e.villageId) === String(v.id);
-                    return false;
-                });
-                vEvents.sort((a, b) => a.readyAtMs - b.readyAtMs);
-                v.noblePendingEvents = vEvents;
-                v.snobsInProd = vEvents.filter(e => e.type === 'production').length;
-                v.snobsReturning = vEvents.filter(e => e.type === 'return').length;
-                v.hasSnobsAway = (v.snobsOutside > 0) || (v.snobsInProd > 0) || (v.snobsReturning > 0);
-            });
+            // 9. Sincronizar todos os eventos e status de Nobres em todas as aldeias
+            syncNobleEventsAcrossVillages();
 
             // 10. Enriquecer allParsedCommands com nomes de aldeias, propriedade e distâncias
             allParsedCommands.forEach(c => {
@@ -4489,52 +4701,13 @@
                 const bestPal = (bestV.paladin && bestV.paladin.isHome) ? bestV.paladin : null;
                 const bestPalTag = bestPal ? ` • <span style="color:#c084fc;">[${bestPal.name}${bestPal.name === 'QuimConquista' ? ' ⚔️ Persuasão' : ''}]</span>` : '';
 
-                // Se a aldeia selecionada ainda não tiver nobres em treino registados, verificar página da academia em background
-                if (selV && !selV._snobScreenChecked && (!selV.snobsInProd || selV.snobsInProd === 0)) {
-                    selV._snobScreenChecked = true;
-                    fetch(`/game.php?village=${selV.id}&screen=snob`).then(r => r.text()).then(snobHtml => {
-                        const foundProds = parseAcademyProduction(snobHtml, selV.id);
-                        if (foundProds.length > 0) {
-                            foundProds.forEach(p => {
-                                const pVId = String(p.villageId || '');
-                                if (!selV.noblePendingEvents.some(e => {
-                                    const exVId = String(e.villageId || '');
-                                    const matchVillage = (exVId && pVId && exVId === pVId) || (e.coords && p.coords && e.coords === p.coords);
-                                    return e.type === 'production' && matchVillage && Math.abs(e.readyAtMs - p.readyAtMs) < 30000;
-                                })) {
-                                    selV.noblePendingEvents.push(p);
-                                }
-                            });
-                            selV.noblePendingEvents.sort((a, b) => a.readyAtMs - b.readyAtMs);
-                            selV.snobsInProd = selV.noblePendingEvents.filter(e => e.type === 'production').length;
-                            updateNobleProximityHUD(selV.id, false);
-                        }
-                    }).catch(() => {});
-                }
-
-                // Se a aldeia selecionada tiver nobres fora e ainda não tiver comandos de retorno registados, verificar página overview em background
-                if (selV && !selV._commandsChecked && (selV.snobsOutside > 0 || selV.snobsHome < reqNobles) && (!selV.snobsReturning || selV.snobsReturning === 0)) {
-                    selV._commandsChecked = true;
-                    fetch(`/game.php?village=${selV.id}&screen=overview`).then(r => r.text()).then(ovHtml => {
-                        const foundReturns = parseCommandsNobleReturns(ovHtml, selV.id, selV.coords);
-                        if (foundReturns.length > 0) {
-                            foundReturns.forEach(ret => {
-                                const isDup = selV.noblePendingEvents.some(e => {
-                                    if (e.commandId && ret.commandId) {
-                                        return String(e.commandId) === String(ret.commandId);
-                                    }
-                                    const matchV = (e.villageId && ret.villageId && String(e.villageId) === String(ret.villageId)) || (e.coords && ret.coords && e.coords === ret.coords);
-                                    return matchV && Math.abs(e.readyAtMs - ret.readyAtMs) < 2000 && e.remoteCoords === ret.remoteCoords;
-                                });
-                                if (!isDup) {
-                                    selV.noblePendingEvents.push(ret);
-                                }
-                            });
-                            selV.noblePendingEvents.sort((a, b) => a.readyAtMs - b.readyAtMs);
-                            selV.snobsReturning = selV.noblePendingEvents.filter(e => e.type === 'return').length;
-                            updateNobleProximityHUD(selV.id, false);
-                        }
-                    }).catch(() => {});
+                // Sincronização inteligente e em tempo real para a aldeia selecionada se houver nobres em viagem ou treino
+                if (selV && (selV.snobsHome < reqNobles || selV.snobsOutside > 0)) {
+                    const nowTs = Date.now();
+                    if (!selV._lastLiveSyncTs || (nowTs - selV._lastLiveSyncTs) > 15000) {
+                        selV._lastLiveSyncTs = nowTs;
+                        syncVillageLiveTroopsAndCommands(selV);
+                    }
                 }
 
                 if (selV.snobsHome < reqNobles) {
@@ -4670,7 +4843,7 @@
                 if (btnApplyHudMin) {
                     btnApplyHudMin.onclick = (e) => {
                         e.preventDefault();
-                        applyMinimumViableLandTime();
+                        applyMinimumViableLandTime(true);
                     };
                 }
             }
@@ -4902,7 +5075,7 @@
         if (btnMinImpact) {
             btnMinImpact.onclick = (e) => {
                 e.preventDefault();
-                applyMinimumViableLandTime();
+                applyMinimumViableLandTime(true);
             };
         }
 
@@ -6841,10 +7014,27 @@
             commandsAutoRefreshTimeout = setTimeout(() => {
                 commandsAutoRefreshTimeout = null;
                 const freshNow = getTwServerTimeMs();
+                const expiredCommands = allParsedCommands.filter(c => c.readyAtMs && c.readyAtMs <= (freshNow - 2000));
+                
+                // Promover nobres que regressaram
+                expiredCommands.forEach(c => {
+                    if (c.hasSnob && c.isReturn && c.originCoords) {
+                        const v = allVillages.find(vill => vill.coords === c.originCoords);
+                        if (v) {
+                            v.snobsHome = Math.min(v.snobsTotal || 4, (v.snobsHome || 0) + 1);
+                            if (v.snobsOutside > 0) v.snobsOutside--;
+                        }
+                    }
+                });
+
                 const prevCount = allParsedCommands.length;
                 allParsedCommands = allParsedCommands.filter(c => !c.readyAtMs || c.readyAtMs > (freshNow - 2000));
                 if (allParsedCommands.length !== prevCount) {
                     renderCommandsTable();
+                }
+                syncNobleEventsAcrossVillages();
+                if (typeof updateNobleProximityHUD === 'function') {
+                    updateNobleProximityHUD(null, false);
                 }
                 refreshCommands();
             }, 2000);
@@ -6962,6 +7152,12 @@
             const cmdBadge = document.getElementById('tw-commands-count-badge');
             const playerCmdsCount = allParsedCommands.filter(c => c.isPlayerTarget).length;
             if (cmdBadge) cmdBadge.textContent = playerCmdsCount;
+
+            // Sincronizar todos os nobres e eventos com os novos comandos
+            syncNobleEventsAcrossVillages();
+            if (typeof updateNobleProximityHUD === 'function') {
+                updateNobleProximityHUD(null, false);
+            }
 
             renderCommandsTable();
             showToast(`📡 ${playerCmdsCount} comandos de guerra atualizados (${allParsedCommands.length} ativos${commandsIgnoreFarms ? ' | Saques excluídos ⚡' : ''})!`);
