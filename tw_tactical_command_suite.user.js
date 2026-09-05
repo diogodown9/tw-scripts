@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TW Tactical Command Suite
 // @namespace    https://tribalwars.com.pt/
-// @version      2.8.5
-// @description  Suite militar avançada para Tribal Wars PT: Rastreio de Nobres a Caminho & em Treino na Academia, Calculadora de Horário Mínimo de Ataque (⚡ com 5m folga e seleção do Nuke Full mais perto), Fakes Inteligentes 1% Dinâmico, Arsenal Tático de Fakes, UI de Limpezas/Nobres/Demolição, e Planeador Tático.
+// @version      2.8.6
+// @description  Suite militar avançada para Tribal Wars PT: Rastreio de Nobres a Caminho & em Retorno de Comandos + Treino na Academia, Calculadora de Horário Mínimo de Ataque (⚡ com 5m folga e seleção do Nuke Full mais perto), Fakes Inteligentes 1% Dinâmico, Arsenal Tático de Fakes, UI de Limpezas/Nobres/Demolição, e Planeador Tático.
 // @author       Diogo & Antigravity
 // @match        https://*.tribalwars.com.pt/game.php*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=tribalwars.com.pt
@@ -12,7 +12,7 @@
 // ==/UserScript==
 
 (async function () {
-    const SCRIPT_VERSION = '2.8.5';
+    const SCRIPT_VERSION = '2.8.6';
 
     // Auto-selecionar alvo de catapulta na confirmação de ataque na Praça de Reunião se especificado no URL
     try {
@@ -709,43 +709,71 @@
         return prods;
     }
 
-    function parseCommandsNobleReturns(html) {
+    function parseCommandsNobleReturns(html, fallbackVillageId = null, fallbackCoords = null) {
         if (!html) return [];
         const returns = [];
         const rowMatches = html.match(/<tr[^>]*>([\s\S]*?)<\/tr>/gi) || [];
 
         rowMatches.forEach(row => {
-            if (!/snob/i.test(row)) return;
+            const hasSnob = /snob/i.test(row) || /nobre/i.test(row);
+            if (!hasSnob) return;
             if (/<th/i.test(row)) return;
 
             // Apenas comandos de regresso/retorno representam tropas que vão chegar a casa
-            const isReturn = /return|retorno|regresso|cancel|cancelar/i.test(row);
+            const isReturn = /return|retorno|regresso|cancel|cancelar/i.test(row) || /data-command-type="return"/i.test(row);
             if (!isReturn) return;
 
+            const cmdIdMatch = row.match(/data-id="(\d+)"/) || row.match(/data-command-id="(\d+)"/) || row.match(/id=(\d+)/);
+            const commandId = cmdIdMatch ? cmdIdMatch[1] : null;
+
             const vMatch = row.match(/village=(\d+)/);
-            const vId = vMatch ? vMatch[1] : null;
+            const vId = vMatch ? vMatch[1] : (fallbackVillageId ? String(fallbackVillageId) : null);
 
             const allCoords = Array.from(row.matchAll(/(\d{3}\|\d{3})/g)).map(m => m[1]);
-            const originCoord = allCoords.length > 1 ? allCoords[1] : (allCoords[0] || '');
+            let homeCoords = fallbackCoords || '';
+            let remoteCoords = '';
 
-            const timerMatch = row.match(/class="timer"[^>]*>([^<]+)<\/span>/i) || row.match(/timer">([^<]+)<\/span>/i);
+            if (allCoords.length === 1) {
+                // Em #commands_outgoings na visão geral da aldeia, a linha diz p.ex. "Retorno de BARROCA CITY (337|453)"
+                // A única coordenada listada é a aldeia remota atacada. O regresso é para a aldeia atual (fallbackCoords)!
+                remoteCoords = allCoords[0];
+                if (!homeCoords && fallbackCoords) homeCoords = fallbackCoords;
+            } else if (allCoords.length >= 2) {
+                // Na tabela de comandos globais: origem (col 2) é a aldeia de onde saíram as tropas e para onde voltam
+                homeCoords = allCoords[0] || fallbackCoords || '';
+                remoteCoords = allCoords[1] || '';
+            }
+
+            // Deteção do timestamp de chegada
+            let readyAtMs = 0;
+            const endtimeMatch = row.match(/data-endtime="(\d+)"/);
+            if (endtimeMatch) {
+                readyAtMs = parseInt(endtimeMatch[1], 10) * 1000;
+            }
+
+            const timerMatch = row.match(/class="(?:widget-command-)?timer"[^>]*>([^<]+)<\/span>/i) || row.match(/timer">([^<]+)<\/span>/i);
             const timerStr = timerMatch ? timerMatch[1].trim() : '';
             const remainingSec = timerStr ? parseTimerSeconds(timerStr) : 0;
 
             const timeMatch = row.match(/(hoje|amanhã|[0-9\.]+)\s*às\s*(\d{1,2}:\d{2}:\d{2})/i);
             const completionStr = timeMatch ? timeMatch[0] : '';
 
-            if (remainingSec > 0 || completionStr) {
+            if (!readyAtMs) {
                 const now = Date.now();
-                const readyAtMs = remainingSec > 0 ? (now + remainingSec * 1000) : (parseTwDateTime(completionStr) || now);
+                readyAtMs = remainingSec > 0 ? (now + remainingSec * 1000) : (parseTwDateTime(completionStr) || now);
+            }
+
+            if (readyAtMs > 0) {
                 returns.push({
+                    commandId,
                     villageId: vId,
-                    coords: originCoord,
+                    coords: homeCoords,
+                    remoteCoords,
                     type: 'return',
                     isReturn: true,
                     timerStr,
                     remainingSec,
-                    completionStr,
+                    completionStr: completionStr || (readyAtMs ? new Date(readyAtMs).toLocaleTimeString('pt-PT') : ''),
                     readyAtMs
                 });
             }
@@ -1062,6 +1090,12 @@
         try {
             const baseUrl = (typeof game_data !== 'undefined' && game_data.link_base_pure) ? game_data.link_base_pure : '/game.php?';
             const currentVId = (typeof game_data !== 'undefined' && game_data.village) ? game_data.village.id : null;
+            const currentVCoords = (typeof game_data !== 'undefined' && game_data.village && game_data.village.coord) ? game_data.village.coord : '';
+            const currentDocHtml = (typeof document !== 'undefined' && document.body) ? document.body.innerHTML : '';
+            const currentHasCommands = currentDocHtml.includes('id="commands_outgoings"') || currentDocHtml.includes('class="command-row"');
+            const villageOverviewUrl = (currentVId && !currentHasCommands)
+                ? `/game.php?village=${currentVId}&screen=overview`
+                : '';
             const statueUrl = currentVId
                 ? `/game.php?village=${currentVId}&screen=statue&mode=overview`
                 : (baseUrl.includes('screen=') ? baseUrl + 'statue&mode=overview' : baseUrl + 'screen=statue&mode=overview');
@@ -1075,18 +1109,18 @@
             const snobTrainUrl = baseUrl.includes('screen=') ? baseUrl + 'snob&mode=train' : baseUrl + 'screen=snob&mode=train';
             const commandsUrl = baseUrl + 'overview_villages&mode=commands&type=all&group=0&page=-1';
 
-            const [rU, rP, rS, rSnobDirect, rSnobPopup, rSnobTrain, rCommands] = await Promise.all([
+            const [rU, rP, rS, rSnobDirect, rSnobPopup, rSnobTrain, rCommands, rVillageOverview] = await Promise.all([
                 fetch(baseUrl + 'overview_villages&mode=units&type=complete&group=0&page=-1').then(r => r.text()),
                 fetch(baseUrl + 'overview_villages&mode=prod&group=0&page=-1').then(r => r.text()),
                 fetch(statueUrl).then(r => r.text()).catch(() => ''),
                 fetch(snobScreenUrl).then(r => r.text()).catch(() => ''),
                 fetch(snobPopupUrl, { headers: { 'X-Requested-With': 'XMLHttpRequest' } }).then(r => r.text()).catch(() => ''),
                 fetch(snobTrainUrl).then(r => r.text()).catch(() => ''),
-                fetch(commandsUrl).then(r => r.text()).catch(() => '')
+                fetch(commandsUrl).then(r => r.text()).catch(() => ''),
+                villageOverviewUrl ? fetch(villageOverviewUrl).then(r => r.text()).catch(() => '') : Promise.resolve('')
             ]);
 
             // Deteção de Nobres em Treino na Academia (DOM da página atual + página snob direta + popup + train)
-            const currentDocHtml = (typeof document !== 'undefined' && document.body) ? document.body.innerHTML : '';
             const allSnobProductions = [];
             const addSnobProds = (list) => {
                 list.forEach(p => {
@@ -1110,7 +1144,35 @@
             }
 
             // Deteção de Nobres em Viagem / Comandos de Retorno
-            const allNobleReturns = parseCommandsNobleReturns(rCommands);
+            const allNobleReturns = [];
+            const addNobleReturns = (list) => {
+                list.forEach(ret => {
+                    const isDup = allNobleReturns.some(e => {
+                        if (e.commandId && ret.commandId) {
+                            return String(e.commandId) === String(ret.commandId);
+                        }
+                        const matchV = (e.villageId && ret.villageId && String(e.villageId) === String(ret.villageId)) || (e.coords && ret.coords && e.coords === ret.coords);
+                        return matchV && Math.abs(e.readyAtMs - ret.readyAtMs) < 2000 && e.remoteCoords === ret.remoteCoords;
+                    });
+                    if (!isDup) {
+                        allNobleReturns.push(ret);
+                    }
+                });
+            };
+
+            // 1. Deteção na página atual (se for overview ou place tem os comandos da aldeia)
+            addNobleReturns(parseCommandsNobleReturns(currentDocHtml, currentVId, currentVCoords));
+
+            // 2. Deteção na visão geral da aldeia obtida em background (se carregada)
+            if (rVillageOverview) {
+                addNobleReturns(parseCommandsNobleReturns(rVillageOverview, currentVId, currentVCoords));
+            }
+
+            // 3. Deteção na visão global de comandos
+            if (rCommands) {
+                addNobleReturns(parseCommandsNobleReturns(rCommands, currentVId, currentVCoords));
+            }
+
             const allPendingNobleEvents = [...allSnobProductions, ...allNobleReturns];
 
             allAccountPaladins = parseKnightsFromHtml(rS);
@@ -3542,6 +3604,31 @@
                             });
                             selV.noblePendingEvents.sort((a, b) => a.readyAtMs - b.readyAtMs);
                             selV.snobsInProd = selV.noblePendingEvents.filter(e => e.type === 'production').length;
+                            updateNobleProximityHUD(selV.id, false);
+                        }
+                    }).catch(() => {});
+                }
+
+                // Se a aldeia selecionada tiver nobres fora e ainda não tiver comandos de retorno registados, verificar página overview em background
+                if (selV && !selV._commandsChecked && (selV.snobsOutside > 0 || selV.snobsHome < reqNobles) && (!selV.snobsReturning || selV.snobsReturning === 0)) {
+                    selV._commandsChecked = true;
+                    fetch(`/game.php?village=${selV.id}&screen=overview`).then(r => r.text()).then(ovHtml => {
+                        const foundReturns = parseCommandsNobleReturns(ovHtml, selV.id, selV.coords);
+                        if (foundReturns.length > 0) {
+                            foundReturns.forEach(ret => {
+                                const isDup = selV.noblePendingEvents.some(e => {
+                                    if (e.commandId && ret.commandId) {
+                                        return String(e.commandId) === String(ret.commandId);
+                                    }
+                                    const matchV = (e.villageId && ret.villageId && String(e.villageId) === String(ret.villageId)) || (e.coords && ret.coords && e.coords === ret.coords);
+                                    return matchV && Math.abs(e.readyAtMs - ret.readyAtMs) < 2000 && e.remoteCoords === ret.remoteCoords;
+                                });
+                                if (!isDup) {
+                                    selV.noblePendingEvents.push(ret);
+                                }
+                            });
+                            selV.noblePendingEvents.sort((a, b) => a.readyAtMs - b.readyAtMs);
+                            selV.snobsReturning = selV.noblePendingEvents.filter(e => e.type === 'return').length;
                             updateNobleProximityHUD(selV.id, false);
                         }
                     }).catch(() => {});
