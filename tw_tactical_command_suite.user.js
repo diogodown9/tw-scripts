@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW Tactical Command Suite
 // @namespace    https://tribalwars.com.pt/
-// @version      3.0.2
+// @version      3.0.3
 // @description  Suite militar avançada para Tribal Wars PT: Módulo Tático de Comandos (Ataques & Retornos de tropas com filtros e timers em tempo real), Rastreio de Nobres a Caminho & em Retorno de Comandos + Treino na Academia, Validação Precisa de Envio & Horário Mínimo de Ataque (⚡ com 5m folga e seleção do Nuke Full mais perto), Suporte Automático a Modelos NT (NT 33% para 3 nobres, NT 25% para 4 nobres), Bunkers Desligados por Default, Alvo Cats do Nuke Muralha por Default, Fakes Inteligentes 1% Dinâmico, Arsenal Tático de Fakes, UI de Limpezas/Nobres/Demolição, e Planeador Tático.
 // @author       Diogo & Antigravity
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -12,7 +12,7 @@
 // ==/UserScript==
 
 (async function () {
-    const SCRIPT_VERSION = '3.0.2';
+    const SCRIPT_VERSION = '3.0.3';
 
     // Auto-selecionar alvo de catapulta na confirmação de ataque na Praça de Reunião se especificado no URL
     try {
@@ -809,24 +809,19 @@
         if (!html) return [];
         const commands = [];
 
-        // Isolar tabelas de comandos se presentes para evitar varrer tabelas não-militares (filas, mercado, etc.)
-        const tableMatches = html.match(/<table[^>]*id="(?:commands_table|commands_outgoings)"[\s\S]*?<\/table>/gi);
-        let rowMatches = [];
-        if (tableMatches && tableMatches.length > 0) {
-            tableMatches.forEach(tbl => {
-                const rows = tbl.match(/<tr[^>]*>([\s\S]*?)<\/tr>/gi) || [];
-                rowMatches.push(...rows);
-            });
-        } else {
-            // Apenas considerar linhas explicitamente marcadas com classes de comando
-            rowMatches = html.match(/<tr[^>]*class="[^"]*command-row[^"]*"[\s\S]*?<\/tr>/gi) || [];
-            if (rowMatches.length === 0) {
-                rowMatches = html.match(/<tr[^>]*>([\s\S]*?screen=info_command[\s\S]*?)<\/tr>/gi) || [];
+        // Extração robusta de linhas TR (sem truncamento por tabelas aninhadas ou paginação)
+        const rowMatches = [];
+        const trRegex = /<tr\b[^>]*>([\s\S]*?)<\/tr>/gi;
+        let trM;
+        while ((trM = trRegex.exec(html)) !== null) {
+            const row = trM[0];
+            if (row.includes('screen=info_command') || row.includes('command-row') || row.includes('data-command-id') || /class="[^"]*command/i.test(row)) {
+                rowMatches.push(row);
             }
         }
 
         rowMatches.forEach(row => {
-            if (/<th/i.test(row)) return;
+            if (/<th/i.test(row) && !/<td/i.test(row)) return;
 
             const cmdIdMatch = row.match(/data-command-id="(\d+)"/) ||
                                row.match(/data-id="(\d+)"/) || 
@@ -1303,10 +1298,10 @@
             const snobPopupUrl = currentVId
                 ? `/game.php?village=${currentVId}&screen=snob&ajax=production_popup`
                 : (baseUrl.includes('screen=') ? baseUrl + 'snob&ajax=production_popup' : baseUrl + 'screen=snob&ajax=production_popup');
-            const snobTrainUrl = baseUrl.includes('screen=') ? baseUrl + 'snob&mode=train' : baseUrl + 'screen=snob&mode=train';
             const commandsUrl = (baseUrl.includes('screen=') ? baseUrl : baseUrl + 'screen=') + 'overview_villages&mode=commands&group=0&page=-1';
+            const commandsReturnUrl = (baseUrl.includes('screen=') ? baseUrl : baseUrl + 'screen=') + 'overview_villages&mode=commands&type=return&group=0&page=-1';
 
-            const [rU, rP, rS, rSnobDirect, rSnobPopup, rSnobTrain, rCommands, rVillageOverview] = await Promise.all([
+            const [rU, rP, rS, rSnobDirect, rSnobPopup, rSnobTrain, rCommands, rCommandsReturn, rVillageOverview] = await Promise.all([
                 fetch(baseUrl + 'overview_villages&mode=units&type=complete&group=0&page=-1').then(r => r.text()),
                 fetch(baseUrl + 'overview_villages&mode=prod&group=0&page=-1').then(r => r.text()),
                 fetch(statueUrl).then(r => r.text()).catch(() => ''),
@@ -1314,6 +1309,7 @@
                 fetch(snobPopupUrl, { headers: { 'X-Requested-With': 'XMLHttpRequest' } }).then(r => r.text()).catch(() => ''),
                 fetch(snobTrainUrl).then(r => r.text()).catch(() => ''),
                 fetch(commandsUrl).then(r => r.text()).catch(() => ''),
+                fetch(commandsReturnUrl).then(r => r.text()).catch(() => ''),
                 villageOverviewUrl ? fetch(villageOverviewUrl).then(r => r.text()).catch(() => '') : Promise.resolve('')
             ]);
 
@@ -1369,6 +1365,9 @@
             if (rCommands) {
                 addNobleReturns(parseCommandsNobleReturns(rCommands, currentVId, currentVCoords));
             }
+            if (rCommandsReturn) {
+                addNobleReturns(parseCommandsNobleReturns(rCommandsReturn, currentVId, currentVCoords));
+            }
 
             // 4. Extração completa de todos os Comandos & Retornos da Conta para o Módulo de Comandos
             const cmdMap = new Map();
@@ -1390,6 +1389,7 @@
 
             const currentVName = (typeof game_data !== 'undefined' && game_data.village && game_data.village.name) ? game_data.village.name : '';
             if (rCommands) addAllCmds(parseAllAccountCommands(rCommands, currentVId, currentVCoords, currentVName));
+            if (rCommandsReturn) addAllCmds(parseAllAccountCommands(rCommandsReturn, currentVId, currentVCoords, currentVName));
             if (currentDocHtml) addAllCmds(parseAllAccountCommands(currentDocHtml, currentVId, currentVCoords, currentVName));
             if (rVillageOverview) addAllCmds(parseAllAccountCommands(rVillageOverview, currentVId, currentVCoords, currentVName));
 
@@ -6220,10 +6220,12 @@
             const currentVCoords = (typeof game_data !== 'undefined' && game_data.village && game_data.village.coord) ? game_data.village.coord : '';
             const currentVName = (typeof game_data !== 'undefined' && game_data.village && game_data.village.name) ? game_data.village.name : '';
             const commandsUrl = (baseUrl.includes('screen=') ? baseUrl : baseUrl + 'screen=') + 'overview_villages&mode=commands&group=0&page=-1';
+            const commandsReturnUrl = (baseUrl.includes('screen=') ? baseUrl : baseUrl + 'screen=') + 'overview_villages&mode=commands&type=return&group=0&page=-1';
             const villageOverviewUrl = currentVId ? `/game.php?village=${currentVId}&screen=overview` : '';
 
-            const [rCommands, rVillageOverview] = await Promise.all([
+            const [rCommands, rCommandsReturn, rVillageOverview] = await Promise.all([
                 fetch(commandsUrl).then(r => r.text()).catch(() => ''),
+                fetch(commandsReturnUrl).then(r => r.text()).catch(() => ''),
                 villageOverviewUrl ? fetch(villageOverviewUrl).then(r => r.text()).catch(() => '') : Promise.resolve('')
             ]);
 
@@ -6246,6 +6248,7 @@
             };
 
             if (rCommands) addAllCmds(parseAllAccountCommands(rCommands, currentVId, currentVCoords, currentVName));
+            if (rCommandsReturn) addAllCmds(parseAllAccountCommands(rCommandsReturn, currentVId, currentVCoords, currentVName));
             if (currentDocHtml) addAllCmds(parseAllAccountCommands(currentDocHtml, currentVId, currentVCoords, currentVName));
             if (rVillageOverview) addAllCmds(parseAllAccountCommands(rVillageOverview, currentVId, currentVCoords, currentVName));
 
