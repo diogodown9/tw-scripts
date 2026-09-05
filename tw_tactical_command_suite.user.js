@@ -742,22 +742,29 @@
             const cmdIdMatch = row.match(/data-id="(\d+)"/) || row.match(/data-command-id="(\d+)"/) || row.match(/id=(\d+)/);
             const commandId = cmdIdMatch ? cmdIdMatch[1] : null;
 
-            const vMatch = row.match(/village=(\d+)/);
-            const vId = vMatch ? vMatch[1] : (fallbackVillageId ? String(fallbackVillageId) : null);
-
-            const allCoords = Array.from(row.matchAll(/(\d{3}\|\d{3})/g)).map(m => m[1]);
+            const tds = row.match(/<td[^>]*>([\s\S]*?)<\/td>/gi) || [];
             let homeCoords = fallbackCoords || '';
             let remoteCoords = '';
 
-            if (allCoords.length === 1) {
-                // Em #commands_outgoings na visão geral da aldeia, a linha diz p.ex. "Retorno de BARROCA CITY (337|453)"
-                // A única coordenada listada é a aldeia remota atacada. O regresso é para a aldeia atual (fallbackCoords)!
-                remoteCoords = allCoords[0];
-                if (!homeCoords && fallbackCoords) homeCoords = fallbackCoords;
-            } else if (allCoords.length >= 2) {
-                // Na tabela de comandos globais: origem (col 2) é a aldeia de onde saíram as tropas e para onde voltam
-                homeCoords = allCoords[0] || fallbackCoords || '';
-                remoteCoords = allCoords[1] || '';
+            const isOverviewTable = tds.length >= 4 && !/(hoje|amanhã|[0-9\.]+)\s*às/i.test(tds[1]);
+            const vMatch = isOverviewTable ? null : row.match(/village=(\d+)/);
+            const vId = vMatch ? vMatch[1] : (fallbackVillageId ? String(fallbackVillageId) : null);
+
+            if (isOverviewTable) {
+                const originTd = tds[1];
+                const targetTd = tds[2];
+
+                const oCoord = originTd.match(/(\d{3}\|\d{3})/);
+                if (oCoord) homeCoords = oCoord[1];
+
+                const tCoord = targetTd.match(/(\d{3}\|\d{3})/);
+                if (tCoord) remoteCoords = tCoord[1];
+            } else {
+                homeCoords = fallbackCoords || '';
+                const allCoords = Array.from(row.matchAll(/(\d{3}\|\d{3})/g)).map(m => m[1]);
+                if (allCoords.length > 0) {
+                    remoteCoords = allCoords[0];
+                }
             }
 
             // Deteção do timestamp de chegada
@@ -1310,7 +1317,7 @@
                         if (e.commandId && ret.commandId) {
                             return String(e.commandId) === String(ret.commandId);
                         }
-                        const matchV = (e.villageId && ret.villageId && String(e.villageId) === String(ret.villageId)) || (e.coords && ret.coords && e.coords === ret.coords);
+                        const matchV = (e.coords && ret.coords) ? (e.coords === ret.coords) : (e.villageId && ret.villageId && String(e.villageId) === String(ret.villageId));
                         return matchV && Math.abs(e.readyAtMs - ret.readyAtMs) < 2000 && e.remoteCoords === ret.remoteCoords;
                     });
                     if (!isDup) {
@@ -1362,7 +1369,7 @@
                 if (c.isReturn && c.hasSnob) {
                     addNobleReturns([{
                         commandId: c.commandId,
-                        villageId: currentVId,
+                        villageId: (c.originCoords && currentVCoords && c.originCoords !== currentVCoords) ? null : currentVId,
                         coords: c.originCoords || currentVCoords,
                         remoteCoords: c.targetCoords,
                         type: 'return',
@@ -1611,7 +1618,11 @@
                     || (typeof game_data !== 'undefined' && game_data.village && game_data.village.id == vId ? (game_data.village.points || 0) : 0)
                     || 0;
 
-                const vEvents = allPendingNobleEvents.filter(e => (e.villageId && String(e.villageId) === String(vId)) || (e.coords && e.coords === coords));
+                const vEvents = allPendingNobleEvents.filter(e => {
+                    if (e.coords && coords) return e.coords === coords;
+                    if (!e.coords && e.villageId && vId) return String(e.villageId) === String(vId);
+                    return false;
+                });
                 vEvents.sort((a, b) => a.readyAtMs - b.readyAtMs);
                 const snobsInProd = vEvents.filter(e => e.type === 'production').length;
                 const snobsReturning = vEvents.filter(e => e.type === 'return').length;
@@ -6243,10 +6254,16 @@
         switchTab('nt');
         setTimeout(() => {
             const targetInput = document.getElementById('tw-nt-target');
+            const multiInput = document.getElementById('tw-nt-targets-multi');
             if (targetInput) {
                 targetInput.value = coord;
                 targetInput.dispatchEvent(new Event('input', { bubbles: true }));
                 targetInput.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+            if (multiInput && (!multiInput.value || !multiInput.value.includes(coord))) {
+                multiInput.value = (multiInput.value.trim() ? multiInput.value.trim() + '\n' : '') + coord;
+                multiInput.dispatchEvent(new Event('input', { bubbles: true }));
+                multiInput.dispatchEvent(new Event('change', { bubbles: true }));
             }
             showToast(`🎯 Alvo ${coord} selecionado no Planeador de Ataques!`);
         }, 60);
