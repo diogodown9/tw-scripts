@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TW Tactical Command Suite
 // @namespace    https://tribalwars.com.pt/
-// @version      2.8.1
-// @description  Suite militar avançada para Tribal Wars PT: Rastreio de Nobres a Caminho & em Treino na Academia, Calculadora de Horário Mínimo de Ataque (⚡), Fakes Inteligentes 1% Dinâmico, Arsenal Tático de Fakes, UI de Limpezas/Nobres/Demolição, e Planeador Tático.
+// @version      2.8.2
+// @description  Suite militar avançada para Tribal Wars PT: Rastreio de Nobres a Caminho & em Treino na Academia, Calculadora de Horário Mínimo de Ataque (⚡ com 5m folga), Fakes Inteligentes 1% Dinâmico, Arsenal Tático de Fakes, UI de Limpezas/Nobres/Demolição, e Planeador Tático.
 // @author       Diogo & Antigravity
 // @match        https://*.tribalwars.com.pt/game.php*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=tribalwars.com.pt
@@ -12,7 +12,7 @@
 // ==/UserScript==
 
 (async function () {
-    const SCRIPT_VERSION = '2.8.1';
+    const SCRIPT_VERSION = '2.8.2';
 
     // Auto-selecionar alvo de catapulta na confirmação de ataque na Praça de Reunião se especificado no URL
     try {
@@ -819,14 +819,15 @@
         const neededNobles = parseInt(rawNobleCount, 10) || 4;
 
         const now = Date.now();
-        let maxLaunchMs = now + 60000; // 1 min margem
-        let maxTravelSec = 0;
-        let reasons = [];
+        const MARGIN_MS = 5 * 60 * 1000; // 5 minutos de margem de segurança para envio confortável
+        let minViableLandMs = now + MARGIN_MS;
+        const reasons = [];
 
         const attackMode = document.getElementById('tw-nt-attack-mode') ? document.getElementById('tw-nt-attack-mode').value : 'standard_anti';
         const architecture = document.getElementById('tw-nt-architecture') ? document.getElementById('tw-nt-architecture').value : '';
         const bvAnchor = document.getElementById('tw-nt-bv-anchor') ? document.getElementById('tw-nt-bv-anchor').value : 'first';
 
+        // 1. Aldeia de Nobres Principal
         if (nobleV && neededNobles > 0) {
             const dist = calcDistance(nobleV.coords, target);
             let travelSec = dist * unitSpeedMinutes.snob * 60;
@@ -834,68 +835,81 @@
                 const numTrips = Math.max(1, neededNobles);
                 travelSec = travelSec + (numTrips - 1) * (2 * travelSec + 2);
             }
-            if (travelSec > maxTravelSec) maxTravelSec = travelSec;
 
             const needed1 = (architecture === 'split_2x2' && attackMode === 'split_2x2') ? 2 : (attackMode === 'snob_solo' ? 1 : neededNobles);
             const readiness = calculateEarliestViableNobleTime(nobleV, needed1);
-            if (!readiness.isFullyReadyNow) {
-                const nobleReadyLaunchMs = readiness.readyAtMs + 60000;
-                if (nobleReadyLaunchMs > maxLaunchMs) {
-                    maxLaunchMs = nobleReadyLaunchMs;
-                    reasons.push(readiness.summary);
+            const nobleReadyMs = (!readiness.isFullyReadyNow) ? readiness.readyAtMs : now;
+            const minLaunchMs1 = Math.max(now, nobleReadyMs) + MARGIN_MS;
+            const minLandMs1 = minLaunchMs1 + Math.round(travelSec * 1000);
+
+            if (minLandMs1 > minViableLandMs) {
+                minViableLandMs = minLandMs1;
+                if (!readiness.isFullyReadyNow) {
+                    reasons.push(`Nobres: ${readiness.summary} (+5m folga)`);
+                } else {
+                    reasons.push(`Nobres: ${cleanVillageDisplayName(nobleV)} (${formatDuration(travelSec)} viagem + 5m folga)`);
                 }
             }
         }
 
-        // Se split 2x2, verificar também a 2ª aldeia de nobres
+        // 2. Aldeia de Nobres Secundária (Split 2x2)
         const selNoble2 = document.getElementById('tw-nt-noble-village-2');
         if (architecture === 'split_2x2' && attackMode === 'split_2x2' && selNoble2 && villagesById[selNoble2.value]) {
             const nobleV2 = villagesById[selNoble2.value];
             const dist2 = calcDistance(nobleV2.coords, target);
             const travelSec2 = dist2 * unitSpeedMinutes.snob * 60;
-            if (travelSec2 > maxTravelSec) maxTravelSec = travelSec2;
 
             const readiness2 = calculateEarliestViableNobleTime(nobleV2, 2);
-            if (!readiness2.isFullyReadyNow) {
-                const nobleReadyLaunchMs2 = readiness2.readyAtMs + 60000;
-                if (nobleReadyLaunchMs2 > maxLaunchMs) {
-                    maxLaunchMs = nobleReadyLaunchMs2;
-                    reasons.push(`2ª Aldeia: ${readiness2.summary}`);
+            const nobleReadyMs2 = (!readiness2.isFullyReadyNow) ? readiness2.readyAtMs : now;
+            const minLaunchMs2 = Math.max(now, nobleReadyMs2) + MARGIN_MS;
+            const minLandMs2 = minLaunchMs2 + Math.round(travelSec2 * 1000);
+
+            if (minLandMs2 > minViableLandMs) {
+                minViableLandMs = minLandMs2;
+                if (!readiness2.isFullyReadyNow) {
+                    reasons.push(`2ª Aldeia Nobres: ${readiness2.summary} (+5m folga)`);
+                } else {
+                    reasons.push(`2ª Aldeia Nobres: ${cleanVillageDisplayName(nobleV2)} (${formatDuration(travelSec2)} viagem + 5m folga)`);
                 }
             }
         }
 
-        // Verificar também Nuke de Limpeza se ativo
+        // 3. Nuke(s) de Limpeza Principal
         const selNuke = document.getElementById('tw-nt-lead-nuke-village');
         const leadNukesCount = parseInt(document.getElementById('tw-nt-lead-nukes')?.value || '0', 10);
         if (leadNukesCount > 0 && selNuke) {
-            let nukeV = null;
-            if (selNuke.value === 'auto') {
-                const offPool = allVillages.filter(v => v.rowClass === 'tw-row-off' && (!nobleV || v.id !== nobleV.id));
+            const excludedIds = [];
+            if (nobleV) excludedIds.push(nobleV.id);
+            if (selNoble2 && selNoble2.value) excludedIds.push(selNoble2.value);
+
+            let nukeVillages = [];
+            if (selNuke.value && selNuke.value !== 'auto' && villagesById[selNuke.value]) {
+                nukeVillages.push(villagesById[selNuke.value]);
+            } else {
+                const offPool = allVillages.filter(v => v.rowClass === 'tw-row-off' && !excludedIds.includes(v.id));
                 if (offPool.length > 0) {
                     offPool.sort((a, b) => calcDistance(a.coords, target) - calcDistance(b.coords, target));
-                    nukeV = offPool[0];
+                    nukeVillages = offPool.slice(0, Math.min(leadNukesCount, offPool.length));
                 }
-            } else if (villagesById[selNuke.value]) {
-                nukeV = villagesById[selNuke.value];
             }
 
-            if (nukeV) {
+            for (const nukeV of nukeVillages) {
                 const distN = calcDistance(nukeV.coords, target);
-                const nukeTravelSec = distN * unitSpeedMinutes.ram * 60;
-                if (nukeTravelSec > maxTravelSec) maxTravelSec = nukeTravelSec;
+                const nukeTravelSec = distN * (unitSpeedMinutes.ram || 30) * 60;
+                const minLaunchNuke = now + MARGIN_MS;
+                const minLandNuke = minLaunchNuke + Math.round(nukeTravelSec * 1000);
+
+                if (minLandNuke > minViableLandMs) {
+                    minViableLandMs = minLandNuke;
+                    reasons.push(`Limpeza: ${cleanVillageDisplayName(nukeV)} (${formatDuration(nukeTravelSec)} viagem + 5m folga)`);
+                }
             }
         }
 
-        if (maxTravelSec === 0) {
-            maxTravelSec = 3600;
-        }
-
-        const earliestLandMs = Math.ceil((maxLaunchMs + (maxTravelSec * 1000)) / 1000) * 1000;
+        const earliestLandMs = Math.ceil(minViableLandMs / 1000) * 1000;
         return {
             earliestLandDate: new Date(earliestLandMs),
-            earliestLaunchDate: new Date(maxLaunchMs),
-            maxTravelSec,
+            earliestLandMs,
             reasons
         };
     }
@@ -3427,8 +3441,9 @@
                     const calcMin = calculateEarliestViableLandTime();
                     let minLandBtnHtml = '';
                     if (calcMin) {
-                        const minLandTimeStr = calcMin.earliestLandDate.toLocaleTimeString('pt-PT');
-                        minLandBtnHtml = `<button type="button" class="tw-btn tw-btn-blue" id="tw-btn-apply-hud-min-land" style="padding:3px 8px; font-size:9.5px; font-weight:bold; white-space:nowrap;" title="Ajusta automaticamente a hora de chegada para o horário mais cedo possível">⚡ Ajustar para ${minLandTimeStr}</button>`;
+                        const isTomorrow = calcMin.earliestLandDate.getDate() !== new Date().getDate();
+                        const timeLabel = isTomorrow ? `amanhã às ${calcMin.earliestLandDate.toLocaleTimeString('pt-PT')}` : calcMin.earliestLandDate.toLocaleTimeString('pt-PT');
+                        minLandBtnHtml = `<button type="button" class="tw-btn tw-btn-blue" id="tw-btn-apply-hud-min-land" style="padding:3px 8px; font-size:9.5px; font-weight:bold; white-space:nowrap;" title="Ajusta automaticamente a hora de chegada para o horário mais cedo viável (com 5m de margem de segurança)">⚡ Ajustar para ${timeLabel}</button>`;
                     }
 
                     const inProdTxt = selV.snobsInProd > 0 ? `, <b style="color:#38bdf8;">${selV.snobsInProd} em treino</b>` : '';
@@ -3746,11 +3761,21 @@
 
         const selLeadNukeVillage = document.getElementById('tw-nt-lead-nuke-village');
         if (selLeadNukeVillage) {
-            selLeadNukeVillage.onchange = () => updateNukeProximityHUD(selLeadNukeVillage.value, true);
+            selLeadNukeVillage.onchange = () => {
+                updateNukeProximityHUD(selLeadNukeVillage.value, true);
+                if (plannerMode === 'single' && typeof updateNobleProximityHUD === 'function') {
+                    updateNobleProximityHUD(null, false);
+                }
+            };
         }
         const chkPreferFullNukes = document.getElementById('tw-nt-prefer-full-nukes');
         if (chkPreferFullNukes) {
-            chkPreferFullNukes.onchange = () => updateNukeProximityHUD(null, false);
+            chkPreferFullNukes.onchange = () => {
+                updateNukeProximityHUD(null, false);
+                if (plannerMode === 'single' && typeof updateNobleProximityHUD === 'function') {
+                    updateNobleProximityHUD(null, false);
+                }
+            };
         }
 
         document.querySelectorAll('.tw-time-shortcut').forEach(btn => btn.onclick = function() {
@@ -4637,7 +4662,8 @@
         const antiCatTarget = document.getElementById('tw-nt-anti-cat-target') ? document.getElementById('tw-nt-anti-cat-target').value : 'none';
 
         const now = Date.now();
-        const minLaunchMs = now + 60000;
+        const MARGIN_MS = 5 * 60 * 1000;
+        const minLaunchMs = now + MARGIN_MS;
 
         const bvAnchor = document.getElementById('tw-nt-bv-anchor') ? document.getElementById('tw-nt-bv-anchor').value : 'first';
         let snobDist1 = 0, snobSec1 = 0, nobleLaunchMs1 = 0, trip1AnchorLandMs = baseLandTime;
@@ -4655,12 +4681,12 @@
 
             const needed1 = (architecture === 'split_2x2' && attackMode === 'split_2x2') ? 2 : (attackMode === 'snob_solo' ? 1 : nobleCount);
             const readiness1 = calculateEarliestViableNobleTime(nobleVillage1, needed1);
-            const minAllowedLaunchMs1 = Math.max(minLaunchMs, readiness1.isFullyReadyNow ? minLaunchMs : (readiness1.readyAtMs + 60000));
+            const minAllowedLaunchMs1 = Math.max(minLaunchMs, readiness1.isFullyReadyNow ? minLaunchMs : (readiness1.readyAtMs + MARGIN_MS));
 
             if (nobleLaunchMs1 < minAllowedLaunchMs1) {
                 const calc = calculateEarliestViableLandTime();
                 let reasonMsg = '';
-                if (!readiness1.isFullyReadyNow && nobleLaunchMs1 < (readiness1.readyAtMs + 60000)) {
+                if (!readiness1.isFullyReadyNow && nobleLaunchMs1 < (readiness1.readyAtMs + MARGIN_MS)) {
                     const readyTimeStr = new Date(readiness1.readyAtMs).toLocaleTimeString('pt-PT');
                     reasonMsg = `Os nobres de "${cleanVillageDisplayName(nobleVillage1)}" só estarão disponíveis às ${readyTimeStr} (${readiness1.summary}).\nPara a chegada às ${new Date(baseLandTime).toLocaleTimeString('pt-PT')}, o envio teria de ser às ${new Date(nobleLaunchMs1).toLocaleTimeString('pt-PT')}.`;
                 } else if (attackMode === 'snob_solo' && bvAnchor === 'final') {
@@ -4672,7 +4698,7 @@
                 if (calc) {
                     const recLandDate = calc.earliestLandDate;
                     const recLandStr = `${recLandDate.toLocaleDateString('pt-PT')} às ${recLandDate.toLocaleTimeString('pt-PT')}`;
-                    const promptMsg = `⚠️ HORÁRIO DE IMPACTO INVIÁVEL!\n\n${reasonMsg}\n\n⚡ Horário Mínimo de Chegada Recomendado: ${recLandStr}\n\nDesejas ajustar automaticamente a hora de chegada para ${recLandStr} e continuar a gerar o plano?`;
+                    const promptMsg = `⚠️ HORÁRIO DE IMPACTO INVIÁVEL!\n\n${reasonMsg}\n\n⚡ Horário Mínimo de Chegada Recomendado (com 5m de margem): ${recLandStr}\n\nDesejas ajustar automaticamente a hora de chegada para ${recLandStr} e continuar a gerar o plano?`;
                     if (confirm(promptMsg)) {
                         applyMinimumViableLandTime();
                         baseLandTime = recLandDate.getTime();
@@ -4704,12 +4730,12 @@
             nobleLaunchMs2 = nobleLandMs2 - (snobSec2 * 1000);
 
             const readiness2 = calculateEarliestViableNobleTime(nobleVillage2, 2);
-            const minAllowedLaunchMs2 = Math.max(minLaunchMs, readiness2.isFullyReadyNow ? minLaunchMs : (readiness2.readyAtMs + 60000));
+            const minAllowedLaunchMs2 = Math.max(minLaunchMs, readiness2.isFullyReadyNow ? minLaunchMs : (readiness2.readyAtMs + MARGIN_MS));
 
             if (nobleLaunchMs2 < minAllowedLaunchMs2) {
                 const calc = calculateEarliestViableLandTime();
                 let reasonMsg = '';
-                if (!readiness2.isFullyReadyNow && nobleLaunchMs2 < (readiness2.readyAtMs + 60000)) {
+                if (!readiness2.isFullyReadyNow && nobleLaunchMs2 < (readiness2.readyAtMs + MARGIN_MS)) {
                     const readyTimeStr = new Date(readiness2.readyAtMs).toLocaleTimeString('pt-PT');
                     reasonMsg = `Os nobres da 2ª aldeia "${cleanVillageDisplayName(nobleVillage2)}" só estarão disponíveis às ${readyTimeStr} (${readiness2.summary}).`;
                 } else {
@@ -4719,7 +4745,7 @@
                 if (calc) {
                     const recLandDate = calc.earliestLandDate;
                     const recLandStr = `${recLandDate.toLocaleDateString('pt-PT')} às ${recLandDate.toLocaleTimeString('pt-PT')}`;
-                    if (confirm(`⚠️ HORÁRIO DE IMPACTO INVIÁVEL (2ª Aldeia)!\n\n${reasonMsg}\n\n⚡ Horário Mínimo de Chegada Recomendado: ${recLandStr}\n\nDesejas ajustar automaticamente a hora de chegada para ${recLandStr} e continuar?`)) {
+                    if (confirm(`⚠️ HORÁRIO DE IMPACTO INVIÁVEL (2ª Aldeia)!\n\n${reasonMsg}\n\n⚡ Horário Mínimo de Chegada Recomendado (com 5m de margem): ${recLandStr}\n\nDesejas ajustar automaticamente a hora de chegada para ${recLandStr} e continuar?`)) {
                         applyMinimumViableLandTime();
                         baseLandTime = recLandDate.getTime();
                         if (nobleVillage1) {
@@ -4793,6 +4819,46 @@
             return { village: v, dist };
         }).sort((a,b) => a.dist - b.dist);
 
+        if (leadNukesCount > 0) {
+            let leadNukeCand = null;
+            if (preferredLeadNukeId && preferredLeadNukeId !== 'auto') {
+                leadNukeCand = sortedOff.find(c => c.village.id === preferredLeadNukeId);
+            } else if (sortedOff.length > 0) {
+                leadNukeCand = sortedOff[0];
+            }
+
+            if (leadNukeCand) {
+                const nukeLaunchMs = baseLandTime - (leadNukeCand.sec * 1000);
+                if (nukeLaunchMs < minLaunchMs) {
+                    const calc = calculateEarliestViableLandTime();
+                    if (calc) {
+                        const recLandDate = calc.earliestLandDate;
+                        const recLandStr = `${recLandDate.toLocaleDateString('pt-PT')} às ${recLandDate.toLocaleTimeString('pt-PT')}`;
+                        const promptMsg = `⚠️ HORÁRIO DE IMPACTO INVIÁVEL (Limpeza)!\n\nA aldeia de limpeza "${cleanVillageDisplayName(leadNukeCand.village)}" fica a ${leadNukeCand.dist.toFixed(1)}c (${formatDuration(leadNukeCand.sec)}) do alvo e a hora de envio necessária já passou (${new Date(nukeLaunchMs).toLocaleTimeString('pt-PT')}).\n\n⚡ Horário Mínimo de Chegada Recomendado (com 5m de margem): ${recLandStr}\n\nDesejas ajustar automaticamente a hora de chegada para ${recLandStr} e continuar a gerar o plano?`;
+                        if (confirm(promptMsg)) {
+                            applyMinimumViableLandTime();
+                            baseLandTime = recLandDate.getTime();
+                            trip1AnchorLandMs = baseLandTime;
+                            if (nobleVillage1) {
+                                const travelMs1 = Math.round(snobSec1 * 1000);
+                                if (attackMode === 'snob_solo' && bvAnchor === 'final') {
+                                    const totalCycleMs = (2 * travelMs1) + 2000;
+                                    trip1AnchorLandMs = baseLandTime - ((numTrips - 1) * totalCycleMs);
+                                }
+                                nobleLaunchMs1 = trip1AnchorLandMs - travelMs1;
+                            }
+                            if (nobleVillage2 && architecture === 'split_2x2') {
+                                nobleLandMs2 = baseLandTime + (2 * msStep);
+                                nobleLaunchMs2 = nobleLandMs2 - (snobSec2 * 1000);
+                            }
+                        } else {
+                            return;
+                        }
+                    }
+                }
+            }
+        }
+
         const sequence = [];
         const usedOffVillages = new Set();
         const usedDefVillages = new Set();
@@ -4810,9 +4876,21 @@
                     if (launchMs >= minLaunchMs) {
                         candIndex = idx;
                     } else {
-                        const earliestLand = new Date(now + (travelSec + 120) * 1000);
-                        alert(`❌ A aldeia de limpeza selecionada (${cleanVillageDisplayName(cand.village)}) fica a ${cand.dist.toFixed(1)}c (${formatDuration(travelSec)}) do alvo.\nA hora de envio já passou.\nHora mínima de impacto para esta aldeia: ${earliestLand.toLocaleDateString('pt-PT')} ${earliestLand.toLocaleTimeString('pt-PT')}`);
-                        throw new Error(`Hora de envio no passado para ${cand.village.name}`);
+                        const calc = calculateEarliestViableLandTime();
+                        if (calc) {
+                            const recLandDate = calc.earliestLandDate;
+                            const recLandStr = `${recLandDate.toLocaleDateString('pt-PT')} às ${recLandDate.toLocaleTimeString('pt-PT')}`;
+                            if (confirm(`⚠️ HORÁRIO DE IMPACTO INVIÁVEL (Limpeza)!\n\nA aldeia "${cleanVillageDisplayName(cand.village)}" demora ${formatDuration(travelSec)} e o envio já passou (${new Date(launchMs).toLocaleTimeString('pt-PT')}).\n\n⚡ Horário Mínimo Recomendado (com 5m de margem): ${recLandStr}\n\nDesejas ajustar para ${recLandStr} e continuar?`)) {
+                                applyMinimumViableLandTime();
+                                return setTimeout(() => buildMasterOPPlan(), 50);
+                            } else {
+                                return;
+                            }
+                        } else {
+                            const earliestLand = new Date(now + (travelSec + 300) * 1000);
+                            alert(`❌ A aldeia de limpeza selecionada (${cleanVillageDisplayName(cand.village)}) fica a ${cand.dist.toFixed(1)}c (${formatDuration(travelSec)}) do alvo.\nA hora de envio já passou.\nHora mínima de impacto para esta aldeia: ${earliestLand.toLocaleDateString('pt-PT')} ${earliestLand.toLocaleTimeString('pt-PT')}`);
+                            return;
+                        }
                     }
                 }
             }
