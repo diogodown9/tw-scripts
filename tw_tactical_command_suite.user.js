@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW Tactical Command Suite
 // @namespace    https://tribalwars.com.pt/
-// @version      3.2.0
+// @version      3.2.1
 // @description  Suite militar avançada para Tribal Wars PT: Módulo Tático de Comandos (Ataques & Retornos de tropas com filtros e timers em tempo real), Rastreio de Nobres a Caminho & em Retorno de Comandos + Treino na Academia, Validação Precisa de Envio & Horário Mínimo de Ataque (⚡ com 5m folga e seleção do Nuke Full mais perto), Suporte Automático a Modelos NT (NT 33% para 3 nobres, NT 25% para 4 nobres), Bunkers Desligados por Default, Alvo Cats do Nuke Muralha por Default, Fakes Inteligentes 1% Dinâmico, Arsenal Tático de Fakes, UI de Limpezas/Nobres/Demolição, e Planeador Tático.
 // @author       Diogo & Antigravity
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -12,7 +12,7 @@
 // ==/UserScript==
 
 (async function () {
-    const SCRIPT_VERSION = '3.2.0';
+    const SCRIPT_VERSION = '3.2.1';
 
     // Auto-selecionar alvo de catapulta na confirmação de ataque na Praça de Reunião se especificado no URL
     try {
@@ -755,7 +755,7 @@
         }
     };
 
-    async function fetchAllAccountCommandsHtml(customMakeUrl = null, customSafeFetch = null, activeVillageIds = []) {
+    async function fetchAllAccountCommandsHtml(customMakeUrl = null, customSafeFetch = null, activeWarVillages = [], warGroupIds = []) {
         if (window.twCommandDiagnostics) window.twCommandDiagnostics.clear();
 
         const doFetch = async (url) => {
@@ -782,6 +782,8 @@
         };
 
         const currentVId = (typeof game_data !== 'undefined' && game_data.village) ? game_data.village.id : null;
+        const currentVCoords = (typeof game_data !== 'undefined' && game_data.village) ? game_data.village.coord : null;
+        const currentVName = (typeof game_data !== 'undefined' && game_data.village && game_data.village.name) ? game_data.village.name : '';
         const sitterParam = (typeof game_data !== 'undefined' && game_data.player && game_data.player.sitter > 0) ? `&t=${game_data.player.id}` : '';
 
         const results = [];
@@ -795,9 +797,9 @@
             const m3 = Array.from(html.matchAll(/data-id="(\d+)"/g)).map(m => m[1]);
             const m4 = Array.from(html.matchAll(/id="command_(\d+)"/gi)).map(m => m[1]);
             const m5 = Array.from(html.matchAll(/name="id_(\d+)"/gi)).map(m => m[1]);
-            const m6 = Array.from(html.matchAll(/<tr[^>]*class="[^"]*nowrap[^"]*"[^>]*>([\s\S]*?)<\/tr>/gi)).map((m, idx) => {
+            const m6 = Array.from(html.matchAll(/<tr[^>]*class="[^"]*command-row[^"]*"[^>]*>([\s\S]*?)<\/tr>/gi)).map((m, idx) => {
                 const idM = m[1].match(/(?:data-command-id|data-id)="(\d+)"/) || m[1].match(/[?&;]id=(\d+)/) || m[1].match(/id="command_(\d+)"/);
-                return idM ? idM[1] : `row_${idx}`;
+                return idM ? idM[1] : `cmd_${idx}`;
             });
             return [...new Set([...m1, ...m2, ...m3, ...m4, ...m5, ...m6])];
         };
@@ -813,7 +815,8 @@
                     res.includes('screen=info_command') ||
                     res.includes('data-command-id') ||
                     res.includes('command_hover_details') ||
-                    res.includes('class="nowrap"') ||
+                    res.includes('command-row') ||
+                    res.includes('commands_outgoings') ||
                     (res.includes('overview_table') && res.includes('mode=commands')) ||
                     (res.includes('overview_villages') && res.includes('commands'))
                 )) {
@@ -831,15 +834,34 @@
             return null;
         };
 
-        const addPageHtml = (html) => {
+        const addPageHtml = (html, vId = null, coords = null, name = null, label = '') => {
             if (!html) return 0;
             const ids = extractIds(html);
-            results.push(html);
+            const item = {
+                html,
+                villageId: vId,
+                coords: coords,
+                name: name,
+                label: label,
+                toString() { return this.html; },
+                includes(...args) { return this.html.includes(...args); },
+                match(...args) { return this.html.match(...args); }
+            };
+            results.push(item);
             ids.forEach(id => seenCommandIds.add(id));
             return ids.length;
         };
 
-        // 1. Pedido Primário Canónico: Visão Geral de Comandos com Todas as Aldeias (&group=0) e Sem Paginação (&page=-1)
+        // 1. Pedido a Grupos de Guerra Dedicados (ex: [ WAR ], [ Ataque ]) se existirem na conta
+        if (Array.isArray(warGroupIds) && warGroupIds.length > 0) {
+            for (const gId of warGroupIds) {
+                const gUrl = `/game.php?screen=overview_villages&mode=commands&group=${gId}&page=-1${sitterParam}`;
+                const gHtml = await fetchSingleUrl(gUrl, `grupo-guerra-${gId}`);
+                if (gHtml) addPageHtml(gHtml, null, null, null, `war-group-${gId}`);
+            }
+        }
+
+        // 2. Pedido Primário Canónico: Visão Geral de Comandos (&group=0) e Sem Paginação (&page=-1)
         const primaryEndpoints = [
             currentVId ? `/game.php?village=${currentVId}&screen=overview_villages&mode=commands&group=0&page=-1${sitterParam}` : '',
             `/game.php?screen=overview_villages&mode=commands&group=0&page=-1${sitterParam}`,
@@ -851,23 +873,23 @@
         for (const ep of primaryEndpoints) {
             mainHtml = await fetchSingleUrl(ep, 'global-overview-page-all');
             if (mainHtml && (mainHtml.includes('commands_table') || extractIds(mainHtml).length > 0)) {
-                addPageHtml(mainHtml);
+                addPageHtml(mainHtml, currentVId, currentVCoords, currentVName, 'global-overview');
                 break;
             }
         }
 
-        // Se houver paginação real (.paged-nav-item), seguir apenas as páginas explícitas (teto máx 3 páginas)
+        // Se houver paginação real (.paged-nav-item), seguir as primeiras páginas explícitas (teto 3 páginas)
         if (mainHtml) {
             const navMatches = Array.from(mainHtml.matchAll(/class="[^"]*paged-nav-item[^"]*"[^>]*href="([^"]+)"/gi))
                 .concat(Array.from(mainHtml.matchAll(/href="([^"]+)"[^>]*class="[^"]*paged-nav-item[^"]*"/gi)));
             const pLinks = [...new Set(navMatches.map(m => m[1].replace(/&amp;/g, '&')).filter(u => u && !u.includes('page=-1')))].slice(0, 3);
             for (const pUrl of pLinks) {
                 const pRes = await fetchSingleUrl(pUrl, 'paged-nav');
-                if (pRes) addPageHtml(pRes);
+                if (pRes) addPageHtml(pRes, currentVId, currentVCoords, currentVName, 'paged-nav');
             }
         }
 
-        // 2. Consulta da aba de retornos (&type=return) caso o servidor os separe
+        // 3. Consulta da aba de retornos (&type=return) caso o servidor os separe
         const returnEndpoints = [
             currentVId ? `/game.php?village=${currentVId}&screen=overview_villages&mode=commands&type=return&group=0&page=-1${sitterParam}` : '',
             `/game.php?screen=overview_villages&mode=commands&type=return&group=0&page=-1${sitterParam}`
@@ -876,34 +898,57 @@
         for (const rEp of returnEndpoints) {
             const rHtml = await fetchSingleUrl(rEp, 'global-returns-page');
             if (rHtml && (rHtml.includes('commands_table') || extractIds(rHtml).length > 0)) {
-                addPageHtml(rHtml);
+                addPageHtml(rHtml, currentVId, currentVCoords, currentVName, 'global-returns');
                 break;
             }
         }
 
-        // 3. Caçador Direcionado de Aldeias de Guerra (Bypassa os 3000+ comandos de auto-farm de bárbaras)
-        let targetVillages = Array.isArray(activeVillageIds) ? [...activeVillageIds] : [];
-        if (targetVillages.length === 0 && typeof allVillages !== 'undefined' && Array.isArray(allVillages)) {
+        // 4. Caçador Direcionado de Aldeias de Guerra (Bypassa os 3000+ comandos de auto-farm de bárbaras)
+        let warList = Array.isArray(activeWarVillages) ? [...activeWarVillages] : [];
+        if (warList.length === 0 && typeof allVillages !== 'undefined' && Array.isArray(allVillages)) {
             allVillages.forEach(v => {
-                if (v.snobsOutside > 0 || (v.movingTroopsDict && v.movingTroopsDict.snob > 0) ||
-                    (v.movingTroopsDict && (v.movingTroopsDict.ram > 0 || v.movingTroopsDict.catapult > 0)) ||
-                    v.snobsReturning > 0 || (v.movingPopTotal && v.movingPopTotal > 1000) ||
-                    (v.paladin && v.movingTroopsDict && v.movingTroopsDict.knight > 0)) {
-                    targetVillages.push(String(v.id));
+                const mov = v.movingTroopsDict || {};
+                const snobsOut = v.snobsOutside || 0;
+                const movSnobs = mov.snob || 0;
+                const movRams = mov.ram || 0;
+                const movCats = mov.catapult || 0;
+                const movAxes = mov.axe || 0;
+                const movLights = mov.light || 0;
+                const movPop = v.movingPopTotal || 0;
+                const hasKnightMoving = (v.paladin && mov.knight > 0);
+
+                if (snobsOut > 0 || movSnobs > 0 || movRams > 0 || movCats > 0 ||
+                    movAxes >= 800 || movLights >= 400 || movPop >= 1500 || hasKnightMoving) {
+                    warList.push({ id: String(v.id), coords: v.coords, name: v.name });
                 }
             });
         }
-        if (targetVillages.length > 0) {
-            const uniqueActive = [...new Set(targetVillages.map(String))].slice(0, 8);
-            await Promise.all(uniqueActive.map(async (aVId) => {
-                if (aVId === String(currentVId)) return;
-                const ovUrl = `/game.php?village=${aVId}&screen=overview${sitterParam}`;
-                const ovHtml = await fetchSingleUrl(ovUrl, `aldeia-guerra-${aVId}`);
-                if (ovHtml) addPageHtml(ovHtml);
+
+        // Deduplicar aldeias por ID
+        const uniqueWarVillages = [];
+        const seenV = new Set();
+        warList.forEach(wv => {
+            const vId = typeof wv === 'object' ? String(wv.id) : String(wv);
+            if (!seenV.has(vId)) {
+                seenV.add(vId);
+                const coords = (typeof wv === 'object' && wv.coords) ? wv.coords : (typeof allVillages !== 'undefined' ? (allVillages.find(v => String(v.id) === vId)?.coords || '') : '');
+                const name = (typeof wv === 'object' && wv.name) ? wv.name : (typeof allVillages !== 'undefined' ? (allVillages.find(v => String(v.id) === vId)?.name || '') : '');
+                uniqueWarVillages.push({ id: vId, coords, name });
+            }
+        });
+
+        // Fetch em paralelo por batches de 6 aldeias
+        for (let i = 0; i < uniqueWarVillages.length; i += 6) {
+            const chunk = uniqueWarVillages.slice(i, i + 6);
+            await Promise.all(chunk.map(async (wv) => {
+                if (wv.id === String(currentVId)) return;
+                const ovUrl = `/game.php?village=${wv.id}&screen=overview${sitterParam}`;
+                const ovHtml = await fetchSingleUrl(ovUrl, `aldeia-guerra-${wv.coords || wv.id}`);
+                if (ovHtml) addPageHtml(ovHtml, wv.id, wv.coords, wv.name, `war-village-${wv.id}`);
             }));
         }
 
-        console.log(`[TW Tactical] Comandos recolhidos de ${results.length} respostas HTTP (${seenCommandIds.size} comandos únicos detetados).`);
+        console.log(`[TW Tactical] Comandos recolhidos de ${results.length} respostas HTTP (${seenCommandIds.size} comandos únicos detetados em ${uniqueWarVillages.length} aldeias de guerra).`);
         return results;
     }
 
@@ -1029,27 +1074,53 @@
         if (!html) return [];
         const commands = [];
 
-        // Extração robusta de linhas TR (sem truncamento por tabelas aninhadas ou paginação)
+        // Deteção da aldeia proprietária do HTML (para preservar coordenadas fiéis de origem)
+        let pageVId = fallbackVillageId;
+        let pageVCoords = fallbackCoords;
+        let pageVName = fallbackVillageName;
+
+        const gameDataM = html.match(/"village"\s*:\s*\{([^}]+)\}/);
+        if (gameDataM) {
+            const idM = gameDataM[1].match(/"id"\s*:\s*(\d+)/);
+            const coordM = gameDataM[1].match(/"coord"\s*:\s*"(\d{1,3}\|\d{1,3})"/);
+            const nameM = gameDataM[1].match(/"name"\s*:\s*"([^"]+)"/);
+            if (idM) pageVId = idM[1];
+            if (coordM) pageVCoords = coordM[1];
+            if (nameM) pageVName = decodeURIComponent(nameM[1].replace(/\\u([0-9a-fA-F]{4})/g, (m, cc) => String.fromCharCode(parseInt(cc, 16))));
+        }
+        if (!pageVCoords) {
+            const titleM = html.match(/<title>([^<]+)\((\d{1,3}\|\d{1,3})\)[^<]*<\/title>/i);
+            if (titleM) {
+                pageVCoords = titleM[2];
+                if (!pageVName) pageVName = titleM[1].trim();
+            }
+        }
+
+        // Extração robusta de linhas TR (filtrando linhas de cabeçalho, atalhos de teclado e barras de navegação)
         const trRegex = /<tr\b[^>]*>([\s\S]*?)<\/tr>/gi;
         let trM;
         const rows = [];
         while ((trM = trRegex.exec(html)) !== null) {
             const row = trM[0];
-            if (row.includes('screen=info_command') || 
-                row.includes('data-command-id') || 
-                row.includes('command_hover_details') || 
-                row.includes('command-row') || 
-                row.includes('widget-command-timer') || 
-                /data-command-type=/i.test(row) || 
-                /class="[^"]*command/i.test(row) ||
-                (row.includes('nowrap') && (row.includes('hoje') || row.includes('amanhã') || /às\s*\d{1,2}:\d{2}/i.test(row) || /\d{1,3}\|\d{1,3}/.test(row)))) {
+            const isCommandRow = row.includes('command-row') ||
+                                 row.includes('data-command-id') ||
+                                 row.includes('command_hover_details') ||
+                                 row.includes('widget-command-timer') ||
+                                 row.includes('screen=info_command') ||
+                                 /data-command-type=/i.test(row);
+            
+            const isSpuriousRow = row.includes('header_menu') ||
+                                  row.includes('arrowLeft') ||
+                                  row.includes('arrowRight') ||
+                                  row.includes('tooltip-delayed') ||
+                                  (row.includes('<th') && !row.includes('<td'));
+
+            if (isCommandRow && !isSpuriousRow) {
                 rows.push(row);
             }
         }
 
         rows.forEach((row, idx) => {
-            if (/<th/i.test(row) && !/<td/i.test(row)) return;
-
             let commandId = null;
             const cmdIdMatch = row.match(/data-command-id="(\d+)"/) ||
                                row.match(/data-id="(\d+)"/) ||
@@ -1097,9 +1168,11 @@
                 else if (parts.length === 2) remainingSec = parts[0] * 60 + parts[1];
             }
 
-            const timeMatch = row.match(/(hoje|amanhã|today|tomorrow|[0-9\.\/]+)\s*(?:às|at|\s)\s*(\d{1,2}:\d{2}:\d{2}(?::\d{3})?)/i) ||
-                              row.match(/(\d{1,2}\.\d{1,2}\.(?:\d{2,4})?\s+\d{1,2}:\d{2}:\d{2})/i) ||
-                              row.match(/(\d{1,2}:\d{2}:\d{2}:\d{3})/i);
+            // Preservação de milissegundos na hora de chegada
+            const cleanRowForTime = row.replace(/<span class="grey small">(\d+)<\/span>/gi, ':$1');
+            const timeMatch = cleanRowForTime.match(/(hoje|amanhã|today|tomorrow|[0-9\.\/]+)\s*(?:às|at|\s)\s*(\d{1,2}:\d{2}:\d{2}(?::\d{1,3})?)/i) ||
+                              cleanRowForTime.match(/(\d{1,2}\.\d{1,2}\.(?:\d{2,4})?\s+\d{1,2}:\d{2}:\d{2})/i) ||
+                              cleanRowForTime.match(/(\d{1,2}:\d{2}:\d{2}:\d{1,3})/i);
             if (timeMatch) {
                 completionStr = timeMatch[0];
                 const parsedMs = parseTwDateTime(completionStr);
@@ -1138,7 +1211,7 @@
                 else label = tds[0].replace(/<[^>]+>/g, '').trim();
             }
 
-            // Deteção autoritária e precisa do tipo de comando (sem falsos positivos por botões de cancelar)
+            // Deteção autoritária do tipo de comando
             const cmdTypeAttr = (row.match(/data-command-type="([^"]+)"/i) || [])[1] || '';
             const iconSrcMatch = row.match(/src="([^"]*(?:command|graphic)[^"]*\.(?:png|webp|gif))"/i) ||
                                  row.match(/src="([^"]*(?:attack|return|support|back|cancel)[^"]*\.(?:png|webp|gif))"/i);
@@ -1192,8 +1265,8 @@
             const isMedium = /attack_medium|médio ataque/i.test(row);
             const isSmall = /attack_small|pequeno ataque/i.test(row);
 
-            let originName = fallbackVillageName || '';
-            let originCoords = fallbackCoords || '';
+            let originName = pageVName || fallbackVillageName || '';
+            let originCoords = pageVCoords || fallbackCoords || '';
             let targetName = '';
             let targetCoords = '';
 
@@ -1216,15 +1289,12 @@
                 const dCoordMatch = destTd.match(/(\d{1,3}\|\d{1,3})/);
                 if (dCoordMatch) targetCoords = dCoordMatch[1];
 
-                // Limpar prefixos repetidos do nome de destino
                 targetName = targetName.replace(/^(?:Ataque a|Saque a|Apoio a|Retorno de|Regresso de|Enviado de volta por)\s*/i, '').trim();
             } else {
                 // Layout B: Village Overview widget (commands_outgoings)
                 const rowCoords = row.match(/(\d{1,3}\|\d{1,3})/g) || [];
-                // originCoords é sempre a aldeia do jogador (home)
-                originCoords = fallbackCoords || '';
-                originName = fallbackVillageName || '';
-                // targetCoords é a aldeia remota
+                originCoords = pageVCoords || fallbackCoords || '';
+                originName = pageVName || fallbackVillageName || '';
                 targetCoords = rowCoords.length > 0 ? rowCoords[0] : '';
                 if (isReturn) {
                     targetName = label.replace(/^(?:Enviado de volta por|Retorno de|Regresso de)\s*/i, '').trim();
@@ -1233,7 +1303,7 @@
                 }
             }
 
-            if (!originCoords && fallbackCoords) originCoords = fallbackCoords;
+            if (!originCoords && pageVCoords) originCoords = pageVCoords;
             if (!targetCoords) {
                 const allCoords = row.match(/(\d{1,3}\|\d{1,3})/g) || [];
                 if (allCoords.length > 1) {
@@ -1643,128 +1713,7 @@
                 villageOverviewUrl ? safeFetch(villageOverviewUrl) : Promise.resolve('')
             ]);
 
-            // Identificar aldeias com nobres ou tropas de ataque em trânsito para caça direcionada de comandos
-            const warVillageIds = [];
-            if (rU) {
-                const trMatches = Array.from(rU.matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/gi));
-                let curVId = null;
-                trMatches.forEach(m => {
-                    const row = m[0];
-                    const vM = row.match(/class="[^"]*quickedit-vn[^"]*"[^>]*data-id="(\d+)"/i) || row.match(/village=(\d+)/i);
-                    if (vM) curVId = vM[1];
-                    if (curVId && (row.includes('em trânsito') || row.includes('transito') || row.includes('fora'))) {
-                        const hasSnob = /snob\.webp|graphic\/unit\/unit_snob/i.test(row);
-                        const hasRam = /ram\.webp|graphic\/unit\/unit_ram/i.test(row);
-                        const hasCat = /catapult\.webp|graphic\/unit\/unit_catapult/i.test(row);
-                        if (hasSnob || hasRam || hasCat) {
-                            if (!warVillageIds.includes(curVId)) warVillageIds.push(curVId);
-                        }
-                    }
-                });
-            }
-
-            const rCmdResponses = await fetchAllAccountCommandsHtml(makeUrl, safeFetch, warVillageIds);
-
-            // Deteção de Nobres em Treino na Academia (DOM da página atual + página snob direta + popup + train)
-            const allSnobProductions = [];
-            const addSnobProds = (list) => {
-                list.forEach(p => {
-                    const pVId = String(p.villageId || '');
-                    if (!allSnobProductions.some(existing => {
-                        const exVId = String(existing.villageId || '');
-                        const matchVillage = (exVId && pVId && exVId === pVId) || (existing.coords && p.coords && existing.coords === p.coords);
-                        return matchVillage && Math.abs(existing.readyAtMs - p.readyAtMs) < 30000;
-                    })) {
-                        allSnobProductions.push(p);
-                    }
-                });
-            };
-
-            addSnobProds(parseAcademyProduction(rSnobDirect, currentVId));
-            addSnobProds(parseAcademyProduction(rSnobPopup, currentVId));
-            addSnobProds(parseAcademyProduction(rSnobTrain, currentVId));
-            // Apenas recorre ao DOM do documento atual se ainda não encontramos produção direta para a aldeia atual
-            if (currentVId && !allSnobProductions.some(p => String(p.villageId) === String(currentVId))) {
-                addSnobProds(parseAcademyProduction(currentDocHtml, currentVId));
-            }
-
-            // Deteção de Nobres em Viagem / Comandos de Retorno
-            const allNobleReturns = [];
-            const addNobleReturns = (list) => {
-                list.forEach(ret => {
-                    const isDup = allNobleReturns.some(e => {
-                        if (e.commandId && ret.commandId) {
-                            return String(e.commandId) === String(ret.commandId);
-                        }
-                        const matchV = (e.coords && ret.coords) ? (e.coords === ret.coords) : (e.villageId && ret.villageId && String(e.villageId) === String(ret.villageId));
-                        return matchV && Math.abs(e.readyAtMs - ret.readyAtMs) < 2000 && e.remoteCoords === ret.remoteCoords;
-                    });
-                    if (!isDup) {
-                        allNobleReturns.push(ret);
-                    }
-                });
-            };
-
-            // 1. Deteção na página atual (se for overview ou place tem os comandos da aldeia)
-            addNobleReturns(parseCommandsNobleReturns(currentDocHtml, currentVId, currentVCoords));
-
-            // 2. Deteção na visão geral da aldeia obtida em background (se carregada)
-            if (rVillageOverview) {
-                addNobleReturns(parseCommandsNobleReturns(rVillageOverview, currentVId, currentVCoords));
-            }
-
-            // 3. Deteção na visão global de comandos
-            rCmdResponses.forEach(r => {
-                if (r) addNobleReturns(parseCommandsNobleReturns(r, currentVId, currentVCoords));
-            });
-
-            // 4. Extração completa de todos os Comandos & Retornos da Conta para o Módulo de Comandos
-            const cmdMap = new Map();
-            const addAllCmds = (list) => {
-                list.forEach(c => {
-                    if (!c) return;
-                    const k = c.commandId ? String(c.commandId) : `${c.originCoords}_${c.targetCoords}_${c.readyAtMs}_${c.completionStr || ''}_${c.type}`;
-                    if (!cmdMap.has(k)) {
-                        cmdMap.set(k, c);
-                    } else {
-                        const ex = cmdMap.get(k);
-                        if (!ex.originName && c.originName) ex.originName = c.originName;
-                        if (!ex.targetName && c.targetName) ex.targetName = c.targetName;
-                        if (!ex.hasSnob && c.hasSnob) ex.hasSnob = true;
-                        if (!ex.hasPaladin && c.hasPaladin) ex.hasPaladin = true;
-                    }
-                });
-            };
-
-            const currentVName = (typeof game_data !== 'undefined' && game_data.village && game_data.village.name) ? game_data.village.name : '';
-            rCmdResponses.forEach(r => {
-                if (r) addAllCmds(parseAllAccountCommands(r, currentVId, currentVCoords, currentVName));
-            });
-            if (currentDocHtml) addAllCmds(parseAllAccountCommands(currentDocHtml, currentVId, currentVCoords, currentVName));
-            if (rVillageOverview) addAllCmds(parseAllAccountCommands(rVillageOverview, currentVId, currentVCoords, currentVName));
-
-            allParsedCommands = Array.from(cmdMap.values()).sort((a, b) => a.readyAtMs - b.readyAtMs);
-
-            // Sincronizar todos os retornos com nobre para enriquecer a deteção militar
-            allParsedCommands.forEach(c => {
-                if (c.isReturn && c.hasSnob) {
-                    addNobleReturns([{
-                        commandId: c.commandId,
-                        villageId: (c.originCoords && currentVCoords && c.originCoords !== currentVCoords) ? null : currentVId,
-                        coords: c.originCoords || currentVCoords,
-                        remoteCoords: c.targetCoords,
-                        type: 'return',
-                        isReturn: true,
-                        timerStr: c.timerStr,
-                        remainingSec: c.remainingSec,
-                        completionStr: c.completionStr,
-                        readyAtMs: c.readyAtMs
-                    }]);
-                }
-            });
-
-            const allPendingNobleEvents = [...allSnobProductions, ...allNobleReturns];
-
+            // 1. Processar dados de Paladinos
             allAccountPaladins = parseKnightsFromHtml(rS);
             const paladinByVillage = {};
             allAccountPaladins.forEach(p => {
@@ -1773,6 +1722,7 @@
                 }
             });
 
+            // 2. Processar Fazenda e Pontos de Produção
             const parser = new DOMParser();
             const dU = parser.parseFromString(rU, 'text/html');
             const dP = parser.parseFromString(rP, 'text/html');
@@ -1809,6 +1759,7 @@
                 });
             });
 
+            // 3. Processar Tabela Militar (units_table) e Construir allVillages de Forma Completa
             let uTable = dU ? dU.querySelector('#units_table') : null;
             if (!uTable && typeof document !== 'undefined') {
                 uTable = document.querySelector('#units_table');
@@ -1834,229 +1785,215 @@
                 unitConfigs.forEach(u => { if(u.name) summary.units[u.name] = { count: 0, pop: 0, src: u.src }; });
 
                 Array.from(uTable.querySelectorAll('tbody')).forEach(tb => {
-                const a = tb.querySelector('a[href*="village="]');
-                if (!a) return;
-                const vId = (a.href.match(/village=(\d+)/)||[])[1];
-                if (!vId) return;
-                const vName = (tb.querySelector('.quickedit-label') || a).textContent.trim();
-                const coords = (vName.match(/(\d{3}\|\d{3})/)||[])[1]||'';
+                    const a = tb.querySelector('a[href*="village="]');
+                    if (!a) return;
+                    const vId = (a.href.match(/village=(\d+)/)||[])[1];
+                    if (!vId) return;
+                    const vName = (tb.querySelector('.quickedit-label') || a).textContent.trim();
+                    const coords = (vName.match(/(\d{3}\|\d{3})/)||[])[1]||'';
 
-                const rows = Array.from(tb.querySelectorAll('tr'));
-                let ownHomeRow = rows.find((tr, idx) => {
-                    if (rows.length > 1 && idx === rows.length - 1) return false;
-                    const txt = tr.textContent.trim().toLowerCase();
-                    return txt.includes('próprias') || txt.includes('own') || txt.includes('suas') || txt.includes('na aldeia') || txt.includes('da aldeia');
-                }) || rows[0];
+                    const rows = Array.from(tb.querySelectorAll('tr'));
+                    let ownHomeRow = rows.find((tr, idx) => {
+                        if (rows.length > 1 && idx === rows.length - 1) return false;
+                        const txt = tr.textContent.trim().toLowerCase();
+                        return txt.includes('próprias') || txt.includes('own') || txt.includes('suas') || txt.includes('na aldeia') || txt.includes('da aldeia');
+                    }) || rows[0];
 
-                let totalRow = rows.find((tr, idx) => {
-                    if (rows.length > 1 && idx === 0) return false;
-                    const firstCellText = (tr.querySelector('td, th')?.textContent || '').trim().toLowerCase();
-                    return firstCellText.includes('total') || tr.textContent.trim().toLowerCase().startsWith('total');
-                }) || rows[rows.length - 1];
+                    let totalRow = rows.find((tr, idx) => {
+                        if (rows.length > 1 && idx === 0) return false;
+                        const firstCellText = (tr.querySelector('td, th')?.textContent || '').trim().toLowerCase();
+                        return firstCellText.includes('total') || tr.textContent.trim().toLowerCase().startsWith('total');
+                    }) || rows[rows.length - 1];
 
-                if (rows.length > 1 && ownHomeRow === totalRow) {
-                    ownHomeRow = rows[0];
-                }
+                    if (rows.length > 1 && ownHomeRow === totalRow) {
+                        ownHomeRow = rows[0];
+                    }
 
-                let movingRow = rows.find(tr => {
-                    const txt = tr.textContent.trim().toLowerCase();
-                    return txt.includes('trânsito') || txt.includes('transito') || txt.includes('transit') || txt.includes('a caminho') || txt.includes('em viagem');
-                });
+                    let movingRow = rows.find(tr => {
+                        const txt = tr.textContent.trim().toLowerCase();
+                        return txt.includes('trânsito') || txt.includes('transito') || txt.includes('transit') || txt.includes('a caminho') || txt.includes('em viagem');
+                    });
 
-                let awayRow = rows.find(tr => {
-                    const txt = tr.textContent.trim().toLowerCase();
-                    return txt.includes('exterior') || txt.includes('away') || txt.includes('fora') || txt.includes('outras aldeias');
-                });
-                
-                const ownCells = Array.from(ownHomeRow.querySelectorAll('td.unit-item'));
-                const totalCells = Array.from(totalRow.querySelectorAll('td.unit-item'));
-                const movingCells = movingRow ? Array.from(movingRow.querySelectorAll('td.unit-item')) : [];
-                const awayCells = awayRow ? Array.from(awayRow.querySelectorAll('td.unit-item')) : [];
-                if (ownCells.length === 0 && totalCells.length === 0) return;
+                    let awayRow = rows.find(tr => {
+                        const txt = tr.textContent.trim().toLowerCase();
+                        return txt.includes('exterior') || txt.includes('away') || txt.includes('fora') || txt.includes('outras aldeias');
+                    });
+                    
+                    const ownCells = Array.from(ownHomeRow.querySelectorAll('td.unit-item'));
+                    const totalCells = Array.from(totalRow.querySelectorAll('td.unit-item'));
+                    const movingCells = movingRow ? Array.from(movingRow.querySelectorAll('td.unit-item')) : [];
+                    const awayCells = awayRow ? Array.from(awayRow.querySelectorAll('td.unit-item')) : [];
+                    if (ownCells.length === 0 && totalCells.length === 0) return;
 
-                const vTroops = [], dict = {}, homeDict = {}, movingDict = {}, awayDict = {};
-                let homePopTotal = 0, totalPopTotal = 0, movingPopTotal = 0, awayPopTotal = 0;
-                let homeOffPop = 0, totalOffPop = 0;
-                const vTot = { defense: 0, offense: 0, spy: 0, snob: 0, catapult: 0, ram: 0, knight: 0 };
-                const isSingleRowTable = (rows.length === 1);
+                    const vTroops = [], dict = {}, homeDict = {}, movingDict = {}, awayDict = {};
+                    let homePopTotal = 0, totalPopTotal = 0, movingPopTotal = 0, awayPopTotal = 0;
+                    let homeOffPop = 0, totalOffPop = 0;
+                    const vTot = { defense: 0, offense: 0, spy: 0, snob: 0, catapult: 0, ram: 0, knight: 0 };
+                    const isSingleRowTable = (rows.length === 1);
 
-                headers.forEach((th, i) => {
-                    const u = unitConfigs[i];
-                    const pop = defaultUnitPop[u.name] || 1;
+                    headers.forEach((th, i) => {
+                        const u = unitConfigs[i];
+                        const pop = defaultUnitPop[u.name] || 1;
 
-                    const totCell = totalCells[i];
-                    const tc = (totCell && !totCell.classList.contains('hidden')) ? parseInt(totCell.textContent.replace(/\./g,''),10)||0 : 0;
+                        const totCell = totalCells[i];
+                        const tc = (totCell && !totCell.classList.contains('hidden')) ? parseInt(totCell.textContent.replace(/\./g,''),10)||0 : 0;
 
-                    const ownCell = ownCells[i];
-                    const hc = (ownCell && !ownCell.classList.contains('hidden')) ? parseInt(ownCell.textContent.replace(/\./g,''),10)||0 : (isSingleRowTable ? tc : 0);
+                        const ownCell = ownCells[i];
+                        const hc = (ownCell && !ownCell.classList.contains('hidden')) ? parseInt(ownCell.textContent.replace(/\./g,''),10)||0 : (isSingleRowTable ? tc : 0);
 
-                    const movCell = movingCells[i];
-                    const mc = (movCell && !movCell.classList.contains('hidden')) ? parseInt(movCell.textContent.replace(/\./g,''),10)||0 : 0;
+                        const movCell = movingCells[i];
+                        const mc = (movCell && !movCell.classList.contains('hidden')) ? parseInt(movCell.textContent.replace(/\./g,''),10)||0 : 0;
 
-                    const awCell = awayCells[i];
-                    const ac = (awCell && !awCell.classList.contains('hidden')) ? parseInt(awCell.textContent.replace(/\./g,''),10)||0 : 0;
+                        const awCell = awayCells[i];
+                        const ac = (awCell && !awCell.classList.contains('hidden')) ? parseInt(awCell.textContent.replace(/\./g,''),10)||0 : 0;
 
-                    const finalTotal = tc > 0 ? tc : (hc + mc + ac);
-                    if (!u.isHidden) vTroops.push(finalTotal);
-                    dict[u.name] = finalTotal;
-                    homeDict[u.name] = hc;
-                    movingDict[u.name] = mc;
-                    awayDict[u.name] = ac;
+                        const finalTotal = tc > 0 ? tc : (hc + mc + ac);
+                        if (!u.isHidden) vTroops.push(finalTotal);
+                        dict[u.name] = finalTotal;
+                        homeDict[u.name] = hc;
+                        movingDict[u.name] = mc;
+                        awayDict[u.name] = ac;
 
-                    homePopTotal += hc * pop;
-                    totalPopTotal += finalTotal * pop;
-                    movingPopTotal += mc * pop;
-                    awayPopTotal += ac * pop;
+                        homePopTotal += hc * pop;
+                        totalPopTotal += finalTotal * pop;
+                        movingPopTotal += mc * pop;
+                        awayPopTotal += ac * pop;
 
-                    if (u.name && summary.units[u.name]) {
-                        summary.units[u.name].count += finalTotal;
-                        summary.units[u.name].pop += finalTotal * pop;
-                        summary.totalPop += finalTotal * pop;
+                        if (u.name && summary.units[u.name]) {
+                            summary.units[u.name].count += finalTotal;
+                            summary.units[u.name].pop += finalTotal * pop;
+                            summary.totalPop += finalTotal * pop;
 
-                        if (['spear','sword','heavy','catapult','archer','militia','knight'].includes(u.name)) {
-                            vTot.defense += finalTotal * pop;
+                            if (['spear','sword','heavy','catapult','archer','militia','knight'].includes(u.name)) {
+                                vTot.defense += finalTotal * pop;
+                            }
+                            if (['axe','light','ram','catapult','marcher'].includes(u.name)) {
+                                vTot.offense += finalTotal * pop;
+                                totalOffPop += finalTotal * pop;
+                                homeOffPop += hc * pop;
+                            }
+                            if (u.name === 'spy') vTot.spy += finalTotal * pop;
+                            if (u.name === 'snob') { vTot.snob += finalTotal; summary.snobCount += finalTotal; }
+                            if (u.name === 'catapult') vTot.catapult += finalTotal;
+                            if (u.name === 'ram') vTot.ram += finalTotal;
+                            if (u.name === 'knight') vTot.knight += hc;
                         }
-                        if (['axe','light','ram','catapult','marcher'].includes(u.name)) {
-                            vTot.offense += finalTotal * pop;
-                            totalOffPop += finalTotal * pop;
-                            homeOffPop += hc * pop;
+                    });
+
+                    let rowClass = '';
+                    if (vTot.offense > vTot.defense && vTot.offense >= 4000) {
+                        rowClass = 'tw-row-off';
+                        summary.offCount++;
+                    } else if (vTot.defense > vTot.offense && vTot.defense >= 4000) {
+                        rowClass = 'tw-row-def';
+                        summary.defCount++;
+                    }
+
+                    const farmInfo = farmMap[vId] || { txt:'N/A', used: 0, max: 24000, perc: 0, color:'#8b949e', lvl:'?' };
+
+                    let outsidePop = Math.max(0, totalPopTotal - homePopTotal);
+                    if (outsidePop === 0 && (movingPopTotal > 0 || awayPopTotal > 0)) {
+                        outsidePop = movingPopTotal + awayPopTotal;
+                    }
+                    if (outsidePop < 1000 && farmInfo.used >= 15000 && homePopTotal > 0) {
+                        const estimatedPop = Math.max(0, farmInfo.used - 3500);
+                        if (estimatedPop - homePopTotal > 1500) {
+                            outsidePop = estimatedPop - homePopTotal;
                         }
-                        if (u.name === 'spy') vTot.spy += finalTotal * pop;
-                        if (u.name === 'snob') { vTot.snob += finalTotal; summary.snobCount += finalTotal; }
-                        if (u.name === 'catapult') vTot.catapult += finalTotal;
-                        if (u.name === 'ram') vTot.ram += finalTotal;
-                        if (u.name === 'knight') vTot.knight += hc;
                     }
+
+                    const outsideOffPop = Math.max(0, totalOffPop - homeOffPop);
+                    const isFarming = movingPopTotal >= 300;
+                    const hasTroopsAway = (movingPopTotal >= 300) || (outsidePop >= 1000) || (outsideOffPop >= 1000);
+                    const troopsAwayPop = outsidePop;
+                    const totalTroopsArmyPop = totalPopTotal > 0 ? totalPopTotal : Math.max(1, (farmInfo.used - 3500));
+                    const troopsAwayPerc = Math.min(100, Math.max(0, Math.round((troopsAwayPop / totalTroopsArmyPop) * 100)));
+
+                    const is22kFull = farmInfo.used >= 22000;
+                    const snobsTotal = dict.snob || 0;
+                    const snobsHome = homeDict.snob || 0;
+                    const snobsMoving = movingDict.snob || 0;
+                    const snobsAway = awayDict.snob || 0;
+                    const snobsOutside = Math.max(snobsMoving + snobsAway, Math.max(0, snobsTotal - snobsHome));
+
+                    let roleTag = { label: 'Em Recrutamento', css: 'tw-tag-growth' };
+                    if (snobsTotal >= 4) {
+                        const awayBadge = snobsOutside > 0 ? ` ⚠️ ${snobsHome}/${snobsTotal}` : ` (${snobsTotal}N)`;
+                        if (is22kFull) {
+                            roleTag = { label: `👑 Full Train${awayBadge}`, css: 'tw-tag-train4' };
+                            summary.fullTrain22kCount++;
+                        } else {
+                            roleTag = { label: `👑 Train${awayBadge} <22k`, css: 'tw-tag-train4-rec' };
+                        }
+                    } else if (snobsTotal >= 2) {
+                        const awayBadge = snobsOutside > 0 ? ` ⚠️ ${snobsHome}/${snobsTotal}` : ` (${snobsTotal}N)`;
+                        roleTag = { label: `👑 Train${awayBadge}`, css: 'tw-tag-train2' };
+                        summary.semiTrainCount++;
+                    } else if (snobsTotal === 1) {
+                        const awayBadge = snobsOutside > 0 ? ` ⚠️ 0/1` : ` (1N)`;
+                        roleTag = { label: `👑 Nobre${awayBadge}`, css: 'tw-tag-snob1' };
+                    } else if (rowClass === 'tw-row-off') {
+                        if (is22kFull) {
+                            roleTag = { label: '⚔️ Full Nuke', css: 'tw-tag-nuke-full' };
+                            summary.fullNuke22kCount++;
+                        } else {
+                            roleTag = { label: '⚔️ Semi Nuke', css: 'tw-tag-nuke-semi' };
+                        }
+                    } else if (rowClass === 'tw-row-def') {
+                        if (is22kFull) {
+                            roleTag = { label: '🛡️ Full Bunker', css: 'tw-tag-bunk-full' };
+                            summary.fullBunk22kCount++;
+                        } else {
+                            roleTag = { label: '🛡️ Semi Bunker', css: 'tw-tag-bunk-semi' };
+                        }
+                    }
+
+                    const paladinInfo = paladinByVillage[vId] || null;
+                    const knightAvailable = paladinInfo ? (paladinInfo.isHome ? 1 : 0) : (homeDict.knight || 0);
+
+                    const vPoints = villagePointsMap[vId]
+                        || (worldVillages.find(wv => wv.id === vId || wv.coord === coords)?.points)
+                        || (typeof game_data !== 'undefined' && game_data.village && game_data.village.id == vId ? (game_data.village.points || 0) : 0)
+                        || 0;
+
+                    const vObj = {
+                        id: vId, name: vName, coords, points: vPoints, troops: vTroops, troopsDict: dict, homeTroopsDict: homeDict,
+                        movingTroopsDict: movingDict, awayTroopsDict: awayDict,
+                        knightAvailable, rowClass, roleTag,
+                        farm: farmInfo,
+                        snobsAvailable: snobsHome,
+                        snobsHome: snobsHome,
+                        snobsTotal: snobsTotal,
+                        snobsOutside: snobsOutside,
+                        snobsInProd: 0,
+                        snobsReturning: 0,
+                        noblePendingEvents: [],
+                        hasSnobsAway: snobsOutside > 0,
+                        totalOffPop: vTot.offense,
+                        totalDefPop: vTot.defense,
+                        homeOffPop,
+                        paladin: paladinInfo,
+                        homePopTotal,
+                        totalPopTotal,
+                        movingPopTotal,
+                        awayPopTotal,
+                        hasTroopsAway,
+                        isFarming,
+                        troopsAwayPop,
+                        troopsAwayPerc
+                    };
+
+                    for (const [catName, catData] of Object.entries(outputCategories)) {
+                        if (catData.test(vObj)) {
+                            summary.categories[catName].count++;
+                            summary.categories[catName].villageIds.push(vId);
+                            if (coords) summary.categories[catName].coords.push(coords);
+                        }
+                    }
+
+                    allVillages.push(vObj);
+                    villagesById[vId] = vObj;
                 });
-
-                let rowClass = '';
-                if (vTot.offense > vTot.defense && vTot.offense >= 4000) {
-                    rowClass = 'tw-row-off';
-                    summary.offCount++;
-                } else if (vTot.defense > vTot.offense && vTot.defense >= 4000) {
-                    rowClass = 'tw-row-def';
-                    summary.defCount++;
-                }
-
-                const farmInfo = farmMap[vId] || { txt:'N/A', used: 0, max: 24000, perc: 0, color:'#8b949e', lvl:'?' };
-
-                // Deteção inteligente de Tropas Fora / A Farmar
-                let outsidePop = Math.max(0, totalPopTotal - homePopTotal);
-                if (outsidePop === 0 && (movingPopTotal > 0 || awayPopTotal > 0)) {
-                    outsidePop = movingPopTotal + awayPopTotal;
-                }
-                // Deteção secundária baseada na Fazenda (se fazenda >= 15k mas homePop estiver muito abaixo)
-                if (outsidePop < 1000 && farmInfo.used >= 15000 && homePopTotal > 0) {
-                    const estimatedPop = Math.max(0, farmInfo.used - 3500);
-                    if (estimatedPop - homePopTotal > 1500) {
-                        outsidePop = estimatedPop - homePopTotal;
-                    }
-                }
-
-                const outsideOffPop = Math.max(0, totalOffPop - homeOffPop);
-                const isFarming = movingPopTotal >= 300;
-                const hasTroopsAway = (movingPopTotal >= 300) || (outsidePop >= 1000) || (outsideOffPop >= 1000);
-                const troopsAwayPop = outsidePop;
-                const totalTroopsArmyPop = totalPopTotal > 0 ? totalPopTotal : Math.max(1, (farmInfo.used - 3500));
-                const troopsAwayPerc = Math.min(100, Math.max(0, Math.round((troopsAwayPop / totalTroopsArmyPop) * 100)));
-
-                const is22kFull = farmInfo.used >= 22000;
-                const snobsTotal = dict.snob || 0;
-                const snobsHome = homeDict.snob || 0;
-                const snobsMoving = movingDict.snob || 0;
-                const snobsAway = awayDict.snob || 0;
-                const snobsOutside = Math.max(snobsMoving + snobsAway, Math.max(0, snobsTotal - snobsHome));
-                const snobHome = snobsHome;
-                const snobTotal = snobsTotal;
-                const snobOutside = snobsOutside;
-
-                let roleTag = { label: 'Em Recrutamento', css: 'tw-tag-growth' };
-                if (snobsTotal >= 4) {
-                    const awayBadge = snobsOutside > 0 ? ` ⚠️ ${snobsHome}/${snobsTotal}` : ` (${snobsTotal}N)`;
-                    if (is22kFull) {
-                        roleTag = { label: `👑 Full Train${awayBadge}`, css: 'tw-tag-train4' };
-                        summary.fullTrain22kCount++;
-                    } else {
-                        roleTag = { label: `👑 Train${awayBadge} <22k`, css: 'tw-tag-train4-rec' };
-                    }
-                } else if (snobsTotal >= 2) {
-                    const awayBadge = snobsOutside > 0 ? ` ⚠️ ${snobsHome}/${snobsTotal}` : ` (${snobsTotal}N)`;
-                    roleTag = { label: `👑 Train${awayBadge}`, css: 'tw-tag-train2' };
-                    summary.semiTrainCount++;
-                } else if (snobsTotal === 1) {
-                    const awayBadge = snobsOutside > 0 ? ` ⚠️ 0/1` : ` (1N)`;
-                    roleTag = { label: `👑 Nobre${awayBadge}`, css: 'tw-tag-snob1' };
-                } else if (rowClass === 'tw-row-off') {
-                    if (is22kFull) {
-                        roleTag = { label: '⚔️ Full Nuke', css: 'tw-tag-nuke-full' };
-                        summary.fullNuke22kCount++;
-                    } else {
-                        roleTag = { label: '⚔️ Semi Nuke', css: 'tw-tag-nuke-semi' };
-                    }
-                } else if (rowClass === 'tw-row-def') {
-                    if (is22kFull) {
-                        roleTag = { label: '🛡️ Full Bunker', css: 'tw-tag-bunk-full' };
-                        summary.fullBunk22kCount++;
-                    } else {
-                        roleTag = { label: '🛡️ Semi Bunker', css: 'tw-tag-bunk-semi' };
-                    }
-                }
-
-                const paladinInfo = paladinByVillage[vId] || null;
-                const knightAvailable = paladinInfo ? (paladinInfo.isHome ? 1 : 0) : (homeDict.knight || 0);
-
-                const vPoints = villagePointsMap[vId]
-                    || (worldVillages.find(wv => wv.id === vId || wv.coord === coords)?.points)
-                    || (typeof game_data !== 'undefined' && game_data.village && game_data.village.id == vId ? (game_data.village.points || 0) : 0)
-                    || 0;
-
-                const vEvents = allPendingNobleEvents.filter(e => {
-                    if (e.coords && coords) return e.coords === coords;
-                    if (!e.coords && e.villageId && vId) return String(e.villageId) === String(vId);
-                    return false;
-                });
-                vEvents.sort((a, b) => a.readyAtMs - b.readyAtMs);
-                const snobsInProd = vEvents.filter(e => e.type === 'production').length;
-                const snobsReturning = vEvents.filter(e => e.type === 'return').length;
-
-                const vObj = {
-                    id: vId, name: vName, coords, points: vPoints, troops: vTroops, troopsDict: dict, homeTroopsDict: homeDict,
-                    movingTroopsDict: movingDict, awayTroopsDict: awayDict,
-                    knightAvailable, rowClass, roleTag,
-                    farm: farmInfo,
-                    snobsAvailable: snobsHome,
-                    snobsHome: snobsHome,
-                    snobsTotal: snobsTotal,
-                    snobsOutside: snobsOutside,
-                    snobsInProd,
-                    snobsReturning,
-                    noblePendingEvents: vEvents,
-                    hasSnobsAway: snobsOutside > 0 || snobsInProd > 0,
-                    totalOffPop: vTot.offense,
-                    totalDefPop: vTot.defense,
-                    homeOffPop,
-                    paladin: paladinInfo,
-                    homePopTotal,
-                    totalPopTotal,
-                    movingPopTotal,
-                    awayPopTotal,
-                    hasTroopsAway,
-                    isFarming,
-                    troopsAwayPop,
-                    troopsAwayPerc
-                };
-
-                for (const [catName, catData] of Object.entries(outputCategories)) {
-                    if (catData.test(vObj)) {
-                        summary.categories[catName].count++;
-                        summary.categories[catName].villageIds.push(vId);
-                        if (coords) summary.categories[catName].coords.push(coords);
-                    }
-                }
-
-                allVillages.push(vObj);
-                villagesById[vId] = vObj;
-            });
             } else {
                 console.warn('[TW Tactical] uTable não disponível. Módulo militar e comandos continuam operacionais.');
                 showToast('⚠️ Aviso: Visão geral de tropas indisponível (requer CP). Comandos carregados!', 4000);
@@ -2076,7 +2013,148 @@
                 }
             }
 
-            // Enriquecer allParsedCommands com nomes de aldeias e distâncias
+            // 4. Identificar Aldeias de Guerra com Precisão Absoluta para Caça de Comandos
+            const activeWarVillages = allVillages.filter(v => {
+                const snobActive = (v.snobsTotal > 0) || (v.movingTroopsDict && v.movingTroopsDict.snob > 0) || (v.awayTroopsDict && v.awayTroopsDict.snob > 0);
+                const offMoving = (v.movingTroopsDict && ((v.movingTroopsDict.ram || 0) > 0 || (v.movingTroopsDict.catapult || 0) > 0 || (v.movingTroopsDict.axe || 0) >= 200 || (v.movingTroopsDict.light || 0) >= 100));
+                const isWarRole = v.rowClass === 'tw-row-off' || (v.roleTag && v.roleTag.label && (v.roleTag.label.includes('Train') || v.roleTag.label.includes('Nuke') || v.roleTag.label.includes('Nobre')));
+                return snobActive || offMoving || (isWarRole && v.hasTroopsAway);
+            });
+
+            // Grupos de Guerra nativos detetados no HTML
+            const warGroupIds = [];
+            const groupRegex = /group=(\d+)[^>]*>([^<]+)<\/a>/gi;
+            let gM;
+            const searchHtml = (rU || '') + ' ' + (typeof document !== 'undefined' ? (document.body?.innerHTML || '') : '');
+            while ((gM = groupRegex.exec(searchHtml)) !== null) {
+                const gId = gM[1];
+                const gName = gM[2].toLowerCase();
+                if (/war|ataque|nuke|snob|nobre|op\b|front/i.test(gName)) {
+                    if (!warGroupIds.includes(gId) && gId !== '0') warGroupIds.push(gId);
+                }
+            }
+
+            // 5. Recolha de Comandos da Conta (Overview Global + Grupos de Guerra + Overview de Aldeias de Guerra)
+            const rCmdResponses = await fetchAllAccountCommandsHtml(makeUrl, safeFetch, activeWarVillages, warGroupIds);
+
+            // 6. Deteção de Nobres em Treino na Academia (DOM da página atual + página snob direta + popup + train)
+            const allSnobProductions = [];
+            const addSnobProds = (list) => {
+                list.forEach(p => {
+                    const pVId = String(p.villageId || '');
+                    if (!allSnobProductions.some(existing => {
+                        const exVId = String(existing.villageId || '');
+                        const matchVillage = (exVId && pVId && exVId === pVId) || (existing.coords && p.coords && existing.coords === p.coords);
+                        return matchVillage && Math.abs(existing.readyAtMs - p.readyAtMs) < 30000;
+                    })) {
+                        allSnobProductions.push(p);
+                    }
+                });
+            };
+
+            addSnobProds(parseAcademyProduction(rSnobDirect, currentVId));
+            addSnobProds(parseAcademyProduction(rSnobPopup, currentVId));
+            addSnobProds(parseAcademyProduction(rSnobTrain, currentVId));
+            if (currentVId && !allSnobProductions.some(p => String(p.villageId) === String(currentVId))) {
+                addSnobProds(parseAcademyProduction(currentDocHtml, currentVId));
+            }
+
+            // 7. Deteção de Nobres em Viagem / Comandos de Retorno
+            const allNobleReturns = [];
+            const addNobleReturns = (list) => {
+                list.forEach(ret => {
+                    const isDup = allNobleReturns.some(e => {
+                        if (e.commandId && ret.commandId) {
+                            return String(e.commandId) === String(ret.commandId);
+                        }
+                        const matchV = (e.coords && ret.coords) ? (e.coords === ret.coords) : (e.villageId && ret.villageId && String(e.villageId) === String(ret.villageId));
+                        return matchV && Math.abs(e.readyAtMs - ret.readyAtMs) < 2000 && e.remoteCoords === ret.remoteCoords;
+                    });
+                    if (!isDup) {
+                        allNobleReturns.push(ret);
+                    }
+                });
+            };
+
+            addNobleReturns(parseCommandsNobleReturns(currentDocHtml, currentVId, currentVCoords));
+            if (rVillageOverview) {
+                addNobleReturns(parseCommandsNobleReturns(rVillageOverview, currentVId, currentVCoords));
+            }
+            rCmdResponses.forEach(r => {
+                if (!r) return;
+                const rawHtml = typeof r === 'string' ? r : (r.html || '');
+                const vId = r.villageId || currentVId;
+                const vCoords = r.coords || currentVCoords;
+                addNobleReturns(parseCommandsNobleReturns(rawHtml, vId, vCoords));
+            });
+
+            // 8. Extração completa de Comandos & Retornos
+            const cmdMap = new Map();
+            const addAllCmds = (list) => {
+                list.forEach(c => {
+                    if (!c) return;
+                    const k = c.commandId ? String(c.commandId) : `${c.originCoords}_${c.targetCoords}_${c.readyAtMs}_${c.completionStr || ''}_${c.type}`;
+                    if (!cmdMap.has(k)) {
+                        cmdMap.set(k, c);
+                    } else {
+                        const ex = cmdMap.get(k);
+                        if (!ex.originName && c.originName) ex.originName = c.originName;
+                        if (!ex.targetName && c.targetName) ex.targetName = c.targetName;
+                        if (!ex.hasSnob && c.hasSnob) ex.hasSnob = true;
+                        if (!ex.hasPaladin && c.hasPaladin) ex.hasPaladin = true;
+                    }
+                });
+            };
+
+            const currentVName = (typeof game_data !== 'undefined' && game_data.village && game_data.village.name) ? game_data.village.name : '';
+            rCmdResponses.forEach(r => {
+                if (!r) return;
+                const rawHtml = typeof r === 'string' ? r : (r.html || '');
+                const vId = r.villageId || currentVId;
+                const vCoords = r.coords || currentVCoords;
+                const vName = r.name || currentVName;
+                addAllCmds(parseAllAccountCommands(rawHtml, vId, vCoords, vName));
+            });
+            if (currentDocHtml) addAllCmds(parseAllAccountCommands(currentDocHtml, currentVId, currentVCoords, currentVName));
+            if (rVillageOverview) addAllCmds(parseAllAccountCommands(rVillageOverview, currentVId, currentVCoords, currentVName));
+
+            allParsedCommands = Array.from(cmdMap.values()).sort((a, b) => a.readyAtMs - b.readyAtMs);
+
+            // Sincronizar todos os retornos com nobre para enriquecer a deteção militar
+            allParsedCommands.forEach(c => {
+                if (c.isReturn && c.hasSnob) {
+                    addNobleReturns([{
+                        commandId: c.commandId,
+                        villageId: (c.originCoords && currentVCoords && c.originCoords !== currentVCoords) ? null : currentVId,
+                        coords: c.originCoords || currentVCoords,
+                        remoteCoords: c.targetCoords,
+                        type: 'return',
+                        isReturn: true,
+                        timerStr: c.timerStr,
+                        remainingSec: c.remainingSec,
+                        completionStr: c.completionStr,
+                        readyAtMs: c.readyAtMs
+                    }]);
+                }
+            });
+
+            const allPendingNobleEvents = [...allSnobProductions, ...allNobleReturns];
+
+            // 9. Atualizar status de Nobres em cada aldeia de allVillages
+            allVillages.forEach(v => {
+                const vEvents = allPendingNobleEvents.filter(e => {
+                    if (e.coords && v.coords) return e.coords === v.coords;
+                    if (!e.coords && e.villageId && v.id) return String(e.villageId) === String(v.id);
+                    return false;
+                });
+                vEvents.sort((a, b) => a.readyAtMs - b.readyAtMs);
+                v.noblePendingEvents = vEvents;
+                v.snobsInProd = vEvents.filter(e => e.type === 'production').length;
+                v.snobsReturning = vEvents.filter(e => e.type === 'return').length;
+                v.hasSnobsAway = (v.snobsOutside > 0) || (v.snobsInProd > 0) || (v.snobsReturning > 0);
+            });
+
+            // 10. Enriquecer allParsedCommands com nomes de aldeias e distâncias
             allParsedCommands.forEach(c => {
                 if (c.originCoords && !c.originName) {
                     const foundV = allVillages.find(v => v.coords === c.originCoords);
@@ -2092,7 +2170,7 @@
             });
 
             const cmdBadge = document.getElementById('tw-commands-count-badge');
-            if (cmdBadge) cmdBadge.textContent = allParsedCommands.length;
+            if (cmdBadge) cmdBadge.textContent = allParsedCommands.filter(c => c.isPlayerTarget).length;
 
             counterSummaryData = summary;
             updateMemoryHUD();
@@ -6622,20 +6700,20 @@
 
             const villageOverviewUrl = currentVId ? `/game.php?village=${currentVId}&screen=overview` : '';
 
-            const warVillageIds = [];
+            const activeWarVillages = [];
             if (typeof allVillages !== 'undefined' && Array.isArray(allVillages)) {
                 allVillages.forEach(v => {
-                    if (v.snobsOutside > 0 || (v.movingTroopsDict && v.movingTroopsDict.snob > 0) ||
-                        (v.movingTroopsDict && (v.movingTroopsDict.ram > 0 || v.movingTroopsDict.catapult > 0)) ||
-                        v.snobsReturning > 0 || (v.movingPopTotal && v.movingPopTotal > 1000) ||
-                        (v.paladin && v.movingTroopsDict && v.movingTroopsDict.knight > 0)) {
-                        warVillageIds.push(String(v.id));
+                    const snobActive = (v.snobsTotal > 0) || (v.movingTroopsDict && v.movingTroopsDict.snob > 0) || (v.awayTroopsDict && v.awayTroopsDict.snob > 0);
+                    const offMoving = (v.movingTroopsDict && ((v.movingTroopsDict.ram || 0) > 0 || (v.movingTroopsDict.catapult || 0) > 0 || (v.movingTroopsDict.axe || 0) >= 200 || (v.movingTroopsDict.light || 0) >= 100));
+                    const isWarRole = v.rowClass === 'tw-row-off' || (v.roleTag && v.roleTag.label && (v.roleTag.label.includes('Train') || v.roleTag.label.includes('Nuke') || v.roleTag.label.includes('Nobre')));
+                    if (snobActive || offMoving || (isWarRole && v.hasTroopsAway)) {
+                        activeWarVillages.push({ id: String(v.id), coords: v.coords, name: v.name });
                     }
                 });
             }
 
             const [rCmdResponses, rVillageOverview] = await Promise.all([
-                fetchAllAccountCommandsHtml(makeUrl, safeFetchCmd, warVillageIds),
+                fetchAllAccountCommandsHtml(makeUrl, safeFetchCmd, activeWarVillages),
                 villageOverviewUrl ? safeFetchCmd(villageOverviewUrl) : Promise.resolve('')
             ]);
 
@@ -6658,7 +6736,12 @@
             };
 
             rCmdResponses.forEach(r => {
-                if (r) addAllCmds(parseAllAccountCommands(r, currentVId, currentVCoords, currentVName));
+                if (!r) return;
+                const rawHtml = typeof r === 'string' ? r : (r.html || '');
+                const vId = r.villageId || currentVId;
+                const vCoords = r.coords || currentVCoords;
+                const vName = r.name || currentVName;
+                addAllCmds(parseAllAccountCommands(rawHtml, vId, vCoords, vName));
             });
             if (currentDocHtml) addAllCmds(parseAllAccountCommands(currentDocHtml, currentVId, currentVCoords, currentVName));
             if (rVillageOverview) addAllCmds(parseAllAccountCommands(rVillageOverview, currentVId, currentVCoords, currentVName));
@@ -6680,10 +6763,11 @@
             });
 
             const cmdBadge = document.getElementById('tw-commands-count-badge');
-            if (cmdBadge) cmdBadge.textContent = allParsedCommands.length;
+            const playerCmdsCount = allParsedCommands.filter(c => c.isPlayerTarget).length;
+            if (cmdBadge) cmdBadge.textContent = playerCmdsCount;
 
             renderCommandsTable();
-            showToast(`📡 ${allParsedCommands.length} comandos atualizados com sucesso!`);
+            showToast(`📡 ${playerCmdsCount} comandos de jogadores atualizados (${allParsedCommands.length} totais)!`);
         } catch (err) {
             showToast(`❌ Erro ao atualizar comandos: ${err.message}`);
         } finally {
