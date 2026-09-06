@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW Tactical Command Suite
 // @namespace    https://tribalwars.com.pt/
-// @version      3.2.20
+// @version      3.2.21
 // @description  Suite militar avançada para Tribal Wars PT: Módulo Tático de Comandos (Deteção Inteligente de Ataques Inimigos a Chegar com Identificação Real do Jogador Atacante e Aldeia de Origem, Ataques & Retornos com filtros, agrupamento por alvos, ordenação interativa por clique nos cabeçalhos de coluna, exclusão opcional de micro-saques Modo Turbo para velocidade máxima, purga automática de comandos expirados e timers sincronizados com o servidor), Exclusão de Horário Noturno (Bónus Noturno) no Impacto e no Envio com horas configuráveis, Calculador Automático de Horário Mínimo de Impacto (1º Impacto e Cobertura Total de Alvos com ajuste instantâneo a 1 clique), identificação visual de Hoje/Amanhã na tabela, balanceamento round-robin de alvos, escalonamento sem colisão em repetições e Fakes Inteligentes 1% Dinâmico por Pontos (_60, _90, _115, _135), Escoltas Anti-Snipe de Precisão Cirúrgica a 40ms antes de cada Nobre (janela anti-snipe personalizável), Bate e Volta com folga configurável de regresso (padrão seguro de 10s para PSEvolution e bots), Rastreio em Tempo Real de Nobres a Caminho & em Retorno de Comandos + Treino na Academia, Deteção Rigorosa de 0 Nobres em Casa por Isolamento de Linhas HTML & Cruzamento de Comandos Ativos, Deduplicação Rigorosa de Nobres & Teto Físico de Tropas Fora, Sincronização Server-Live sem Cache, Validação Precisa de Envio & Horário Mínimo de Ataque à Prova de Falhas (⚡ com 5m folga, cálculo inteligente de nobres a regressar e seleção do Nuke Full mais perto), Suporte Automático a Modelos NT (NT 33% para 3 nobres, NT 25% para 4 nobres), Bunkers Desligados por Default, Alvo Cats do Nuke Muralha por Default, Arsenal Tático de Fakes, UI de Limpezas/Nobres/Demolição, e Planeador Tático.
 // @author       Diogo & Antigravity
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -12,7 +12,7 @@
 // ==/UserScript==
 
 (async function () {
-    const SCRIPT_VERSION = '3.2.20';
+    const SCRIPT_VERSION = '3.2.21';
 
     // Auto-selecionar alvo de catapulta na confirmação de ataque na Praça de Reunião se especificado no URL
     try {
@@ -3255,8 +3255,76 @@
     }
 
     // ==========================================
-    // ABA 3: FAKES & MASCARAMENTO
+    // ABA 3: FAKES & MASCARAMENTO - FUNÇÕES AUXILIARES DE TEMPO & BÓNUS NOTURNO
     // ==========================================
+    const formatDatetimeLocal = (dateMs) => {
+        const d = new Date(dateMs);
+        const yr = d.getFullYear();
+        const mo = String(d.getMonth() + 1).padStart(2, '0');
+        const da = String(d.getDate()).padStart(2, '0');
+        const ho = String(d.getHours()).padStart(2, '0');
+        const mi = String(d.getMinutes()).padStart(2, '0');
+        const se = String(d.getSeconds()).padStart(2, '0');
+        return `${yr}-${mo}-${da}T${ho}:${mi}:${se}`;
+    };
+
+    const isNightTime = (ms, startHour = 0, endHour = 8) => {
+        const d = new Date(ms);
+        const h = d.getHours();
+        if (startHour <= endHour) {
+            return h >= startHour && h < endHour;
+        } else {
+            return h >= startHour || h < endHour;
+        }
+    };
+
+    const getNextDaytime = (ms, startHour = 0, endHour = 8) => {
+        const d = new Date(ms);
+        if (!isNightTime(d.getTime(), startHour, endHour)) return ms;
+        d.setMinutes(0, 0, 0);
+        if (startHour <= endHour) {
+            d.setHours(endHour);
+        } else {
+            if (d.getHours() >= startHour) {
+                d.setDate(d.getDate() + 1);
+            }
+            d.setHours(endHour);
+        }
+        return d.getTime();
+    };
+
+    const findEarliestValidTime = (minLaunchMs, travelSec, excludeImpact, excludeLaunch, nightStart = 0, nightEnd = 8) => {
+        if (!excludeImpact && !excludeLaunch) {
+            return { launchMs: minLaunchMs, landMs: minLaunchMs + (travelSec * 1000) };
+        }
+
+        let launchMs = minLaunchMs;
+        const stepLimit = 25;
+        let step = 0;
+
+        while (step < stepLimit) {
+            step++;
+            if (excludeLaunch && isNightTime(launchMs, nightStart, nightEnd)) {
+                launchMs = getNextDaytime(launchMs, nightStart, nightEnd);
+            }
+
+            const landMs = launchMs + (travelSec * 1000);
+
+            if (excludeImpact && isNightTime(landMs, nightStart, nightEnd)) {
+                const nextDayLandMs = getNextDaytime(landMs, nightStart, nightEnd);
+                const neededLaunchMs = nextDayLandMs - (travelSec * 1000);
+                if (neededLaunchMs >= minLaunchMs && (!excludeLaunch || !isNightTime(neededLaunchMs, nightStart, nightEnd))) {
+                    return { launchMs: neededLaunchMs, landMs: nextDayLandMs };
+                }
+                launchMs = nextDayLandMs;
+                continue;
+            }
+
+            return { launchMs, landMs };
+        }
+        return null;
+    };
+
     function renderFakes() {
         const now = new Date();
         const tomorrow = new Date(now.getTime() + 14 * 3600 * 1000);
@@ -3620,74 +3688,6 @@
             document.getElementById('tw-f-status').innerHTML = `<span style="color:#c084fc;">💾 Agendamento registado na memória por 1 hora (${count} origens reservadas)!</span>`;
         };
 
-        const formatDatetimeLocal = (dateMs) => {
-            const d = new Date(dateMs);
-            const yr = d.getFullYear();
-            const mo = String(d.getMonth() + 1).padStart(2, '0');
-            const da = String(d.getDate()).padStart(2, '0');
-            const ho = String(d.getHours()).padStart(2, '0');
-            const mi = String(d.getMinutes()).padStart(2, '0');
-            const se = String(d.getSeconds()).padStart(2, '0');
-            return `${yr}-${mo}-${da}T${ho}:${mi}:${se}`;
-        };
-
-        const isNightTime = (ms, startHour = 0, endHour = 8) => {
-            const d = new Date(ms);
-            const h = d.getHours();
-            if (startHour <= endHour) {
-                return h >= startHour && h < endHour;
-            } else {
-                return h >= startHour || h < endHour;
-            }
-        };
-
-        const getNextDaytime = (ms, startHour = 0, endHour = 8) => {
-            const d = new Date(ms);
-            if (!isNightTime(d.getTime(), startHour, endHour)) return ms;
-            d.setMinutes(0, 0, 0);
-            if (startHour <= endHour) {
-                d.setHours(endHour);
-            } else {
-                if (d.getHours() >= startHour) {
-                    d.setDate(d.getDate() + 1);
-                }
-                d.setHours(endHour);
-            }
-            return d.getTime();
-        };
-
-        const findEarliestValidTime = (minLaunchMs, travelSec, excludeImpact, excludeLaunch, nightStart = 0, nightEnd = 8) => {
-            if (!excludeImpact && !excludeLaunch) {
-                return { launchMs: minLaunchMs, landMs: minLaunchMs + (travelSec * 1000) };
-            }
-
-            let launchMs = minLaunchMs;
-            const stepLimit = 25;
-            let step = 0;
-
-            while (step < stepLimit) {
-                step++;
-                if (excludeLaunch && isNightTime(launchMs, nightStart, nightEnd)) {
-                    launchMs = getNextDaytime(launchMs, nightStart, nightEnd);
-                }
-
-                const landMs = launchMs + (travelSec * 1000);
-
-                if (excludeImpact && isNightTime(landMs, nightStart, nightEnd)) {
-                    const nextDayLandMs = getNextDaytime(landMs, nightStart, nightEnd);
-                    const neededLaunchMs = nextDayLandMs - (travelSec * 1000);
-                    if (neededLaunchMs >= minLaunchMs && (!excludeLaunch || !isNightTime(neededLaunchMs, nightStart, nightEnd))) {
-                        return { launchMs: neededLaunchMs, landMs: nextDayLandMs };
-                    }
-                    launchMs = nextDayLandMs;
-                    continue;
-                }
-
-                return { launchMs, landMs };
-            }
-            return null;
-        };
-
         const updateFakesHUD = () => {
             const raw = document.getElementById('tw-f-targets').value;
             const tList = Array.from(new Set(raw.match(/\d{3}\|\d{3}/g) || []));
@@ -3853,7 +3853,8 @@
     }
 
     async function buildFakePlan(format = 'russo') {
-        const raw = document.getElementById('tw-f-targets').value;
+        try {
+            const raw = document.getElementById('tw-f-targets').value;
         const targets = Array.from(new Set(raw.match(/\d{3}\|\d{3}/g) || []));
         if (targets.length === 0) {
             alert('Por favor insere ou seleciona no mapa pelo menos uma coordenada alvo válida (ex: 500|500).');
@@ -4110,7 +4111,11 @@
             document.getElementById('tw-f-status').innerHTML = `<span style="color:#34d399;">✅ ${commands.length} fakes gerados e copiados para o Clipboard!</span>`;
             showToast(`⚡ ${commands.length} Fakes copiados para a Área de Transferência!`);
         }
+    } catch (err) {
+        console.error('Erro em buildFakePlan:', err);
+        alert('❌ Erro ao gerar plano de fakes: ' + (err?.message || err));
     }
+}
 
     // ==========================================
     // ABA 4: PLANEADOR DE ATAQUES & CAMPANHA MULTIALVO
