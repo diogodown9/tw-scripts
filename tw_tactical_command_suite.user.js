@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW Tactical Command Suite
 // @namespace    https://tribalwars.com.pt/
-// @version      3.2.27
+// @version      3.2.28
 // @description  Suite militar avançada para Tribal Wars PT: Módulo Tático de Comandos (Deteção Inteligente de Ataques Inimigos a Chegar com Identificação Real do Jogador Atacante e Aldeia de Origem, Ataques & Retornos com filtros, agrupamento por alvos, ordenação interativa por clique nos cabeçalhos de coluna, exclusão opcional de micro-saques Modo Turbo para velocidade máxima, purga automática de comandos expirados e timers sincronizados com o servidor), Exclusão de Horário Noturno (Bónus Noturno) no Impacto e no Envio com horas configuráveis, Calculador Automático de Horário Mínimo de Impacto com Folga de Envio Configurável (1º Impacto e Cobertura Total de Alvos com ajuste instantâneo a 1 clique), identificação visual de Hoje/Amanhã na tabela, balanceamento round-robin de alvos, escalonamento sem colisão em repetições e Fakes Inteligentes 1% Dinâmico por Pontos (_60, _90, _115, _135), Escoltas Anti-Snipe de Precisão Cirúrgica a 40ms antes de cada Nobre (janela anti-snipe personalizável), Bate e Volta com folga configurável de regresso (padrão seguro de 10s para PSEvolution e bots), Rastreio em Tempo Real de Nobres a Caminho & em Retorno de Comandos + Treino na Academia, Deteção Rigorosa de 0 Nobres em Casa por Isolamento de Linhas HTML & Cruzamento de Comandos Ativos, Deduplicação Rigorosa de Nobres & Teto Físico de Tropas Fora, Sincronização Server-Live sem Cache, Validação Precisa de Envio & Horário Mínimo de Ataque à Prova de Falhas (⚡ com 5m folga, cálculo inteligente de nobres a regressar e seleção do Nuke Full mais perto), Suporte Automático a Modelos NT (NT 33% para 3 nobres, NT 25% para 4 nobres), Bunkers Desligados por Default, Alvo Cats do Nuke Muralha por Default, Arsenal Tático de Fakes, UI de Limpezas/Nobres/Demolição, e Planeador Tático.
 // @author       Diogo & Antigravity
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -12,7 +12,7 @@
 // ==/UserScript==
 
 (async function () {
-    const SCRIPT_VERSION = '3.2.27';
+    const SCRIPT_VERSION = '3.2.28';
 
     // Auto-selecionar alvo de catapulta na confirmação de ataque na Praça de Reunião se especificado no URL
     try {
@@ -3723,7 +3723,11 @@
 
         const updateFakesHUD = () => {
             const raw = document.getElementById('tw-f-targets').value;
-            const tList = Array.from(new Set(raw.match(/\d{3}\|\d{3}/g) || []));
+            const rawList = Array.from(new Set(raw.match(/\d{3}\|\d{3}/g) || []));
+            const ownCoords = new Set(allVillages.map(v => v.coords));
+            const tList = rawList.filter(coord => !ownCoords.has(coord));
+            const ownIgnoredCount = rawList.length - tList.length;
+
             const perTarget = parseInt(document.getElementById('tw-f-pertarget').value, 10) || 1;
             const unit = document.getElementById('tw-f-unit').value;
             const group = document.getElementById('tw-f-group').value;
@@ -3747,7 +3751,8 @@
             const totalRequested = tList.length * perTarget;
             const maxCapacity = pool.length * maxPerOrigin;
 
-            document.getElementById('tw-f-hud-targets').innerHTML = `${tList.length} <span style="font-size:12px; color:#94a3b8; font-weight:normal;">Alvos</span>`;
+            const ownNote = ownIgnoredCount > 0 ? ` <span style="font-size:9.5px; color:#fbbf24;" title="${ownIgnoredCount} coordenadas da tua própria conta foram excluídas da lista de alvos">(${ownIgnoredCount} próprias excluídas)</span>` : '';
+            document.getElementById('tw-f-hud-targets').innerHTML = `${tList.length} <span style="font-size:12px; color:#94a3b8; font-weight:normal;">Alvos</span>${ownNote}`;
             document.getElementById('tw-f-hud-origins').innerHTML = `${pool.length} <span style="font-size:12px; color:#94a3b8; font-weight:normal;">Aldeias</span>`;
 
             const capEl = document.getElementById('tw-f-hud-capacity');
@@ -3925,11 +3930,23 @@
     async function buildFakePlan(format = 'russo') {
         try {
             const raw = document.getElementById('tw-f-targets').value;
-        const targets = Array.from(new Set(raw.match(/\d{3}\|\d{3}/g) || []));
-        if (targets.length === 0) {
-            alert('Por favor insere ou seleciona no mapa pelo menos uma coordenada alvo válida (ex: 500|500).');
-            return;
-        }
+            const rawList = Array.from(new Set(raw.match(/\d{3}\|\d{3}/g) || []));
+            const ownCoords = new Set(allVillages.map(v => v.coords));
+            const targets = rawList.filter(coord => !ownCoords.has(coord));
+            const ownIgnoredCount = rawList.length - targets.length;
+
+            if (targets.length === 0) {
+                if (rawList.length > 0 && ownIgnoredCount === rawList.length) {
+                    alert('⚠️ Todas as coordenadas inseridas pertencem à tua própria conta. Por favor insere coordenadas de aldeias inimigas ou bárbaras.');
+                } else {
+                    alert('Por favor insere ou seleciona no mapa pelo menos uma coordenada alvo válida (ex: 500|500).');
+                }
+                return;
+            }
+
+            if (ownIgnoredCount > 0) {
+                showToast(`ℹ️ ${ownIgnoredCount} coordenada(s) da tua própria conta foram ignoradas.`);
+            }
 
         const strategy = document.getElementById('tw-f-ai').value;
         const group = document.getElementById('tw-f-group').value;
@@ -4000,7 +4017,7 @@
         const commands = [];
         const speedMin = unitSpeedMinutes[unit] || unitSpeedMinutes.ram;
 
-        // Pré-calcular candidatos válidos para cada alvo
+        const isExact = (strategy === 'sync' || strategy === 'fake_train');
         const targetPools = {};
         targets.forEach(targetCoord => {
             targetPools[targetCoord] = pool
@@ -4010,15 +4027,24 @@
                     const travelSec = dist * speedMin * 60;
                     return { village: v, dist, travelSec };
                 }).filter(item => {
-                if (nightExclude) {
-                    const valid = findEarliestValidTime(minLaunchMs, item.travelSec, nightImpact, nightLaunch, nightStart, nightEnd);
-                    if (!valid) return false;
-                    return valid.landMs <= endMs;
-                } else {
-                    const minPossibleLand = minLaunchMs + (item.travelSec * 1000);
-                    return minPossibleLand <= endMs;
-                }
-            }).sort((a, b) => a.dist - b.dist);
+                    if (isExact) {
+                        const landMs = startMs;
+                        const launchMs = landMs - (item.travelSec * 1000);
+                        if (launchMs < minLaunchMs) return false;
+                        if (nightExclude && nightLaunch && isNightTime(launchMs, nightStart, nightEnd)) return false;
+                        if (nightExclude && nightImpact && isNightTime(landMs, nightStart, nightEnd)) return false;
+                        return true;
+                    } else {
+                        if (nightExclude) {
+                            const valid = findEarliestValidTime(minLaunchMs, item.travelSec, nightImpact, nightLaunch, nightStart, nightEnd);
+                            if (!valid) return false;
+                            return valid.landMs <= endMs;
+                        } else {
+                            const minPossibleLand = minLaunchMs + (item.travelSec * 1000);
+                            return minPossibleLand <= endMs;
+                        }
+                    }
+                }).sort((a, b) => a.dist - b.dist);
         });
 
         const targetOriginCount = {};
@@ -4028,7 +4054,10 @@
             assignedPerTarget[t] = 0;
         });
 
-        // Distribuição Round-Robin entre os alvos para maximizar cobertura
+        const villageLaunchTimes = {};
+        pool.forEach(v => villageLaunchTimes[v.id] = []);
+
+        // Distribuição Round-Robin inteligente priorizando alvos com maior restrição (Most Constrained First)
         let round = 0;
         let candidateAssignedInRound = true;
         let nightLaunchSkippedCount = 0;
@@ -4036,8 +4065,15 @@
         while (round < fakesPerTarget && candidateAssignedInRound) {
             candidateAssignedInRound = false;
 
-            for (let tIdx = 0; tIdx < targets.length; tIdx++) {
-                const targetCoord = targets[tIdx];
+            // Ordena alvos pelos que têm menos opções viáveis restantes para evitar inanição de alvos difíceis
+            const sortedTargets = [...targets].sort((a, b) => {
+                const countA = (targetPools[a] || []).filter(c => originUsage[c.village.id] < maxPerOrigin).length;
+                const countB = (targetPools[b] || []).filter(c => originUsage[c.village.id] < maxPerOrigin).length;
+                return countA - countB;
+            });
+
+            for (let tIdx = 0; tIdx < sortedTargets.length; tIdx++) {
+                const targetCoord = sortedTargets[tIdx];
                 if (assignedPerTarget[targetCoord] >= fakesPerTarget) continue;
 
                 const poolForTarget = targetPools[targetCoord];
@@ -4054,10 +4090,19 @@
                     let launchMs;
 
                     if (strategy === 'sync') {
-                        // Se a mesma aldeia repetir para o mesmo alvo, desfasa 200ms para evitar colisão no servidor
-                        landMs = startMs + (usedForThisTarget * 200);
-                        if (nightExclude && nightImpact && isNightTime(landMs, nightStart, nightEnd)) continue;
+                        // Desfasamento para evitar colisões no servidor e agendador
+                        const prevLaunchesForOrigin = villageLaunchTimes[cand.village.id] || [];
+                        let staggerStep = usedForThisTarget;
+                        landMs = startMs + (staggerStep * 200);
                         launchMs = landMs - (cand.travelSec * 1000);
+
+                        while (prevLaunchesForOrigin.some(t => Math.abs(t - launchMs) < 200) && staggerStep < 10) {
+                            staggerStep++;
+                            landMs = startMs + (staggerStep * 200);
+                            launchMs = landMs - (cand.travelSec * 1000);
+                        }
+
+                        if (nightExclude && nightImpact && isNightTime(landMs, nightStart, nightEnd)) continue;
                         if (launchMs < minLaunchMs) continue;
                         if (nightExclude && nightLaunch && isNightTime(launchMs, nightStart, nightEnd)) {
                             nightLaunchSkippedCount++;
@@ -4072,7 +4117,7 @@
                             nightLaunchSkippedCount++;
                             continue;
                         }
-                    } else if (strategy === 'spam' || strategy === 'chaos') {
+                    } else if (strategy === 'spam') {
                         let earliestViableLand = minLaunchMs + (cand.travelSec * 1000);
                         if (nightExclude) {
                             const valid = findEarliestValidTime(minLaunchMs, cand.travelSec, nightImpact, nightLaunch, nightStart, nightEnd);
@@ -4082,13 +4127,16 @@
                         earliestViableLand = Math.max(startMs, earliestViableLand);
                         if (earliestViableLand > endMs) continue;
 
-                        const ratio = (tIdx * fakesPerTarget + assignedPerTarget[targetCoord]) / (targets.length * fakesPerTarget);
+                        // Distribuição contínua uniforme por alvo ao longo de toda a janela
+                        const targetFakeIdx = assignedPerTarget[targetCoord];
+                        const baseRatio = (targetFakeIdx + 0.5) / fakesPerTarget;
+                        const tOffset = (tIdx / Math.max(1, targets.length)) * (0.4 / fakesPerTarget);
+                        const ratio = Math.min(0.99, Math.max(0.01, baseRatio + tOffset));
                         const theoreticalLandMs = startMs + (ratio * (endMs - startMs));
 
                         if (theoreticalLandMs >= earliestViableLand) {
                             landMs = theoreticalLandMs;
                         } else {
-                            // Adapta a chegada para o intervalo viável desta aldeia dentro da janela para não descartar o fake
                             landMs = earliestViableLand + (ratio * (endMs - earliestViableLand));
                         }
 
@@ -4119,10 +4167,17 @@
                             }
                         }
 
+                        // Prevenção de colisão de lançamento para a mesma aldeia
+                        const prevLaunches = villageLaunchTimes[cand.village.id] || [];
+                        if (prevLaunches.some(t => Math.abs(t - launchMs) < 1000)) {
+                            launchMs += 1000;
+                            landMs += 1000;
+                        }
+
                         if (launchMs < minLaunchMs || landMs > endMs) continue;
                         if (nightExclude && nightImpact && isNightTime(landMs, nightStart, nightEnd)) continue;
                         if (nightExclude && nightLaunch && isNightTime(launchMs, nightStart, nightEnd)) continue;
-                    } else {
+                    } else if (strategy === 'chaos') {
                         let earliestViableLand = minLaunchMs + (cand.travelSec * 1000);
                         if (nightExclude) {
                             const valid = findEarliestValidTime(minLaunchMs, cand.travelSec, nightImpact, nightLaunch, nightStart, nightEnd);
@@ -4158,6 +4213,13 @@
                             }
                         }
 
+                        // Prevenção de colisão de lançamento para a mesma aldeia
+                        const prevLaunches = villageLaunchTimes[cand.village.id] || [];
+                        if (prevLaunches.some(t => Math.abs(t - launchMs) < 1000)) {
+                            launchMs += 1000;
+                            landMs += 1000;
+                        }
+
                         if (launchMs < minLaunchMs || landMs > endMs) continue;
                         if (nightExclude && nightImpact && isNightTime(landMs, nightStart, nightEnd)) continue;
                         if (nightExclude && nightLaunch && isNightTime(launchMs, nightStart, nightEnd)) continue;
@@ -4166,6 +4228,7 @@
                     originUsage[cand.village.id]++;
                     targetOriginCount[targetCoord][cand.village.id] = usedForThisTarget + 1;
                     assignedPerTarget[targetCoord]++;
+                    villageLaunchTimes[cand.village.id].push(launchMs);
                     candidateAssignedInRound = true;
 
                     const fakeModelRes = resolveFakeModel(cand.village, modelName, isSmartFake);
@@ -4251,7 +4314,6 @@
         document.getElementById('tw-f-preview').value = output.trim();
         await navigator.clipboard.writeText(output.trim());
 
-        const isExact = (strategy === 'sync' || strategy === 'fake_train');
         const limitTimeMs = isExact ? startMs : endMs;
         const totalExpected = targets.length * fakesPerTarget;
         const maxCapacity = pool.length * maxPerOrigin;
