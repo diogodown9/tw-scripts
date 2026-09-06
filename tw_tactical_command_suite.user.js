@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TW Tactical Command Suite
 // @namespace    https://tribalwars.com.pt/
-// @version      3.2.14
-// @description  Suite militar avançada para Tribal Wars PT: Módulo Tático de Comandos (Ataques & Retornos com filtros, agrupamento por alvos, ordenação interativa por clique nos cabeçalhos de coluna, exclusão opcional de micro-saques Modo Turbo para velocidade máxima, purga automática de comandos expirados e timers sincronizados com o servidor), Escoltas Anti-Snipe de Precisão Cirúrgica a 40ms antes de cada Nobre (janela anti-snipe personalizável), Bate e Volta com folga configurável de regresso (padrão seguro de 10s para PSEvolution e bots), Rastreio em Tempo Real de Nobres a Caminho & em Retorno de Comandos + Treino na Academia, Deteção Rigorosa de 0 Nobres em Casa por Isolamento de Linhas HTML & Cruzamento de Comandos Ativos, Deduplicação Rigorosa de Nobres & Teto Físico de Tropas Fora, Sincronização Server-Live sem Cache, Validação Precisa de Envio & Horário Mínimo de Ataque à Prova de Falhas (⚡ com 5m folga, cálculo inteligente de nobres a regressar e seleção do Nuke Full mais perto), Suporte Automático a Modelos NT (NT 33% para 3 nobres, NT 25% para 4 nobres), Bunkers Desligados por Default, Alvo Cats do Nuke Muralha por Default, Fakes Inteligentes 1% Dinâmico, Arsenal Tático de Fakes, UI de Limpezas/Nobres/Demolição, e Planeador Tático.
+// @version      3.2.15
+// @description  Suite militar avançada para Tribal Wars PT: Módulo Tático de Comandos (Deteção Inteligente de Ataques Inimigos a Chegar com Identificação Real do Jogador Atacante e Aldeia de Origem, Ataques & Retornos com filtros, agrupamento por alvos, ordenação interativa por clique nos cabeçalhos de coluna, exclusão opcional de micro-saques Modo Turbo para velocidade máxima, purga automática de comandos expirados e timers sincronizados com o servidor), Escoltas Anti-Snipe de Precisão Cirúrgica a 40ms antes de cada Nobre (janela anti-snipe personalizável), Bate e Volta com folga configurável de regresso (padrão seguro de 10s para PSEvolution e bots), Rastreio em Tempo Real de Nobres a Caminho & em Retorno de Comandos + Treino na Academia, Deteção Rigorosa de 0 Nobres em Casa por Isolamento de Linhas HTML & Cruzamento de Comandos Ativos, Deduplicação Rigorosa de Nobres & Teto Físico de Tropas Fora, Sincronização Server-Live sem Cache, Validação Precisa de Envio & Horário Mínimo de Ataque à Prova de Falhas (⚡ com 5m folga, cálculo inteligente de nobres a regressar e seleção do Nuke Full mais perto), Suporte Automático a Modelos NT (NT 33% para 3 nobres, NT 25% para 4 nobres), Bunkers Desligados por Default, Alvo Cats do Nuke Muralha por Default, Fakes Inteligentes 1% Dinâmico, Arsenal Tático de Fakes, UI de Limpezas/Nobres/Demolição, e Planeador Tático.
 // @author       Diogo & Antigravity
 // @match        https://*.tribalwars.com.pt/game.php*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=tribalwars.com.pt
@@ -12,7 +12,7 @@
 // ==/UserScript==
 
 (async function () {
-    const SCRIPT_VERSION = '3.2.14';
+    const SCRIPT_VERSION = '3.2.15';
 
     // Auto-selecionar alvo de catapulta na confirmação de ataque na Praça de Reunião se especificado no URL
     try {
@@ -961,13 +961,15 @@
                 const bytes = res ? res.length : 0;
                 if (res && (
                     res.includes('commands_table') ||
+                    res.includes('incomings_table') ||
+                    res.includes('commands_incomings') ||
                     res.includes('screen=info_command') ||
                     res.includes('data-command-id') ||
                     res.includes('command_hover_details') ||
                     res.includes('command-row') ||
                     res.includes('commands_outgoings') ||
-                    (res.includes('overview_table') && res.includes('mode=commands')) ||
-                    (res.includes('overview_villages') && res.includes('commands'))
+                    (res.includes('overview_table') && (res.includes('mode=commands') || res.includes('mode=incomings'))) ||
+                    (res.includes('overview_villages') && (res.includes('commands') || res.includes('incomings')))
                 )) {
                     const ids = extractIds(res);
                     if (window.twCommandDiagnostics) window.twCommandDiagnostics.add(url, '200 OK', bytes, ids.length, label);
@@ -1048,6 +1050,22 @@
             const rHtml = await fetchSingleUrl(rEp, 'global-returns-page');
             if (rHtml && (rHtml.includes('commands_table') || extractIds(rHtml).length > 0)) {
                 addPageHtml(rHtml, currentVId, currentVCoords, currentVName, 'global-returns');
+                break;
+            }
+        }
+
+        // 3b. Consulta canónica da aba de comandos a chegar (Incomings / Ataques Inimigos à conta com nomes de jogador e aldeias)
+        const incomingEndpoints = [
+            currentVId ? `/game.php?village=${currentVId}&screen=overview_villages&mode=incomings&type=unignored&subtype=all&group=0&page=-1${sitterParam}` : '',
+            `/game.php?screen=overview_villages&mode=incomings&type=unignored&subtype=all&group=0&page=-1${sitterParam}`,
+            currentVId ? `/game.php?village=${currentVId}&screen=overview_villages&mode=incomings&group=0&page=-1${sitterParam}` : '',
+            `/game.php?screen=overview_villages&mode=incomings&group=0&page=-1${sitterParam}`
+        ].filter(Boolean);
+
+        for (const inEp of incomingEndpoints) {
+            const inHtml = await fetchSingleUrl(inEp, 'global-incomings-page');
+            if (inHtml && (inHtml.includes('incomings_table') || extractIds(inHtml).length > 0)) {
+                addPageHtml(inHtml, currentVId, currentVCoords, currentVName, 'global-incomings');
                 break;
             }
         }
@@ -1459,8 +1477,50 @@
             let originCoords = pageVCoords || fallbackCoords || '';
             let targetName = '';
             let targetCoords = '';
+            let dist = null;
 
-            if (tds.length >= 4) {
+            const isIncomingTable = html.includes('incomings_table') || (row.includes('data-command-type="other"') && tds.length >= 6);
+            const isIncomingWidget = (html.includes('commands_incomings') && (row.includes('type=other') || /screen=info_command[^"]*type=other/i.test(row))) || (row.includes('type=other') && !isReturn && !isSupport);
+            const isIncoming = isIncomingTable || isIncomingWidget || /screen=info_command[^"]*type=other/i.test(row);
+            let attackerPlayerName = '';
+
+            if (isIncoming && isIncomingTable && tds.length >= 5) {
+                // Layout incomings_table:
+                // tds[0]: Comando / Etiqueta
+                // tds[1]: Destino (Tua Aldeia atacada)
+                // tds[2]: Origem (Aldeia Atacante)
+                // tds[3]: Jogador (Atacante)
+                // tds[4]: Distância
+                // tds[5]: Chegada
+                const destTd = tds[1];
+                const origTd = tds[2];
+                const playerTd = tds[3];
+                const distTd = tds.length >= 6 ? tds[4] : null;
+
+                const dCoordMatch = destTd.match(/(\d{1,3}\|\d{1,3})/);
+                if (dCoordMatch) targetCoords = dCoordMatch[1];
+                targetName = destTd.replace(/<[^>]+>/g, '').replace(/\(\d{1,3}\|\d{1,3}\).*$/, '').trim();
+
+                const oCoordMatch = origTd.match(/(\d{1,3}\|\d{1,3})/);
+                if (oCoordMatch) originCoords = oCoordMatch[1];
+                originName = origTd.replace(/<[^>]+>/g, '').replace(/\(\d{1,3}\|\d{1,3}\).*$/, '').trim();
+
+                attackerPlayerName = playerTd ? playerTd.replace(/<[^>]+>/g, '').trim() : '';
+                if (distTd) {
+                    const parsedDist = parseFloat(distTd.replace(/<[^>]+>/g, '').replace(',', '.').trim());
+                    if (!isNaN(parsedDist)) dist = parsedDist;
+                }
+            } else if (isIncoming) {
+                // Layout incomings widget no overview da aldeia (commands_incomings)
+                targetCoords = pageVCoords || fallbackCoords || '';
+                targetName = pageVName || fallbackVillageName || '';
+                originName = '';
+                originCoords = '';
+                const rowCoords = row.match(/(\d{1,3}\|\d{1,3})/g) || [];
+                if (rowCoords.length > 0 && rowCoords[0] !== targetCoords) {
+                    originCoords = rowCoords[0];
+                }
+            } else if (tds.length >= 4) {
                 // Layout A: overview_villages commands_table (tds[0]: Dest/Command, tds[1]: Origin)
                 const destTd = tds[0];
                 const origTd = tds[1];
@@ -1493,8 +1553,8 @@
                 }
             }
 
-            if (!originCoords && pageVCoords) originCoords = pageVCoords;
-            if (!targetCoords) {
+            if (!originCoords && pageVCoords && !isIncoming) originCoords = pageVCoords;
+            if (!targetCoords && !isIncoming) {
                 const allCoords = row.match(/(\d{1,3}\|\d{1,3})/g) || [];
                 if (allCoords.length > 1) {
                     targetCoords = allCoords[0];
@@ -1504,24 +1564,43 @@
                 }
             }
 
+            if (isIncoming) {
+                isAttack = true;
+                isReturn = false;
+                isSupport = false;
+                type = 'attack';
+                if (!attackerPlayerName && originCoords) {
+                    const owner = getCoordOwnership(originCoords);
+                    if (owner && owner.playerName && owner.playerName !== 'Player') {
+                        attackerPlayerName = owner.playerName;
+                    }
+                }
+            }
+
             // Classificação e Propriedade da Aldeia Alvo/Remota
-            const targetOwner = getCoordOwnership(targetCoords);
-            const targetPlayerName = targetOwner.playerName || (targetOwner.isOwn ? 'Própria' : (targetOwner.isBarbarian ? 'Bárbara' : 'Player'));
+            const targetOwner = isIncoming 
+                ? { type: 'own', label: 'Própria', isOwn: true, isPlayer: false, isBarbarian: false, playerName: 'Própria' }
+                : getCoordOwnership(targetCoords);
+            const targetPlayerName = isIncoming
+                ? (attackerPlayerName || 'Inimigo')
+                : (targetOwner.playerName || (targetOwner.isOwn ? 'Própria' : (targetOwner.isBarbarian ? 'Bárbara' : 'Player')));
             if (!targetName && targetOwner.villageName) targetName = targetOwner.villageName;
 
             // Classificação rigorosa de Alvo Jogador vs Saque Bárbara
-            const isBarbarianTarget = targetOwner.isBarbarian ||
+            const isBarbarianTarget = !isIncoming && (targetOwner.isBarbarian ||
                                       /b[áa]rbar[ao]|b[oó]nus|barbarian/i.test(targetName || '') || 
-                                      /b[áa]rbar[ao]|b[oó]nus|barbarian/i.test(label || '');
-            const isFarmIconOrLabel = /farm\.webp/i.test(row) || /data-icon-hint="[^"]*saque[^"]*"/i.test(row) || /^saque\b/i.test(label || '');
-            const isFarm = (isFarmIconOrLabel || isBarbarianTarget) && !hasSnob && !hasPaladin && !isLarge;
-            const isPlayerTarget = !isFarm && (!isBarbarianTarget || hasSnob || hasPaladin || isLarge);
+                                      /b[áa]rbar[ao]|b[oó]nus|barbarian/i.test(label || ''));
+            const isFarmIconOrLabel = !isIncoming && (/farm\.webp/i.test(row) || /data-icon-hint="[^"]*saque[^"]*"/i.test(row) || /^saque\b/i.test(label || ''));
+            const isFarm = !isIncoming && (isFarmIconOrLabel || isBarbarianTarget) && !hasSnob && !hasPaladin && !isLarge;
+            const isPlayerTarget = isIncoming || (!isFarm && (!isBarbarianTarget || hasSnob || hasPaladin || isLarge));
 
             commands.push({
                 commandId,
                 commandLink,
                 label,
                 type,
+                isIncoming,
+                attackerPlayerName,
                 isReturn,
                 isAttack,
                 isSupport,
@@ -1547,6 +1626,119 @@
         });
 
         return commands;
+    }
+
+    function parseInfoCommandHtml(html) {
+        if (!html) return {};
+        let attackerPlayerName = '';
+        let originCoords = '';
+        let originName = '';
+        let targetCoords = '';
+        let targetName = '';
+
+        const originRowM = html.match(/Origem:[\s\S]*?<td[^>]*>([\s\S]*?)<\/td>/i);
+        if (originRowM) {
+            const txt = originRowM[1].replace(/<[^>]+>/g, '').trim();
+            const cm = txt.match(/(\d{1,3}\|\d{1,3})/);
+            if (cm) originCoords = cm[1];
+            originName = txt.replace(/\(\d{1,3}\|\d{1,3}\).*$/, '').trim();
+        }
+
+        const destRowM = html.match(/Destino:[\s\S]*?<td[^>]*>([\s\S]*?)<\/td>/i);
+        if (destRowM) {
+            const txt = destRowM[1].replace(/<[^>]+>/g, '').trim();
+            const cm = txt.match(/(\d{1,3}\|\d{1,3})/);
+            if (cm) targetCoords = cm[1];
+            targetName = txt.replace(/\(\d{1,3}\|\d{1,3}\).*$/, '').trim();
+        }
+
+        const playerRowM = html.match(/Jogador:[\s\S]*?<td[^>]*>([\s\S]*?)<\/td>/i);
+        if (playerRowM) {
+            attackerPlayerName = playerRowM[1].replace(/<[^>]+>/g, '').trim();
+        }
+
+        if (!attackerPlayerName) {
+            const pMatches = Array.from(html.matchAll(/screen=info_player[^>]*>([^<]+)<\/a>/gi));
+            if (pMatches.length > 0) attackerPlayerName = pMatches[0][1].trim();
+        }
+        if (!originCoords) {
+            const vMatches = Array.from(html.matchAll(/screen=info_village[^>]*>([\s\S]*?)<\/a>/gi));
+            if (vMatches.length > 0) {
+                const oText = vMatches[0][1].replace(/<[^>]+>/g, '').trim();
+                const oM = oText.match(/(\d{1,3}\|\d{1,3})/);
+                if (oM) originCoords = oM[1];
+                if (!originName) originName = oText.replace(/\(\d{1,3}\|\d{1,3}\).*$/, '').trim();
+            }
+            if (vMatches.length > 1 && !targetCoords) {
+                const dText = vMatches[1][1].replace(/<[^>]+>/g, '').trim();
+                const dM = dText.match(/(\d{1,3}\|\d{1,3})/);
+                if (dM) targetCoords = dM[1];
+                if (!targetName) targetName = dText.replace(/\(\d{1,3}\|\d{1,3}\).*$/, '').trim();
+            }
+        }
+
+        return { attackerPlayerName, originCoords, originName, targetCoords, targetName };
+    }
+
+    function enrichCommandDetails(c) {
+        if (!c) return;
+        if (c.isIncoming) {
+            if (c.targetCoords && !c.targetName) {
+                const foundV = (typeof allVillages !== 'undefined' && Array.isArray(allVillages)) ? allVillages.find(v => v.coords === c.targetCoords) : null;
+                if (foundV) c.targetName = foundV.name;
+            }
+            c.targetOwner = { type: 'own', label: 'Própria', isOwn: true, isPlayer: false, isBarbarian: false, playerName: 'Própria' };
+            if (!c.targetName && c.targetOwner.villageName) c.targetName = c.targetOwner.villageName;
+
+            if (c.originCoords) {
+                const origOwner = typeof getCoordOwnership === 'function' ? getCoordOwnership(c.originCoords) : null;
+                if (origOwner) {
+                    if (!c.originName && origOwner.villageName) c.originName = origOwner.villageName;
+                    if ((!c.attackerPlayerName || c.attackerPlayerName === 'Player') && origOwner.playerName && origOwner.playerName !== 'Player') {
+                        c.attackerPlayerName = origOwner.playerName;
+                    }
+                }
+            }
+            c.targetPlayerName = c.attackerPlayerName || 'Inimigo';
+            c.isPlayerTarget = true;
+        } else {
+            if (c.originCoords && !c.originName) {
+                const foundV = (typeof allVillages !== 'undefined' && Array.isArray(allVillages)) ? allVillages.find(v => v.coords === c.originCoords) : null;
+                if (foundV) c.originName = foundV.name;
+            }
+            if (c.targetCoords && !c.targetName) {
+                const foundV = (typeof allVillages !== 'undefined' && Array.isArray(allVillages)) ? allVillages.find(v => v.coords === c.targetCoords) : null;
+                if (foundV) c.targetName = foundV.name;
+            }
+            c.targetOwner = typeof getCoordOwnership === 'function' ? getCoordOwnership(c.targetCoords) : { type: 'unknown', label: 'Desconhecida' };
+            c.targetPlayerName = c.targetOwner.playerName || (c.targetOwner.isOwn ? 'Própria' : (c.targetOwner.isBarbarian ? 'Bárbara' : 'Player'));
+            if (!c.targetName && c.targetOwner.villageName) c.targetName = c.targetOwner.villageName;
+        }
+
+        if (c.originCoords && c.targetCoords && typeof calcDistance === 'function') {
+            c.dist = calcDistance(c.originCoords, c.targetCoords).toFixed(1);
+        }
+    }
+
+    async function enrichIncompleteIncomings(commandsList, safeFetch) {
+        if (!Array.isArray(commandsList) || commandsList.length === 0 || typeof safeFetch !== 'function') return;
+        const incomplete = commandsList.filter(c => c.isIncoming && (!c.attackerPlayerName || !c.originCoords || c.attackerPlayerName === 'Player') && c.commandId);
+        if (incomplete.length === 0) return;
+
+        await Promise.all(incomplete.slice(0, 10).map(async c => {
+            try {
+                const url = `/game.php?screen=info_command&id=${c.commandId}&type=other`;
+                const cHtml = await safeFetch(url);
+                if (cHtml) {
+                    const det = parseInfoCommandHtml(cHtml);
+                    if (det.attackerPlayerName) c.attackerPlayerName = det.attackerPlayerName;
+                    if (det.originCoords) c.originCoords = det.originCoords;
+                    if (det.originName) c.originName = det.originName;
+                    if (det.targetCoords && !c.targetCoords) c.targetCoords = det.targetCoords;
+                    if (det.targetName && !c.targetName) c.targetName = det.targetName;
+                }
+            } catch (_) {}
+        }));
     }
 
     function calculateEarliestViableNobleTime(village, neededNobles) {
@@ -2622,24 +2814,9 @@
             // 10. Sincronizar todos os eventos e status de Nobres em todas as aldeias
             syncNobleEventsAcrossVillages();
 
-            // 11. Enriquecer allParsedCommands com nomes de aldeias, propriedade e distâncias
-            allParsedCommands.forEach(c => {
-                if (c.originCoords && !c.originName) {
-                    const foundV = allVillages.find(v => v.coords === c.originCoords);
-                    if (foundV) c.originName = foundV.name;
-                }
-                if (c.targetCoords && !c.targetName) {
-                    const foundV = allVillages.find(v => v.coords === c.targetCoords);
-                    if (foundV) c.targetName = foundV.name;
-                }
-                c.targetOwner = getCoordOwnership(c.targetCoords);
-                c.targetPlayerName = c.targetOwner.playerName || (c.targetOwner.isOwn ? 'Própria' : (c.targetOwner.isBarbarian ? 'Bárbara' : 'Player'));
-                if (!c.targetName && c.targetOwner.villageName) c.targetName = c.targetOwner.villageName;
-
-                if (c.originCoords && c.targetCoords && typeof calcDistance === 'function') {
-                    c.dist = calcDistance(c.originCoords, c.targetCoords).toFixed(1);
-                }
-            });
+            // 11. Enriquecer comandos a chegar incompletos com info_command e allParsedCommands com nomes de aldeias, atacantes e distâncias
+            await enrichIncompleteIncomings(allParsedCommands, safeFetch);
+            allParsedCommands.forEach(c => enrichCommandDetails(c));
 
             const cmdBadge = document.getElementById('tw-commands-count-badge');
             if (cmdBadge) cmdBadge.textContent = allParsedCommands.filter(c => c.isPlayerTarget).length;
@@ -7300,23 +7477,9 @@
                 .filter(c => (!commandsIgnoreFarms || !c.isFarm) && (!c.readyAtMs || c.readyAtMs > (nowCmds - 2000)))
                 .sort((a, b) => a.readyAtMs - b.readyAtMs);
 
-            allParsedCommands.forEach(c => {
-                if (c.originCoords && !c.originName) {
-                    const foundV = allVillages.find(v => v.coords === c.originCoords);
-                    if (foundV) c.originName = foundV.name;
-                }
-                if (c.targetCoords && !c.targetName) {
-                    const foundV = allVillages.find(v => v.coords === c.targetCoords);
-                    if (foundV) c.targetName = foundV.name;
-                }
-                c.targetOwner = getCoordOwnership(c.targetCoords);
-                c.targetPlayerName = c.targetOwner.playerName || (c.targetOwner.isOwn ? 'Própria' : (c.targetOwner.isBarbarian ? 'Bárbara' : 'Player'));
-                if (!c.targetName && c.targetOwner.villageName) c.targetName = c.targetOwner.villageName;
-
-                if (c.originCoords && c.targetCoords && typeof calcDistance === 'function') {
-                    c.dist = calcDistance(c.originCoords, c.targetCoords).toFixed(1);
-                }
-            });
+            // Enriquecer comandos a chegar incompletos com info_command e allParsedCommands com nomes de aldeias, atacantes e distâncias
+            await enrichIncompleteIncomings(allParsedCommands, safeFetchCmd);
+            allParsedCommands.forEach(c => enrichCommandDetails(c));
 
             const cmdBadge = document.getElementById('tw-commands-count-badge');
             const playerCmdsCount = allParsedCommands.filter(c => c.isPlayerTarget).length;
@@ -7363,7 +7526,8 @@
     function renderCommands() {
         const totalCmds = allParsedCommands.length;
         const playerCmds = allParsedCommands.filter(c => c.isPlayerTarget).length;
-        const attackCmds = allParsedCommands.filter(c => c.isAttack && c.isPlayerTarget).length;
+        const attackCmds = allParsedCommands.filter(c => c.isAttack && c.isPlayerTarget && !c.isIncoming).length;
+        const incomingCmds = allParsedCommands.filter(c => c.isIncoming).length;
         const returnCmds = allParsedCommands.filter(c => c.isReturn).length;
         const snobCmds = allParsedCommands.filter(c => c.hasSnob).length;
         const farmCmds = allParsedCommands.filter(c => c.isFarm).length;
@@ -7374,6 +7538,19 @@
 
         container.innerHTML = `
             <div style="display:flex; flex-direction:column; gap:10px; height:100%; overflow:hidden;">
+                ${incomingCmds > 0 ? `
+                <!-- EMERGENCY INCOMING ALERT BANNER -->
+                <div style="background:linear-gradient(90deg, rgba(220,38,38,0.2) 0%, rgba(153,27,27,0.15) 100%); border:1px solid #ef4444; border-radius:6px; padding:8px 14px; display:flex; align-items:center; justify-content:space-between; box-shadow:0 0 12px rgba(239,68,68,0.25);">
+                    <div style="display:flex; align-items:center; gap:8px;">
+                        <span style="font-size:18px;">🚨</span>
+                        <div>
+                            <span style="color:#fca5a5; font-size:12px; font-weight:bold;">ALERTA DE DEFESA: A tua conta tem ${incomingCmds} ataque(s) inimigo(s) a chegar!</span>
+                            <span style="color:#94a3b8; font-size:11px; margin-left:8px;">Identificação de atacantes e alvos ativa.</span>
+                        </div>
+                    </div>
+                    <button type="button" class="tw-btn" style="background:#dc2626; color:#fff; border:none; padding:3px 10px; font-size:11px; font-weight:bold; cursor:pointer;" onclick="document.querySelector('#tw-cmd-filter-pills [data-cf=incoming]')?.click()">Ver Ataques a Chegar ↗</button>
+                </div>
+                ` : ''}
                 <!-- KPI SUMMARY CARDS -->
                 <div style="display:grid; grid-template-columns: repeat(6, 1fr); gap:8px;">
                     <div class="tw-kpi-card tw-kpi-blue" style="border:1px solid #38bdf8;">
@@ -7412,6 +7589,7 @@
                 <div style="display:flex; justify-content:space-between; align-items:center; background:#1e293b; padding:8px 12px; border-radius:6px; border:1px solid #334155; flex-wrap:wrap; gap:8px;">
                     <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;" id="tw-cmd-filter-pills">
                         <span style="font-size:11px; color:#94a3b8; font-weight:bold; margin-right:4px;">FILTRO:</span>
+                        <div class="tw-pill ${commandsFilter==='incoming'?'active':''}" data-cf="incoming" style="${incomingCmds > 0 ? 'background:rgba(239,68,68,0.25); color:#fca5a5; border:1px solid #ef4444; font-weight:bold;' : ''}">🚨 A Chegar (<span id="tw-cf-cnt-incoming">${incomingCmds}</span>)</div>
                         <div class="tw-pill ${commandsFilter==='players'?'active':''}" data-cf="players">🎯 Jogadores (<span id="tw-cf-cnt-players">${playerCmds}</span>)</div>
                         <div class="tw-pill ${commandsFilter==='attack'?'active':''}" data-cf="attack">⚔️ Ataques (<span id="tw-cf-cnt-attack">${attackCmds}</span>)</div>
                         <div class="tw-pill ${commandsFilter==='return'?'active':''}" data-cf="return">↩️ Retornos (<span id="tw-cf-cnt-return">${returnCmds}</span>)</div>
@@ -7596,7 +7774,8 @@
 
         const totalCmds = allParsedCommands.length;
         const playerCmds = allParsedCommands.filter(c => c.isPlayerTarget).length;
-        const attackCmds = allParsedCommands.filter(c => c.isAttack && c.isPlayerTarget).length;
+        const attackCmds = allParsedCommands.filter(c => c.isAttack && c.isPlayerTarget && !c.isIncoming).length;
+        const incomingCmds = allParsedCommands.filter(c => c.isIncoming).length;
         const returnCmds = allParsedCommands.filter(c => c.isReturn).length;
         const snobCmds = allParsedCommands.filter(c => c.hasSnob).length;
         const farmCmds = allParsedCommands.filter(c => c.isFarm).length;
@@ -7619,6 +7798,8 @@
         if (kpiSupports) kpiSupports.textContent = supportCmds;
 
         // Sync filter pills if present
+        const cfIncoming = document.getElementById('tw-cf-cnt-incoming');
+        if (cfIncoming) cfIncoming.textContent = incomingCmds;
         const cfPlayers = document.getElementById('tw-cf-cnt-players');
         if (cfPlayers) cfPlayers.textContent = playerCmds;
         const cfAll = document.getElementById('tw-cf-cnt-all');
@@ -7637,8 +7818,9 @@
         const nowFilter = getTwServerTimeMs();
         let filtered = allParsedCommands.filter(c => (!commandsIgnoreFarms || !c.isFarm) && (!c.readyAtMs || c.readyAtMs > (nowFilter - 2500)));
 
-        if (commandsFilter === 'players') filtered = filtered.filter(c => c.isPlayerTarget);
-        else if (commandsFilter === 'attack') filtered = filtered.filter(c => c.isAttack && !c.isFarm);
+        if (commandsFilter === 'incoming') filtered = filtered.filter(c => c.isIncoming);
+        else if (commandsFilter === 'players') filtered = filtered.filter(c => c.isPlayerTarget);
+        else if (commandsFilter === 'attack') filtered = filtered.filter(c => c.isAttack && !c.isFarm && !c.isIncoming);
         else if (commandsFilter === 'return') filtered = filtered.filter(c => c.isReturn);
         else if (commandsFilter === 'snob') filtered = filtered.filter(c => c.hasSnob);
         else if (commandsFilter === 'farm') filtered = filtered.filter(c => c.isFarm);
@@ -7652,6 +7834,7 @@
                        (c.originCoords && c.originCoords.includes(q)) ||
                        (c.targetName && c.targetName.toLowerCase().includes(q)) ||
                        (c.targetCoords && c.targetCoords.includes(q)) ||
+                       (c.attackerPlayerName && c.attackerPlayerName.toLowerCase().includes(q)) ||
                        (c.targetPlayerName && c.targetPlayerName.toLowerCase().includes(q)) ||
                        (c.targetOwner && c.targetOwner.label && c.targetOwner.label.toLowerCase().includes(q));
             });
@@ -7714,7 +7897,10 @@
         function renderCommandRow(c, isGrouped = false) {
             let typeBadge = '';
             let rowBorder = 'border-left: 3px solid #334155;';
-            if (c.isReturn) {
+            if (c.isIncoming) {
+                typeBadge = '<span class="tw-badge-cmd-attack" style="background:#dc2626; color:#fff; border:1px solid #b91c1c; font-weight:bold;">🚨 Ataque a Chegar</span>';
+                rowBorder = 'border-left: 4px solid #ef4444; background: rgba(239, 68, 68, 0.08);';
+            } else if (c.isReturn) {
                 typeBadge = '<span class="tw-badge-cmd-return">↩️ Regresso</span>';
                 rowBorder = 'border-left: 3px solid #6366f1; background: rgba(99, 102, 241, 0.03);';
             } else if (c.isAttack) {
@@ -7727,19 +7913,27 @@
                 typeBadge = '<span class="tw-pill" style="font-size:10px;">Comando</span>';
             }
 
-            if (c.hasSnob) {
+            if (c.hasSnob && !c.isIncoming) {
                 rowBorder = 'border-left: 3px solid #f59e0b; background: rgba(245, 158, 11, 0.04);';
             }
 
             let badges = '';
+            if (c.isIncoming) {
+                badges += '<span class="tw-pill" style="font-size:9.5px; padding:1px 5px; background:rgba(239,68,68,0.25); color:#fca5a5; border:1px solid rgba(239,68,68,0.5); font-weight:bold;">🚨 A Chegar</span> ';
+                if (c.attackerPlayerName && c.attackerPlayerName !== 'Player') {
+                    badges += `<span class="tw-pill" style="font-size:9.5px; padding:1px 5px; background:rgba(239,68,68,0.18); color:#fca5a5; border:1px solid rgba(239,68,68,0.35); font-weight:bold;" title="Jogador Atacante">👤 ${escapeHtml(c.attackerPlayerName)}</span> `;
+                }
+            }
             if (c.hasSnob) badges += '<span class="tw-badge-cmd-snob" title="Comando com Nobre!">👑 Nobre</span> ';
             if (c.hasPaladin) badges += '<span class="tw-badge-paladino" style="font-size:9.5px; padding:1px 5px;" title="Comando com Paladino">🛡️ Paladino</span> ';
-            if (c.targetOwner && c.targetOwner.isOwn) {
-                badges += '<span class="tw-pill" style="font-size:9.5px; padding:1px 5px; background:rgba(16,185,129,0.15); color:#10b981; border:1px solid rgba(16,185,129,0.3);" title="Aldeia Conquistada / Própria">🏰 Própria</span> ';
-            } else if (c.targetOwner && c.targetOwner.isPlayer) {
-                badges += `<span class="tw-pill" style="font-size:9.5px; padding:1px 5px; background:rgba(56,189,248,0.15); color:#38bdf8; border:1px solid rgba(56,189,248,0.3);" title="Jogador Inimigo: ${escapeHtml(c.targetPlayerName)}">👤 ${escapeHtml(c.targetPlayerName)}</span> `;
-            } else if (c.isPlayerTarget && !c.hasSnob) {
-                badges += `<span class="tw-pill" style="font-size:9.5px; padding:1px 5px; background:rgba(56,189,248,0.15); color:#38bdf8; border:1px solid rgba(56,189,248,0.3);" title="Alvo de Jogador">🎯 ${escapeHtml(c.targetPlayerName || 'Player')}</span> `;
+            if (!c.isIncoming) {
+                if (c.targetOwner && c.targetOwner.isOwn) {
+                    badges += '<span class="tw-pill" style="font-size:9.5px; padding:1px 5px; background:rgba(16,185,129,0.15); color:#10b981; border:1px solid rgba(16,185,129,0.3);" title="Aldeia Conquistada / Própria">🏰 Própria</span> ';
+                } else if (c.targetOwner && c.targetOwner.isPlayer) {
+                    badges += `<span class="tw-pill" style="font-size:9.5px; padding:1px 5px; background:rgba(56,189,248,0.15); color:#38bdf8; border:1px solid rgba(56,189,248,0.3);" title="Jogador Inimigo: ${escapeHtml(c.targetPlayerName)}">👤 ${escapeHtml(c.targetPlayerName)}</span> `;
+                } else if (c.isPlayerTarget && !c.hasSnob) {
+                    badges += `<span class="tw-pill" style="font-size:9.5px; padding:1px 5px; background:rgba(56,189,248,0.15); color:#38bdf8; border:1px solid rgba(56,189,248,0.3);" title="Alvo de Jogador">🎯 ${escapeHtml(c.targetPlayerName || 'Player')}</span> `;
+                }
             }
             if (c.isFarm) badges += '<span class="tw-badge-cmd-farm" title="Saque / Farm">🌾 Saque</span> ';
             if (c.hasSpy) badges += '<span class="tw-pill" style="font-size:9.5px; padding:1px 5px; background:#1e293b; color:#94a3b8;" title="Batedores">🏹 Batedores</span> ';
@@ -7747,12 +7941,13 @@
             if (!badges) badges = '<span style="color:#475569; font-size:11px;">Padrão</span>';
 
             const origV = c.originCoords ? allVillages.find(v => v.coords === c.originCoords) : null;
-            const origName = c.originName || (origV ? origV.name : 'Aldeia');
+            const targetV = c.targetCoords ? allVillages.find(v => v.coords === c.targetCoords) : null;
+            const origName = c.originName || (origV ? origV.name : (c.isIncoming ? 'Aldeia Inimiga' : 'Aldeia'));
             const origCoords = c.originCoords || '--';
-            const targetName = c.targetName || 'Aldeia Destino';
+            const targetName = c.targetName || (targetV ? targetV.name : (c.isIncoming ? 'Tua Aldeia' : 'Aldeia Destino'));
             const targetCoords = c.targetCoords || '--';
             const dist = (c.dist || (c.originCoords && c.targetCoords && typeof calcDistance === 'function' ? calcDistance(c.originCoords, c.targetCoords).toFixed(1) : null));
-            const actionCoord = c.targetCoords || c.originCoords || '';
+            const actionCoord = c.isIncoming ? (c.originCoords || c.targetCoords || '') : (c.targetCoords || c.originCoords || '');
 
             const cleanDisplayLabel = (c.label || 'Ver Comando')
                 .replace(/^(?:cancelamento\s+de\s+)?(?:ataque\s+a|attack\s+on|angriff\s+auf)\s*/i, '')
@@ -7774,29 +7969,35 @@
                     </td>
                     <td style="text-align:left;">
                         <div style="font-weight:600; color:#f8fafc; font-size:11.5px; max-width:210px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
-                            <a href="javascript:void(0);" class="tw-cmd-copy-coord" data-coord="${origCoords}" style="color:#38bdf8; text-decoration:none;" title="Copiar coordenadas">${escapeHtml(origName)}</a>
+                            <a href="javascript:void(0);" class="tw-cmd-copy-coord" data-coord="${origCoords}" style="color:${c.isIncoming ? '#fca5a5' : '#38bdf8'}; text-decoration:none;" title="Copiar coordenadas">${escapeHtml(origName)}</a>
                         </div>
                         <div style="font-size:11px; color:#94a3b8; margin-top:2px;">
                             <span>(${origCoords})</span>
-                            ${origV ? `<a href="/game.php?village=${origV.id}&screen=place" target="_blank" style="font-size:9.5px; color:#38bdf8; text-decoration:none; margin-left:6px; padding:1px 5px; background:rgba(56,189,248,0.1); border:1px solid rgba(56,189,248,0.25); border-radius:3px;" title="Abrir Praça desta aldeia">Praça ↗</a>` : ''}
+                            ${c.isIncoming
+                                ? `<span style="font-size:9.5px; color:#f87171; margin-left:4px; font-weight:bold; background:rgba(239,68,68,0.15); padding:1px 5px; border-radius:3px; border:1px solid rgba(239,68,68,0.3);" title="Jogador Atacante">[${escapeHtml(c.attackerPlayerName || 'Inimigo')}]</span>`
+                                : (origV ? `<a href="/game.php?village=${origV.id}&screen=place" target="_blank" style="font-size:9.5px; color:#38bdf8; text-decoration:none; margin-left:6px; padding:1px 5px; background:rgba(56,189,248,0.1); border:1px solid rgba(56,189,248,0.25); border-radius:3px;" title="Abrir Praça desta aldeia">Praça ↗</a>` : '')
+                            }
                         </div>
                     </td>
                     <td style="text-align:left;">
                         <div style="font-weight:600; color:#f8fafc; font-size:11.5px; max-width:240px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
-                            <a href="javascript:void(0);" class="tw-cmd-copy-coord" data-coord="${targetCoords}" style="color:${(c.targetOwner && c.targetOwner.isOwn) ? '#34d399' : (c.isPlayerTarget ? '#38bdf8' : '#f8fafc')}; text-decoration:none;" title="Copiar coordenadas">${escapeHtml(targetName)}</a>
+                            <a href="javascript:void(0);" class="tw-cmd-copy-coord" data-coord="${targetCoords}" style="color:${c.isIncoming ? '#34d399' : ((c.targetOwner && c.targetOwner.isOwn) ? '#34d399' : (c.isPlayerTarget ? '#38bdf8' : '#f8fafc'))}; text-decoration:none;" title="Copiar coordenadas">${escapeHtml(targetName)}</a>
                         </div>
                         <div style="font-size:11px; color:#94a3b8; margin-top:2px;">
                             <span>(${targetCoords})</span>
                             ${dist ? `<span style="font-size:10.5px; color:#64748b; margin-left:4px;">(${dist} campos)</span>` : ''}
-                            ${(c.targetOwner && c.targetOwner.isOwn)
-                                ? `<span style="font-size:9.5px; color:#10b981; margin-left:4px; font-weight:bold; background:rgba(16,185,129,0.12); padding:1px 5px; border-radius:3px; border:1px solid rgba(16,185,129,0.3);" title="Aldeia conquistada pertencente à conta">[Própria]</span>`
-                                : (c.targetOwner && c.targetOwner.isPlayer
-                                    ? `<span style="font-size:9.5px; color:#38bdf8; margin-left:4px; font-weight:bold; background:rgba(56,189,248,0.12); padding:1px 5px; border-radius:3px; border:1px solid rgba(56,189,248,0.3);" title="Jogador: ${escapeHtml(c.targetPlayerName)}">[${escapeHtml(c.targetPlayerName)}]</span>`
-                                    : (c.isPlayerTarget
-                                        ? `<span style="font-size:9.5px; color:#38bdf8; margin-left:4px; font-weight:bold; background:rgba(56,189,248,0.12); padding:1px 5px; border-radius:3px; border:1px solid rgba(56,189,248,0.3);">[${escapeHtml(c.targetPlayerName || 'Player')}]</span>`
-                                        : (c.targetOwner && c.targetOwner.isBarbarian
-                                            ? `<span style="font-size:9.5px; color:#94a3b8; margin-left:4px; font-weight:bold; background:rgba(148,163,184,0.12); padding:1px 5px; border-radius:3px; border:1px solid rgba(148,163,184,0.3);">[Bárbara]</span>`
-                                            : ''
+                            ${c.isIncoming
+                                ? `<span style="font-size:9.5px; color:#10b981; margin-left:4px; font-weight:bold; background:rgba(16,185,129,0.12); padding:1px 5px; border-radius:3px; border:1px solid rgba(16,185,129,0.3);" title="Tua Aldeia sob ataque">[🏰 Tua Aldeia]</span>${targetV ? `<a href="/game.php?village=${targetV.id}&screen=place" target="_blank" style="font-size:9.5px; color:#38bdf8; text-decoration:none; margin-left:6px; padding:1px 5px; background:rgba(56,189,248,0.1); border:1px solid rgba(56,189,248,0.25); border-radius:3px;" title="Abrir Praça desta aldeia para defender/desviar">Praça ↗</a>` : ''}`
+                                : ((c.targetOwner && c.targetOwner.isOwn)
+                                    ? `<span style="font-size:9.5px; color:#10b981; margin-left:4px; font-weight:bold; background:rgba(16,185,129,0.12); padding:1px 5px; border-radius:3px; border:1px solid rgba(16,185,129,0.3);" title="Aldeia conquistada pertencente à conta">[Própria]</span>`
+                                    : (c.targetOwner && c.targetOwner.isPlayer
+                                        ? `<span style="font-size:9.5px; color:#38bdf8; margin-left:4px; font-weight:bold; background:rgba(56,189,248,0.12); padding:1px 5px; border-radius:3px; border:1px solid rgba(56,189,248,0.3);" title="Jogador: ${escapeHtml(c.targetPlayerName)}">[${escapeHtml(c.targetPlayerName)}]</span>`
+                                        : (c.isPlayerTarget
+                                            ? `<span style="font-size:9.5px; color:#38bdf8; margin-left:4px; font-weight:bold; background:rgba(56,189,248,0.12); padding:1px 5px; border-radius:3px; border:1px solid rgba(56,189,248,0.3);">[${escapeHtml(c.targetPlayerName || 'Player')}]</span>`
+                                            : (c.targetOwner && c.targetOwner.isBarbarian
+                                                ? `<span style="font-size:9.5px; color:#94a3b8; margin-left:4px; font-weight:bold; background:rgba(148,163,184,0.12); padding:1px 5px; border-radius:3px; border:1px solid rgba(148,163,184,0.3);">[Bárbara]</span>`
+                                                : ''
+                                              )
                                           )
                                       )
                                   )
@@ -7807,11 +8008,11 @@
                         ${escapeHtml(c.completionStr || (c.readyAtMs ? new Date(c.readyAtMs).toLocaleTimeString('pt-PT') : '--:--:--'))}
                     </td>
                     <td>
-                        <span class="tw-cmd-timer" data-endtime-ms="${c.readyAtMs}" style="font-family:monospace; font-weight:bold; font-size:12.5px; color:#38bdf8;">${c.timerStr || '--:--:--'}</span>
+                        <span class="tw-cmd-timer" data-endtime-ms="${c.readyAtMs}" style="font-family:monospace; font-weight:bold; font-size:12.5px; color:${c.isIncoming ? '#f87171' : '#38bdf8'};">${c.timerStr || '--:--:--'}</span>
                     </td>
                     <td>
                         <div style="display:flex; gap:4px; justify-content:center;">
-                            <button class="tw-btn tw-cmd-use-planner" data-coord="${actionCoord}" style="padding:2px 7px; font-size:10.5px; background:#0284c7; border-color:#0369a1; color:#fff;" title="Definir como alvo no Planeador de Ataques">🎯 Plan</button>
+                            <button class="tw-btn tw-cmd-use-planner" data-coord="${actionCoord}" style="padding:2px 7px; font-size:10.5px; background:${c.isIncoming ? '#dc2626' : '#0284c7'}; border-color:${c.isIncoming ? '#b91c1c' : '#0369a1'}; color:#fff;" title="${c.isIncoming ? 'Definir atacante como alvo no Planeador' : 'Definir como alvo no Planeador de Ataques'}">${c.isIncoming ? '⚔️ Contra' : '🎯 Plan'}</button>
                             <button class="tw-btn tw-cmd-copy-coord" data-coord="${actionCoord}" style="padding:2px 7px; font-size:10.5px;" title="Copiar coordenadas">📋</button>
                         </div>
                     </td>
@@ -7876,14 +8077,17 @@
                 const latestTimeStr = latestCmd ? (latestCmd.completionStr || (latestCmd.readyAtMs ? new Date(latestCmd.readyAtMs).toLocaleTimeString('pt-PT') : '--:--:--')) : '--:--:--';
 
                 let ownerBadge = '';
-                if (firstCmd.targetOwner && firstCmd.targetOwner.isOwn) {
+                const hasIncoming = groupCmds.some(cmd => cmd.isIncoming);
+                if (hasIncoming) {
+                    ownerBadge = `<span class="tw-pill" style="font-size:10px; background:rgba(239,68,68,0.25); color:#fca5a5; border:1px solid #ef4444; font-weight:bold;">🚨 SOB ATAQUE (${groupCmds.filter(cmd => cmd.isIncoming).length})</span> <span class="tw-pill" style="font-size:10px; background:rgba(16,185,129,0.15); color:#10b981; border:1px solid rgba(16,185,129,0.3);">🏰 Tua Aldeia</span>`;
+                } else if (firstCmd.targetOwner && firstCmd.targetOwner.isOwn) {
                     ownerBadge = '<span class="tw-pill" style="font-size:10px; background:rgba(16,185,129,0.15); color:#10b981; border:1px solid rgba(16,185,129,0.3);">🏰 Própria</span>';
                 } else if (firstCmd.targetOwner && firstCmd.targetOwner.isPlayer) {
                     ownerBadge = `<span class="tw-pill" style="font-size:10px; background:rgba(56,189,248,0.15); color:#38bdf8; border:1px solid rgba(56,189,248,0.3);">👤 ${escapeHtml(firstCmd.targetPlayerName)}</span>`;
                 }
 
                 rowsHtml += `
-                    <tr class="tw-cmd-group-row" data-group-key="${escapeHtml(key)}" style="background:linear-gradient(90deg, #1e293b 0%, #0f172a 100%); cursor:pointer; user-select:none; border-top:2px solid #0284c7; border-bottom:1px solid #334155;">
+                    <tr class="tw-cmd-group-row" data-group-key="${escapeHtml(key)}" style="background:linear-gradient(90deg, #1e293b 0%, #0f172a 100%); cursor:pointer; user-select:none; border-top:2px solid ${hasIncoming ? '#ef4444' : '#0284c7'}; border-bottom:1px solid #334155;">
                         <td colspan="7" style="padding:7px 12px; text-align:left;">
                             <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
                                 <div style="display:flex; align-items:center; gap:8px;">
