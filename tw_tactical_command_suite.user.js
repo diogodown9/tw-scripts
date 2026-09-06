@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TW Tactical Command Suite
 // @namespace    https://tribalwars.com.pt/
-// @version      3.2.15
-// @description  Suite militar avançada para Tribal Wars PT: Módulo Tático de Comandos (Deteção Inteligente de Ataques Inimigos a Chegar com Identificação Real do Jogador Atacante e Aldeia de Origem, Ataques & Retornos com filtros, agrupamento por alvos, ordenação interativa por clique nos cabeçalhos de coluna, exclusão opcional de micro-saques Modo Turbo para velocidade máxima, purga automática de comandos expirados e timers sincronizados com o servidor), Escoltas Anti-Snipe de Precisão Cirúrgica a 40ms antes de cada Nobre (janela anti-snipe personalizável), Bate e Volta com folga configurável de regresso (padrão seguro de 10s para PSEvolution e bots), Rastreio em Tempo Real de Nobres a Caminho & em Retorno de Comandos + Treino na Academia, Deteção Rigorosa de 0 Nobres em Casa por Isolamento de Linhas HTML & Cruzamento de Comandos Ativos, Deduplicação Rigorosa de Nobres & Teto Físico de Tropas Fora, Sincronização Server-Live sem Cache, Validação Precisa de Envio & Horário Mínimo de Ataque à Prova de Falhas (⚡ com 5m folga, cálculo inteligente de nobres a regressar e seleção do Nuke Full mais perto), Suporte Automático a Modelos NT (NT 33% para 3 nobres, NT 25% para 4 nobres), Bunkers Desligados por Default, Alvo Cats do Nuke Muralha por Default, Fakes Inteligentes 1% Dinâmico, Arsenal Tático de Fakes, UI de Limpezas/Nobres/Demolição, e Planeador Tático.
+// @version      3.2.16
+// @description  Suite militar avançada para Tribal Wars PT: Módulo Tático de Comandos (Deteção Inteligente de Ataques Inimigos a Chegar com Identificação Real do Jogador Atacante e Aldeia de Origem, Ataques & Retornos com filtros, agrupamento por alvos, ordenação interativa por clique nos cabeçalhos de coluna, exclusão opcional de micro-saques Modo Turbo para velocidade máxima, purga automática de comandos expirados e timers sincronizados com o servidor), Fakes Inteligentes 1% Dinâmico por Pontos (_60, _90, _115, _135) unificados na Aba Fakes & Mascaramento e no Planeador, Escoltas Anti-Snipe de Precisão Cirúrgica a 40ms antes de cada Nobre (janela anti-snipe personalizável), Bate e Volta com folga configurável de regresso (padrão seguro de 10s para PSEvolution e bots), Rastreio em Tempo Real de Nobres a Caminho & em Retorno de Comandos + Treino na Academia, Deteção Rigorosa de 0 Nobres em Casa por Isolamento de Linhas HTML & Cruzamento de Comandos Ativos, Deduplicação Rigorosa de Nobres & Teto Físico de Tropas Fora, Sincronização Server-Live sem Cache, Validação Precisa de Envio & Horário Mínimo de Ataque à Prova de Falhas (⚡ com 5m folga, cálculo inteligente de nobres a regressar e seleção do Nuke Full mais perto), Suporte Automático a Modelos NT (NT 33% para 3 nobres, NT 25% para 4 nobres), Bunkers Desligados por Default, Alvo Cats do Nuke Muralha por Default, Arsenal Tático de Fakes, UI de Limpezas/Nobres/Demolição, e Planeador Tático.
 // @author       Diogo & Antigravity
 // @match        https://*.tribalwars.com.pt/game.php*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=tribalwars.com.pt
@@ -12,7 +12,7 @@
 // ==/UserScript==
 
 (async function () {
-    const SCRIPT_VERSION = '3.2.15';
+    const SCRIPT_VERSION = '3.2.16';
 
     // Auto-selecionar alvo de catapulta na confirmação de ataque na Praça de Reunião se especificado no URL
     try {
@@ -3389,6 +3389,15 @@
                                 <label for="tw-f-allow-multi" style="font-size:10px; color:#f8fafc; cursor:pointer;" title="Permite enviar múltiplos fakes da mesma aldeia para o mesmo alvo se necessário">Repetir p/ Alvo</label>
                             </div>
                         </div>
+
+                        <!-- Fakes Inteligentes (1% Dinâmico por Pontos) -->
+                        <div style="display:flex; align-items:center; justify-content:space-between; background:rgba(88, 28, 135, 0.25); border:1px solid rgba(192, 132, 252, 0.3); border-radius:4px; padding:3px 6px; margin-top:4px;">
+                            <label style="display:flex; align-items:center; gap:5px; font-size:9.5px; color:#f3e8ff; cursor:pointer; font-weight:bold; white-space:nowrap;" title="Ativa a seleção automática de modelos escalonados (Fake_60, Fake_90, Fake_115, Fake_135) por pontos da aldeia para nunca violar a regra de 1% fake limit">
+                                <input type="checkbox" id="tw-f-smart-limit" style="cursor:pointer; width:13px; height:13px;">
+                                🧠 Fakes Inteligentes (1% Dinâmico)
+                            </label>
+                            <span style="font-size:8.5px; color:#c084fc; font-weight:600;" title="Escalões: _60 (≤6k), _90 (≤9k), _115 (≤11.5k), _135 (>11.5k)">_60/_90/_115/_135</span>
+                        </div>
                     </div>
                 </div>
 
@@ -3460,10 +3469,43 @@
             showToast(`⏰ Hora de Chegada dos fakes ajustada para ${ho}:${mi}:${se} (${da}/${mo})`);
         });
 
+        const savedFakeSmartLimitTab = getPref('tw_f_smart_limit', 'true');
+        if (document.getElementById('tw-f-smart-limit')) {
+            document.getElementById('tw-f-smart-limit').checked = (savedFakeSmartLimitTab === 'true');
+            document.getElementById('tw-f-smart-limit').onchange = (e) => {
+                savePrefs('tw_f_smart_limit', String(e.target.checked));
+                updateFakesHUD();
+            };
+        }
+
         const savedFakeModelTab = getPref('tw_f_model', 'Fake');
         if (document.getElementById('tw-f-model')) {
             document.getElementById('tw-f-model').value = savedFakeModelTab;
-            document.getElementById('tw-f-model').onchange = (e) => savePrefs('tw_f_model', e.target.value);
+            document.getElementById('tw-f-model').onchange = (e) => {
+                savePrefs('tw_f_model', e.target.value);
+                updateFakesHUD();
+            };
+        }
+
+        const savedPertarget = getPref('tw_f_pertarget', '4');
+        if (document.getElementById('tw-f-pertarget')) {
+            document.getElementById('tw-f-pertarget').value = savedPertarget;
+            document.getElementById('tw-f-pertarget').oninput = (e) => {
+                savePrefs('tw_f_pertarget', e.target.value);
+                updateFakesHUD();
+            };
+        }
+
+        const savedMaxOrigin = getPref('tw_f_maxorigin', '4');
+        if (document.getElementById('tw-f-maxorigin')) {
+            document.getElementById('tw-f-maxorigin').value = savedMaxOrigin;
+            document.getElementById('tw-f-maxorigin').oninput = (e) => savePrefs('tw_f_maxorigin', e.target.value);
+        }
+
+        const savedAllowMulti = getPref('tw_f_allow_multi', 'true');
+        if (document.getElementById('tw-f-allow-multi')) {
+            document.getElementById('tw-f-allow-multi').checked = (savedAllowMulti === 'true');
+            document.getElementById('tw-f-allow-multi').onchange = (e) => savePrefs('tw_f_allow_multi', String(e.target.checked));
         }
 
         document.getElementById('tw-btn-open-map-modal').onclick = () => openMapIframeModal('fakes');
@@ -3484,18 +3526,21 @@
             const tList = Array.from(new Set(raw.match(/\d{3}\|\d{3}/g) || []));
             const perTarget = parseInt(document.getElementById('tw-f-pertarget').value, 10) || 1;
             const unit = document.getElementById('tw-f-unit').value;
+            const isSmart = document.getElementById('tw-f-smart-limit') && document.getElementById('tw-f-smart-limit').checked;
             
             document.getElementById('tw-f-hud-targets').innerHTML = `${tList.length} <span style="font-size:12px; color:#94a3b8; font-weight:normal;">Alvos</span>`;
             document.getElementById('tw-f-hud-capacity').innerHTML = `${tList.length * perTarget} <span style="font-size:12px; color:#94a3b8; font-weight:normal;">Comandos</span>`;
             
             const uNames = { ram: 'Aríete / Cata (30m)', snob: 'Nobre (35m)', sword: 'Espada (22m)', axe: 'Machado (18m)', heavy: 'CP (11m)', light: 'CL (10m)', spy: 'Batedor (9m)' };
-            document.getElementById('tw-f-hud-speed').innerText = uNames[unit] || 'Aríete (30m)';
+            const smartLabel = isSmart ? ' <span style="color:#c084fc; font-size:10px; font-weight:normal;">(🧠 1% Dinâmico)</span>' : '';
+            document.getElementById('tw-f-hud-speed').innerHTML = (uNames[unit] || 'Aríete (30m)') + smartLabel;
         };
 
         document.getElementById('tw-f-targets').oninput = updateFakesHUD;
         document.getElementById('tw-f-pertarget').oninput = updateFakesHUD;
         document.getElementById('tw-f-unit').onchange = updateFakesHUD;
         document.getElementById('tw-f-group').onchange = updateFakesHUD;
+        updateFakesHUD();
     }
 
     async function buildFakePlan(format = 'russo') {
@@ -3510,11 +3555,16 @@
         const group = document.getElementById('tw-f-group').value;
         const unit = document.getElementById('tw-f-unit').value;
         const modelName = document.getElementById('tw-f-model').value.trim() || 'Fake';
+        const isSmartFake = document.getElementById('tw-f-smart-limit') ? document.getElementById('tw-f-smart-limit').checked : false;
         const fakesPerTarget = parseInt(document.getElementById('tw-f-pertarget').value, 10) || 1;
         const maxPerOrigin = parseInt(document.getElementById('tw-f-maxorigin').value, 10) || 4;
         const allowMultiSameTarget = document.getElementById('tw-f-allow-multi').checked;
         const excludeCommitted = document.getElementById('tw-f-exclude-committed').checked;
         const committedMap = getCommittedSchedules();
+
+        if (isSmartFake && !worldVillagesLoaded) {
+            await fetchWorldVillages();
+        }
 
         let startMs, endMs;
         if (strategy === 'sync' || strategy === 'fake_train') {
@@ -3591,6 +3641,9 @@
                     assigned++;
                     candidateFoundInRound = true;
 
+                    const fakeModelRes = resolveFakeModel(cand.village, modelName, isSmartFake);
+                    const chosenModel = fakeModelRes.model;
+
                     commands.push({
                         actionType: 'Attack',
                         type: 'Fake',
@@ -3602,7 +3655,10 @@
                         sec: cand.travelSec,
                         launchTime: new Date(launchMs),
                         landTime: new Date(landMs),
-                        model: modelName
+                        model: chosenModel,
+                        pts: fakeModelRes.pts,
+                        tier: fakeModelRes.tier,
+                        isSmart: isSmartFake
                     });
 
                     if (!allowMultiSameTarget) {
@@ -3628,6 +3684,7 @@
 
         let rows = '', output = '';
         commands.forEach((cmd, i) => {
+            const smartBadge = cmd.isSmart ? `<span style="font-size:9px; color:#c084fc; display:block; font-weight:normal;">${cmd.pts ? cmd.pts.toLocaleString('pt-PT') + ' pts' : ''}</span>` : '';
             rows += `<tr data-vid="${cmd.originId}">
                 <td style="color:#94a3b8;">${i+1}</td>
                 <td style="text-align:left; padding-left:10px; font-weight:bold; color:#38bdf8;">${cmd.originName}</td>
@@ -3635,7 +3692,7 @@
                 <td>${cmd.dist}c</td>
                 <td><b style="color:#f8fafc;">${cmd.launchTime.toLocaleTimeString('pt-PT')}:${String(cmd.launchTime.getMilliseconds()).padStart(3,'0')}</b></td>
                 <td><b style="color:#38bdf8;">${cmd.landTime.toLocaleTimeString('pt-PT')}:${String(cmd.landTime.getMilliseconds()).padStart(3,'0')}</b></td>
-                <td><b style="color:#f43f5e;">${cmd.model}</b></td>
+                <td><b style="color:#f43f5e;">${cmd.model}</b>${smartBadge}</td>
             </tr>`;
 
             let u = `https://${location.host}/game.php?village=${cmd.originId}&screen=place&target_coord=${cmd.targetCoords}`;
