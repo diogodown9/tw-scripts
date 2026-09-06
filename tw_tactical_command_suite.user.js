@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW Tactical Command Suite
 // @namespace    https://tribalwars.com.pt/
-// @version      3.2.25
+// @version      3.2.26
 // @description  Suite militar avançada para Tribal Wars PT: Módulo Tático de Comandos (Deteção Inteligente de Ataques Inimigos a Chegar com Identificação Real do Jogador Atacante e Aldeia de Origem, Ataques & Retornos com filtros, agrupamento por alvos, ordenação interativa por clique nos cabeçalhos de coluna, exclusão opcional de micro-saques Modo Turbo para velocidade máxima, purga automática de comandos expirados e timers sincronizados com o servidor), Exclusão de Horário Noturno (Bónus Noturno) no Impacto e no Envio com horas configuráveis, Calculador Automático de Horário Mínimo de Impacto com Folga de Envio Configurável (1º Impacto e Cobertura Total de Alvos com ajuste instantâneo a 1 clique), identificação visual de Hoje/Amanhã na tabela, balanceamento round-robin de alvos, escalonamento sem colisão em repetições e Fakes Inteligentes 1% Dinâmico por Pontos (_60, _90, _115, _135), Escoltas Anti-Snipe de Precisão Cirúrgica a 40ms antes de cada Nobre (janela anti-snipe personalizável), Bate e Volta com folga configurável de regresso (padrão seguro de 10s para PSEvolution e bots), Rastreio em Tempo Real de Nobres a Caminho & em Retorno de Comandos + Treino na Academia, Deteção Rigorosa de 0 Nobres em Casa por Isolamento de Linhas HTML & Cruzamento de Comandos Ativos, Deduplicação Rigorosa de Nobres & Teto Físico de Tropas Fora, Sincronização Server-Live sem Cache, Validação Precisa de Envio & Horário Mínimo de Ataque à Prova de Falhas (⚡ com 5m folga, cálculo inteligente de nobres a regressar e seleção do Nuke Full mais perto), Suporte Automático a Modelos NT (NT 33% para 3 nobres, NT 25% para 4 nobres), Bunkers Desligados por Default, Alvo Cats do Nuke Muralha por Default, Arsenal Tático de Fakes, UI de Limpezas/Nobres/Demolição, e Planeador Tático.
 // @author       Diogo & Antigravity
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -12,7 +12,7 @@
 // ==/UserScript==
 
 (async function () {
-    const SCRIPT_VERSION = '3.2.25';
+    const SCRIPT_VERSION = '3.2.26';
 
     // Auto-selecionar alvo de catapulta na confirmação de ataque na Praça de Reunião se especificado no URL
     try {
@@ -3787,16 +3787,12 @@
             let globalMinTarget = null;
             let globalMinDist = 0;
 
-            let allTargetsMinLandMs = -Infinity;
-            let maxTargetCoord = null;
-            let maxTargetDist = 0;
+            const simTargetCandidates = [];
 
             tList.forEach(tCoord => {
-                let closestDist = Infinity;
-                let closestV = null;
-                let closestLandMs = Infinity;
-
+                const candidates = [];
                 pool.forEach(v => {
+                    if (v.coords === tCoord) return; // Proteção contra auto-ataque
                     const dist = calcDistance(v.coords, tCoord);
                     const travelSec = dist * speedMin * 60;
                     let candLandMs;
@@ -3809,26 +3805,50 @@
                         candLandMs = minLaunchMs + (travelSec * 1000);
                     }
 
-                    if (candLandMs < closestLandMs) {
-                        closestLandMs = candLandMs;
-                        closestDist = dist;
-                        closestV = v;
+                    candidates.push({ village: v, dist, landMs: candLandMs });
+
+                    if (candLandMs < globalMinLandMs) {
+                        globalMinLandMs = candLandMs;
+                        globalMinVillage = v;
+                        globalMinTarget = tCoord;
+                        globalMinDist = dist;
                     }
                 });
 
-                if (closestLandMs === Infinity) return;
+                candidates.sort((a, b) => a.landMs - b.landMs);
+                simTargetCandidates.push({ target: tCoord, candidates });
+            });
 
-                if (closestLandMs < globalMinLandMs) {
-                    globalMinLandMs = closestLandMs;
-                    globalMinVillage = closestV;
-                    globalMinTarget = tCoord;
-                    globalMinDist = closestDist;
+            // Ordena alvos pelos que têm menor leque de opções ou impacto mais tardio
+            simTargetCandidates.sort((a, b) => {
+                const aFirst = a.candidates[0]?.landMs || Infinity;
+                const bFirst = b.candidates[0]?.landMs || Infinity;
+                return bFirst - aFirst;
+            });
+
+            const simUsage = {};
+            pool.forEach(v => simUsage[v.id] = 0);
+            let allTargetsMinLandMs = -Infinity;
+            let maxTargetCoord = null;
+            let maxTargetDist = 0;
+
+            simTargetCandidates.forEach(item => {
+                let chosen = null;
+                for (const cand of item.candidates) {
+                    if (simUsage[cand.village.id] < maxPerOrigin) {
+                        chosen = cand;
+                        simUsage[cand.village.id]++;
+                        break;
+                    }
+                }
+                if (!chosen && item.candidates.length > 0) {
+                    chosen = item.candidates[0];
                 }
 
-                if (closestLandMs > allTargetsMinLandMs) {
-                    allTargetsMinLandMs = closestLandMs;
-                    maxTargetCoord = tCoord;
-                    maxTargetDist = closestDist;
+                if (chosen && chosen.landMs > allTargetsMinLandMs) {
+                    allTargetsMinLandMs = chosen.landMs;
+                    maxTargetCoord = item.target;
+                    maxTargetDist = chosen.dist;
                 }
             });
 
@@ -3854,12 +3874,12 @@
                 <button type="button" class="tw-btn tw-btn-blue" id="tw-btn-apply-first-land" style="padding:2px 8px; font-size:9px; font-weight:bold; white-space:nowrap;" title="Ajusta o impacto para o 1º fake viável mais rápido (${cleanVillageDisplayName(globalMinVillage)} a ${globalMinDist.toFixed(1)}c de ${globalMinTarget})">
                     ⚡ 1º Impacto Viável: ${minLand1Str}
                 </button>
-                <button type="button" class="tw-btn tw-btn-gold" id="tw-btn-apply-all-land" style="padding:2px 8px; font-size:9.5px; font-weight:bold; white-space:nowrap;" title="Ajusta o impacto para que TODOS os ${tList.length} alvos tenham pelo menos 1 aldeia com alcance viável (alvo mais distante ${maxTargetCoord} a ${maxTargetDist.toFixed(1)}c)">
+                <button type="button" class="tw-btn tw-btn-gold" id="tw-btn-apply-all-land" style="padding:2px 8px; font-size:9.5px; font-weight:bold; white-space:nowrap;" title="Ajusta o impacto para que TODOS os ${tList.length} alvos tenham pelo menos 1 aldeia com alcance viável respeitando o Máx/Aldeia (alvo mais distante ${maxTargetCoord} a ${maxTargetDist.toFixed(1)}c)">
                     🎯 Cobrir Todos os ${tList.length} Alvos: ${minLandAllStr}
                 </button>
             `;
 
-            const applyLandTime = (targetMs, label) => {
+            const applyLandTime = (targetMs, label, isCoverAll = false) => {
                 const strategy = document.getElementById('tw-f-ai').value;
                 const isExact = strategy === 'sync' || strategy === 'fake_train';
                 if (isExact) {
@@ -3871,17 +3891,23 @@
                 } else {
                     const sInput = document.getElementById('tw-f-start');
                     const eInput = document.getElementById('tw-f-end');
-                    if (sInput) sInput.value = formatDatetimeLocal(targetMs);
-                    if (eInput) eInput.value = formatDatetimeLocal(Math.max(targetMs + 3600000, allTargetsMinLandMs + 60000));
-                    showToast(`⏰ Janela de Impacto ajustada (${label} até ${formatShortTime(Math.max(targetMs + 3600000, allTargetsMinLandMs + 60000))})!`);
+                    if (isCoverAll) {
+                        if (sInput) sInput.value = formatDatetimeLocal(globalMinLandMs);
+                        if (eInput) eInput.value = formatDatetimeLocal(targetMs + 3600000);
+                        showToast(`⏰ Janela alargada para cobrir todos (${formatShortTime(globalMinLandMs)} até ${formatShortTime(targetMs + 3600000)})!`);
+                    } else {
+                        if (sInput) sInput.value = formatDatetimeLocal(targetMs);
+                        if (eInput) eInput.value = formatDatetimeLocal(Math.max(targetMs + 3600000, allTargetsMinLandMs + 60000));
+                        showToast(`⏰ Janela de Impacto ajustada (${label} até ${formatShortTime(Math.max(targetMs + 3600000, allTargetsMinLandMs + 60000))})!`);
+                    }
                 }
             };
 
             const btnFirst = document.getElementById('tw-btn-apply-first-land');
-            if (btnFirst) btnFirst.onclick = () => applyLandTime(globalMinLandMs, minLand1Str);
+            if (btnFirst) btnFirst.onclick = () => applyLandTime(globalMinLandMs, minLand1Str, false);
 
             const btnAll = document.getElementById('tw-btn-apply-all-land');
-            if (btnAll) btnAll.onclick = () => applyLandTime(allTargetsMinLandMs + 60000, minLandAllStr);
+            if (btnAll) btnAll.onclick = () => applyLandTime(allTargetsMinLandMs, minLandAllStr, true);
         };
 
         document.getElementById('tw-f-targets').oninput = updateFakesHUD;
@@ -3977,11 +4003,13 @@
         // Pré-calcular candidatos válidos para cada alvo
         const targetPools = {};
         targets.forEach(targetCoord => {
-            targetPools[targetCoord] = pool.map(v => {
-                const dist = calcDistance(v.coords, targetCoord);
-                const travelSec = dist * speedMin * 60;
-                return { village: v, dist, travelSec };
-            }).filter(item => {
+            targetPools[targetCoord] = pool
+                .filter(v => v.coords !== targetCoord) // Previne auto-ataque
+                .map(v => {
+                    const dist = calcDistance(v.coords, targetCoord);
+                    const travelSec = dist * speedMin * 60;
+                    return { village: v, dist, travelSec };
+                }).filter(item => {
                 if (nightExclude) {
                     const valid = findEarliestValidTime(minLaunchMs, item.travelSec, nightImpact, nightLaunch, nightStart, nightEnd);
                     if (!valid) return false;
@@ -4235,9 +4263,15 @@
             const maxReachFields = Math.max(0, ((limitTimeMs - now) / 1000 / 60 / speedMin)).toFixed(1);
             
             let reasonText = '';
-            if (maxCapacity < totalExpected) {
+            if (commands.length === maxCapacity && maxCapacity < totalExpected) {
                 const neededPerVillage = Math.ceil(totalExpected / pool.length);
                 reasonText = `⚠️ <b>${commands.length}/${totalExpected} fakes gerados</b> — Limite de aldeias atingido: tens ${pool.length} aldeias no grupo × ${maxPerOrigin} fakes = <b>máx ${maxCapacity} fakes possíveis</b>! (Dica: Aumenta 'Máx / Aldeia' para ${neededPerVillage} ou escolhe o grupo 'Todas as Aldeias' para agendar os ${totalExpected}).`;
+            } else if (commands.length < maxCapacity) {
+                let extraNote = '';
+                if (maxCapacity < totalExpected) {
+                    extraNote = ` (Nota: o teto máximo com ${pool.length} aldeias × ${maxPerOrigin} fakes é de ${maxCapacity} fakes).`;
+                }
+                reasonText = `⚠️ <b>${commands.length}/${totalExpected} fakes gerados</b> — Janela de tempo curta: ${missing} fakes fora de alcance até ao fim da janela (${formatShortTime(limitTimeMs)}). O alcance máximo nesta janela é de apenas ${maxReachFields}c com ${unitName}. (Dica: Clica no botão dourado '🎯 Cobrir Todos os Alvos' ou alarga o fim da Janela de Impacto para amanhã para permitir que as aldeias mais afastadas cheguem a tempo).${extraNote}`;
             } else if (nightLaunchSkippedCount > 0) {
                 reasonText = `⚠️ <b>${commands.length}/${totalExpected} fakes gerados</b> (${missing} excluídos por coincidirem com o Horário Noturno de envio: ${String(nightStart).padStart(2,'0')}h-${String(nightEnd).padStart(2,'0')}h).`;
             } else {
@@ -4245,7 +4279,7 @@
             }
 
             document.getElementById('tw-f-status').innerHTML = `<span style="color:#fbbf24; font-size:11.5px;">${reasonText}</span>`;
-            showToast(`⚠️ ${commands.length}/${totalExpected} Fakes gerados (${maxCapacity < totalExpected ? 'limite de aldeias atingido' : missing + ' não agendados'})!`);
+            showToast(`⚠️ ${commands.length}/${totalExpected} Fakes gerados (${commands.length < maxCapacity ? 'janela de tempo curta' : 'limite de aldeias atingido'})!`);
         } else {
             document.getElementById('tw-f-status').innerHTML = `<span style="color:#34d399;">✅ ${commands.length} fakes gerados e copiados para o Clipboard!</span>`;
             showToast(`⚡ ${commands.length} Fakes copiados para a Área de Transferência!`);
