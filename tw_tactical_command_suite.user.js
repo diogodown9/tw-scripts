@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW Tactical Command Suite
 // @namespace    https://tribalwars.com.pt/
-// @version      3.2.26
+// @version      3.2.27
 // @description  Suite militar avançada para Tribal Wars PT: Módulo Tático de Comandos (Deteção Inteligente de Ataques Inimigos a Chegar com Identificação Real do Jogador Atacante e Aldeia de Origem, Ataques & Retornos com filtros, agrupamento por alvos, ordenação interativa por clique nos cabeçalhos de coluna, exclusão opcional de micro-saques Modo Turbo para velocidade máxima, purga automática de comandos expirados e timers sincronizados com o servidor), Exclusão de Horário Noturno (Bónus Noturno) no Impacto e no Envio com horas configuráveis, Calculador Automático de Horário Mínimo de Impacto com Folga de Envio Configurável (1º Impacto e Cobertura Total de Alvos com ajuste instantâneo a 1 clique), identificação visual de Hoje/Amanhã na tabela, balanceamento round-robin de alvos, escalonamento sem colisão em repetições e Fakes Inteligentes 1% Dinâmico por Pontos (_60, _90, _115, _135), Escoltas Anti-Snipe de Precisão Cirúrgica a 40ms antes de cada Nobre (janela anti-snipe personalizável), Bate e Volta com folga configurável de regresso (padrão seguro de 10s para PSEvolution e bots), Rastreio em Tempo Real de Nobres a Caminho & em Retorno de Comandos + Treino na Academia, Deteção Rigorosa de 0 Nobres em Casa por Isolamento de Linhas HTML & Cruzamento de Comandos Ativos, Deduplicação Rigorosa de Nobres & Teto Físico de Tropas Fora, Sincronização Server-Live sem Cache, Validação Precisa de Envio & Horário Mínimo de Ataque à Prova de Falhas (⚡ com 5m folga, cálculo inteligente de nobres a regressar e seleção do Nuke Full mais perto), Suporte Automático a Modelos NT (NT 33% para 3 nobres, NT 25% para 4 nobres), Bunkers Desligados por Default, Alvo Cats do Nuke Muralha por Default, Arsenal Tático de Fakes, UI de Limpezas/Nobres/Demolição, e Planeador Tático.
 // @author       Diogo & Antigravity
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -12,7 +12,7 @@
 // ==/UserScript==
 
 (async function () {
-    const SCRIPT_VERSION = '3.2.26';
+    const SCRIPT_VERSION = '3.2.27';
 
     // Auto-selecionar alvo de catapulta na confirmação de ataque na Praça de Reunião se especificado no URL
     try {
@@ -3271,6 +3271,13 @@
         return `${yr}-${mo}-${da}T${ho}:${mi}:${se}`;
     };
 
+    const formatShortTime = (ms) => {
+        const d = new Date(ms);
+        const isToday = d.toDateString() === new Date().toDateString();
+        const dayTag = isToday ? 'Hoje' : `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`;
+        return `${dayTag} às ${d.toLocaleTimeString('pt-PT')}`;
+    };
+
     const isNightTime = (ms, startHour = 0, endHour = 8) => {
         const d = new Date(ms);
         const h = d.getHours();
@@ -3857,13 +3864,6 @@
                 btnsEl.innerHTML = '<span style="font-size:8.5px; color:#f87171;">Não foi possível calcular distâncias viáveis.</span>';
                 return;
             }
-
-            const formatShortTime = (ms) => {
-                const d = new Date(ms);
-                const isToday = d.toDateString() === new Date().toDateString();
-                const dayTag = isToday ? 'Hoje' : `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}`;
-                return `${dayTag} às ${d.toLocaleTimeString('pt-PT')}`;
-            };
 
             const minLand1Str = formatShortTime(globalMinLandMs);
             const minLandAllStr = formatShortTime(allTargetsMinLandMs);
