@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TW Tactical Command Suite
 // @namespace    https://tribalwars.com.pt/
-// @version      3.2.13
-// @description  Suite militar avançada para Tribal Wars PT: Módulo Tático de Comandos (Ataques & Retornos com filtros, agrupamento por alvos, ordenação interativa por clique nos cabeçalhos de coluna, exclusão opcional de micro-saques Modo Turbo para velocidade máxima, purga automática de comandos expirados e timers sincronizados com o servidor), Escoltas Anti-Snipe de Precisão Cirúrgica a 40ms antes de cada Nobre (janela anti-snipe personalizável), Rastreio em Tempo Real de Nobres a Caminho & em Retorno de Comandos + Treino na Academia, Deteção Rigorosa de 0 Nobres em Casa por Isolamento de Linhas HTML & Cruzamento de Comandos Ativos, Deduplicação Rigorosa de Nobres & Teto Físico de Tropas Fora, Sincronização Server-Live sem Cache, Validação Precisa de Envio & Horário Mínimo de Ataque à Prova de Falhas (⚡ com 5m folga, cálculo inteligente de nobres a regressar e seleção do Nuke Full mais perto), Suporte Automático a Modelos NT (NT 33% para 3 nobres, NT 25% para 4 nobres), Bunkers Desligados por Default, Alvo Cats do Nuke Muralha por Default, Fakes Inteligentes 1% Dinâmico, Arsenal Tático de Fakes, UI de Limpezas/Nobres/Demolição, e Planeador Tático.
+// @version      3.2.14
+// @description  Suite militar avançada para Tribal Wars PT: Módulo Tático de Comandos (Ataques & Retornos com filtros, agrupamento por alvos, ordenação interativa por clique nos cabeçalhos de coluna, exclusão opcional de micro-saques Modo Turbo para velocidade máxima, purga automática de comandos expirados e timers sincronizados com o servidor), Escoltas Anti-Snipe de Precisão Cirúrgica a 40ms antes de cada Nobre (janela anti-snipe personalizável), Bate e Volta com folga configurável de regresso (padrão seguro de 10s para PSEvolution e bots), Rastreio em Tempo Real de Nobres a Caminho & em Retorno de Comandos + Treino na Academia, Deteção Rigorosa de 0 Nobres em Casa por Isolamento de Linhas HTML & Cruzamento de Comandos Ativos, Deduplicação Rigorosa de Nobres & Teto Físico de Tropas Fora, Sincronização Server-Live sem Cache, Validação Precisa de Envio & Horário Mínimo de Ataque à Prova de Falhas (⚡ com 5m folga, cálculo inteligente de nobres a regressar e seleção do Nuke Full mais perto), Suporte Automático a Modelos NT (NT 33% para 3 nobres, NT 25% para 4 nobres), Bunkers Desligados por Default, Alvo Cats do Nuke Muralha por Default, Fakes Inteligentes 1% Dinâmico, Arsenal Tático de Fakes, UI de Limpezas/Nobres/Demolição, e Planeador Tático.
 // @author       Diogo & Antigravity
 // @match        https://*.tribalwars.com.pt/game.php*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=tribalwars.com.pt
@@ -12,7 +12,7 @@
 // ==/UserScript==
 
 (async function () {
-    const SCRIPT_VERSION = '3.2.13';
+    const SCRIPT_VERSION = '3.2.14';
 
     // Auto-selecionar alvo de catapulta na confirmação de ataque na Praça de Reunião se especificado no URL
     try {
@@ -1736,7 +1736,8 @@
             let travelSec = dist * unitSpeedMinutes.snob * 60;
             if (attackMode === 'snob_solo' && bvAnchor === 'final') {
                 const numTrips = Math.max(1, neededNobles);
-                travelSec = travelSec + (numTrips - 1) * (2 * travelSec + 2);
+                const bvBufferSec = parseInt(document.getElementById('tw-nt-bv-buffer') ? document.getElementById('tw-nt-bv-buffer').value : getPref('tw_nt_bv_buffer', '10'), 10) || 10;
+                travelSec = travelSec + (numTrips - 1) * (2 * travelSec + bvBufferSec);
             }
 
             const needed1 = (architecture === 'split_2x2' && attackMode === 'split_2x2') ? 2 : (attackMode === 'snob_solo' ? 1 : neededNobles);
@@ -3478,6 +3479,7 @@
         const now = new Date();
         const tomorrow = new Date(now.getTime() + 18 * 3600 * 1000);
         const landDefaultStr = `${tomorrow.getFullYear()}-${String(tomorrow.getMonth()+1).padStart(2,'0')}-${String(tomorrow.getDate()).padStart(2,'0')}T20:00:00`;
+        const bvBufferPref = getPref('tw_nt_bv_buffer', '10');
 
         const committedMap = getCommittedSchedules();
         const committedCount = Object.keys(committedMap).length;
@@ -3597,12 +3599,25 @@
                                         <option value="split_2x2">Dividida 2x2</option>
                                     </select>
                                 </div>
-                                <div style="display:none; flex-direction:column; gap:1px;" id="tw-box-batevolta-anchor">
-                                    <span style="font-size:9px; color:#38bdf8;">Âncora Bate e Volta:</span>
-                                    <select id="tw-nt-bv-anchor" class="tw-select" style="padding:4px 6px; font-size:11px; font-weight:bold; color:#38bdf8;">
-                                        <option value="first" selected>1ª Viagem (Início)</option>
-                                        <option value="final">Última (Conquista)</option>
-                                    </select>
+                                <div style="display:none; grid-template-columns: 1fr 1fr; gap:4px;" id="tw-box-batevolta-options">
+                                    <div style="display:flex; flex-direction:column; gap:1px;" id="tw-box-batevolta-anchor">
+                                        <span style="font-size:9px; color:#38bdf8;">Âncora Bate-Volta:</span>
+                                        <select id="tw-nt-bv-anchor" class="tw-select" style="padding:4px 6px; font-size:11px; font-weight:bold; color:#38bdf8;">
+                                            <option value="first" selected>1ª Viagem (Início)</option>
+                                            <option value="final">Última (Conquista)</option>
+                                        </select>
+                                    </div>
+                                    <div style="display:flex; flex-direction:column; gap:1px;" id="tw-box-batevolta-buffer">
+                                        <span style="font-size:9px; color:#38bdf8;">Folga Regresso:</span>
+                                        <select id="tw-nt-bv-buffer" class="tw-select" style="padding:4px 6px; font-size:11px; font-weight:bold; color:#38bdf8;">
+                                            <option value="10" ${bvBufferPref==='10'?'selected':''}>10s (Seguro)</option>
+                                            <option value="15" ${bvBufferPref==='15'?'selected':''}>15s</option>
+                                            <option value="20" ${bvBufferPref==='20'?'selected':''}>20s</option>
+                                            <option value="30" ${bvBufferPref==='30'?'selected':''}>30s</option>
+                                            <option value="5" ${bvBufferPref==='5'?'selected':''}>5s</option>
+                                            <option value="2" ${bvBufferPref==='2'?'selected':''}>2s (Mínimo)</option>
+                                        </select>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -4272,13 +4287,13 @@
 
             const boxSuboptions = document.getElementById('tw-box-noble-suboptions');
             const boxArch = document.getElementById('tw-box-noble-arch');
-            const boxAnchor = document.getElementById('tw-box-batevolta-anchor');
+            const boxBvOpts = document.getElementById('tw-box-batevolta-options');
             if (isBateVolta) {
                 if (boxArch) boxArch.style.display = 'none';
-                if (boxAnchor) boxAnchor.style.display = 'flex';
+                if (boxBvOpts) boxBvOpts.style.display = 'grid';
                 if (boxSuboptions) boxSuboptions.style.display = 'grid';
             } else {
-                if (boxAnchor) boxAnchor.style.display = 'none';
+                if (boxBvOpts) boxBvOpts.style.display = 'none';
                 const showArch = (hasNobles && nobleCount >= 2);
                 if (boxArch) boxArch.style.display = showArch ? 'flex' : 'none';
                 if (boxSuboptions) boxSuboptions.style.display = showArch ? 'grid' : 'none';
@@ -4507,6 +4522,17 @@
         }
         if (archSelect) {
             archSelect.onchange = () => syncPlannerFormState();
+        }
+        const bvAnchorSelect = document.getElementById('tw-nt-bv-anchor');
+        if (bvAnchorSelect) {
+            bvAnchorSelect.onchange = () => syncPlannerFormState();
+        }
+        const bvBufferSelect = document.getElementById('tw-nt-bv-buffer');
+        if (bvBufferSelect) {
+            bvBufferSelect.onchange = (e) => {
+                savePrefs('tw_nt_bv_buffer', e.target.value);
+                syncPlannerFormState();
+            };
         }
         if (attackModeSelect) {
             attackModeSelect.onchange = (e) => {
@@ -5552,7 +5578,8 @@
                     const numTrips = Math.max(1, nobleCount || 4);
                     const travelSec = nItem.sec;
                     const travelMs = Math.round(travelSec * 1000);
-                    const bufferMs = 2000;
+                    const bvBufferSec = parseInt(document.getElementById('tw-nt-bv-buffer') ? document.getElementById('tw-nt-bv-buffer').value : getPref('tw_nt_bv_buffer', '10'), 10) || 10;
+                    const bufferMs = bvBufferSec * 1000;
 
                     let currentLaunchMs = baseLandTime - travelMs;
                     let currentLandMs = baseLandTime;
@@ -5566,7 +5593,7 @@
                         const returnDateStr = `${String(retD.getDate()).padStart(2,'0')}/${String(retD.getMonth()+1).padStart(2,'0')}`;
                         const infoLabel = isConquest 
                             ? `Viagem ${trip}/${numTrips} • Conquista Final` 
-                            : `Viagem ${trip}/${numTrips} • Retorno: ${returnTimeStr} (${returnDateStr})`;
+                            : `Viagem ${trip}/${numTrips} • Retorno: ${returnTimeStr} (${returnDateStr}) • Folga: ${bvBufferSec}s`;
 
                         allCampaignCommands.push(makeCmd(typeLabel, isConquest ? 'tw-badge-snob' : 'tw-badge-anti', 'Attack', nItem.village, tCoord, nItem.dist.toFixed(2), travelSec, new Date(currentLaunchMs), new Date(currentLandMs), modelSnob, '', infoLabel));
 
@@ -6073,7 +6100,8 @@
             const numTrips = Math.max(1, nobleCount || 4);
 
             if (attackMode === 'snob_solo' && bvAnchor === 'final') {
-                const totalCycleMs = (2 * travelMs1) + 2000;
+                const bvBufferSec = parseInt(document.getElementById('tw-nt-bv-buffer') ? document.getElementById('tw-nt-bv-buffer').value : getPref('tw_nt_bv_buffer', '10'), 10) || 10;
+                const totalCycleMs = (2 * travelMs1) + (bvBufferSec * 1000);
                 trip1AnchorLandMs = baseLandTime - ((numTrips - 1) * totalCycleMs);
             }
             nobleLaunchMs1 = trip1AnchorLandMs - travelMs1;
@@ -6586,7 +6614,8 @@
                 const numTrips = Math.max(1, nobleCount || 4);
                 const travelSec = snobSec1;
                 const travelMs = Math.round(travelSec * 1000);
-                const bufferMs = 2000; // 2s folga de retorno das tropas ao ponto de reunião
+                const bvBufferSec = parseInt(document.getElementById('tw-nt-bv-buffer') ? document.getElementById('tw-nt-bv-buffer').value : getPref('tw_nt_bv_buffer', '10'), 10) || 10;
+                const bufferMs = bvBufferSec * 1000; // folga de retorno das tropas ao ponto de reunião
 
                 let currentLaunchMs = trip1AnchorLandMs - travelMs;
                 let currentLandMs = trip1AnchorLandMs;
@@ -6600,7 +6629,7 @@
                     const returnDateStr = `${String(retD.getDate()).padStart(2,'0')}/${String(retD.getMonth()+1).padStart(2,'0')}`;
                     const infoLabel = isConquest 
                         ? `Viagem ${trip}/${numTrips} • Conquista Final` 
-                        : `Viagem ${trip}/${numTrips} • Retorno: ${returnTimeStr} (${returnDateStr})`;
+                        : `Viagem ${trip}/${numTrips} • Retorno: ${returnTimeStr} (${returnDateStr}) • Folga: ${bvBufferSec}s`;
 
                     sequence.push({
                         type: typeLabel,
