@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW Tactical Command Suite
 // @namespace    https://tribalwars.com.pt/
-// @version      3.2.24
+// @version      3.2.25
 // @description  Suite militar avançada para Tribal Wars PT: Módulo Tático de Comandos (Deteção Inteligente de Ataques Inimigos a Chegar com Identificação Real do Jogador Atacante e Aldeia de Origem, Ataques & Retornos com filtros, agrupamento por alvos, ordenação interativa por clique nos cabeçalhos de coluna, exclusão opcional de micro-saques Modo Turbo para velocidade máxima, purga automática de comandos expirados e timers sincronizados com o servidor), Exclusão de Horário Noturno (Bónus Noturno) no Impacto e no Envio com horas configuráveis, Calculador Automático de Horário Mínimo de Impacto com Folga de Envio Configurável (1º Impacto e Cobertura Total de Alvos com ajuste instantâneo a 1 clique), identificação visual de Hoje/Amanhã na tabela, balanceamento round-robin de alvos, escalonamento sem colisão em repetições e Fakes Inteligentes 1% Dinâmico por Pontos (_60, _90, _115, _135), Escoltas Anti-Snipe de Precisão Cirúrgica a 40ms antes de cada Nobre (janela anti-snipe personalizável), Bate e Volta com folga configurável de regresso (padrão seguro de 10s para PSEvolution e bots), Rastreio em Tempo Real de Nobres a Caminho & em Retorno de Comandos + Treino na Academia, Deteção Rigorosa de 0 Nobres em Casa por Isolamento de Linhas HTML & Cruzamento de Comandos Ativos, Deduplicação Rigorosa de Nobres & Teto Físico de Tropas Fora, Sincronização Server-Live sem Cache, Validação Precisa de Envio & Horário Mínimo de Ataque à Prova de Falhas (⚡ com 5m folga, cálculo inteligente de nobres a regressar e seleção do Nuke Full mais perto), Suporte Automático a Modelos NT (NT 33% para 3 nobres, NT 25% para 4 nobres), Bunkers Desligados por Default, Alvo Cats do Nuke Muralha por Default, Arsenal Tático de Fakes, UI de Limpezas/Nobres/Demolição, e Planeador Tático.
 // @author       Diogo & Antigravity
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -12,7 +12,7 @@
 // ==/UserScript==
 
 (async function () {
-    const SCRIPT_VERSION = '3.2.24';
+    const SCRIPT_VERSION = '3.2.25';
 
     // Auto-selecionar alvo de catapulta na confirmação de ataque na Praça de Reunião se especificado no URL
     try {
@@ -2551,6 +2551,9 @@
                     });
 
                     let rowClass = '';
+                    const isDef = (vTot.defense > vTot.offense) || (vTot.defense > 0 && vTot.defense === vTot.offense);
+                    const isOff = (vTot.offense > vTot.defense);
+
                     if (vTot.offense > vTot.defense && vTot.offense >= 4000) {
                         rowClass = 'tw-row-off';
                         summary.offCount++;
@@ -2629,7 +2632,7 @@
                     const vObj = {
                         id: vId, name: vName, coords, points: vPoints, troops: vTroops, troopsDict: dict, homeTroopsDict: homeDict,
                         movingTroopsDict: movingDict, awayTroopsDict: awayDict,
-                        knightAvailable, rowClass, roleTag,
+                        knightAvailable, rowClass, isDef, isOff, roleTag,
                         farm: farmInfo,
                         snobsAvailable: snobsHome,
                         snobsHome: snobsHome,
@@ -3384,9 +3387,11 @@
                             <div style="display:flex; flex-direction:column; gap:2px;">
                                 <span style="font-size:10px; color:#94a3b8;">Grupo de Origem:</span>
                                 <select id="tw-f-group" class="tw-select">
-                                    <option value="def" selected>🛡️ Apenas Defesa</option>
+                                    <option value="def" selected>🛡️ Apenas Defesa (todas as defensivas)</option>
+                                    <option value="def_ready">🛡️ Bunkers Prontos (≥4k def)</option>
                                     <option value="all">🌍 Todas as Aldeias</option>
-                                    <option value="off">⚔️ Apenas Ataque</option>
+                                    <option value="off">⚔️ Apenas Ataque (todos os ofensivos)</option>
+                                    <option value="off_ready">⚔️ Nukes Prontos (≥4k off)</option>
                                 </select>
                             </div>
                         </div>
@@ -3726,8 +3731,10 @@
             // Filtro de pool para as origens disponíveis
             let pool = [...allVillages];
             if (excludeCommitted) pool = pool.filter(v => !committedMap[v.id]);
-            if (group === 'def') pool = pool.filter(v => v.rowClass === 'tw-row-def');
-            else if (group === 'off') pool = pool.filter(v => v.rowClass === 'tw-row-off');
+            if (group === 'def') pool = pool.filter(v => v.isDef || v.rowClass === 'tw-row-def');
+            else if (group === 'def_ready') pool = pool.filter(v => v.rowClass === 'tw-row-def');
+            else if (group === 'off') pool = pool.filter(v => v.isOff || v.rowClass === 'tw-row-off');
+            else if (group === 'off_ready') pool = pool.filter(v => v.rowClass === 'tw-row-off');
 
             const maxPerOrigin = parseInt(document.getElementById('tw-f-maxorigin')?.value, 10) || 4;
             const totalRequested = tList.length * perTarget;
@@ -3946,8 +3953,10 @@
         if (excludeCommitted) {
             pool = pool.filter(v => !committedMap[v.id]);
         }
-        if (group === 'def') pool = pool.filter(v => v.rowClass === 'tw-row-def');
-        else if (group === 'off') pool = pool.filter(v => v.rowClass === 'tw-row-off');
+        if (group === 'def') pool = pool.filter(v => v.isDef || v.rowClass === 'tw-row-def');
+        else if (group === 'def_ready') pool = pool.filter(v => v.rowClass === 'tw-row-def');
+        else if (group === 'off') pool = pool.filter(v => v.isOff || v.rowClass === 'tw-row-off');
+        else if (group === 'off_ready') pool = pool.filter(v => v.rowClass === 'tw-row-off');
 
         if (pool.length === 0) {
             alert('Nenhuma aldeia disponível para o grupo e filtros selecionados (verifica se não estão todas reservadas na memória).');
