@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW Tactical Command Suite
 // @namespace    https://tribalwars.com.pt/
-// @version      3.2.21
+// @version      3.2.22
 // @description  Suite militar avançada para Tribal Wars PT: Módulo Tático de Comandos (Deteção Inteligente de Ataques Inimigos a Chegar com Identificação Real do Jogador Atacante e Aldeia de Origem, Ataques & Retornos com filtros, agrupamento por alvos, ordenação interativa por clique nos cabeçalhos de coluna, exclusão opcional de micro-saques Modo Turbo para velocidade máxima, purga automática de comandos expirados e timers sincronizados com o servidor), Exclusão de Horário Noturno (Bónus Noturno) no Impacto e no Envio com horas configuráveis, Calculador Automático de Horário Mínimo de Impacto (1º Impacto e Cobertura Total de Alvos com ajuste instantâneo a 1 clique), identificação visual de Hoje/Amanhã na tabela, balanceamento round-robin de alvos, escalonamento sem colisão em repetições e Fakes Inteligentes 1% Dinâmico por Pontos (_60, _90, _115, _135), Escoltas Anti-Snipe de Precisão Cirúrgica a 40ms antes de cada Nobre (janela anti-snipe personalizável), Bate e Volta com folga configurável de regresso (padrão seguro de 10s para PSEvolution e bots), Rastreio em Tempo Real de Nobres a Caminho & em Retorno de Comandos + Treino na Academia, Deteção Rigorosa de 0 Nobres em Casa por Isolamento de Linhas HTML & Cruzamento de Comandos Ativos, Deduplicação Rigorosa de Nobres & Teto Físico de Tropas Fora, Sincronização Server-Live sem Cache, Validação Precisa de Envio & Horário Mínimo de Ataque à Prova de Falhas (⚡ com 5m folga, cálculo inteligente de nobres a regressar e seleção do Nuke Full mais perto), Suporte Automático a Modelos NT (NT 33% para 3 nobres, NT 25% para 4 nobres), Bunkers Desligados por Default, Alvo Cats do Nuke Muralha por Default, Arsenal Tático de Fakes, UI de Limpezas/Nobres/Demolição, e Planeador Tático.
 // @author       Diogo & Antigravity
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -12,7 +12,7 @@
 // ==/UserScript==
 
 (async function () {
-    const SCRIPT_VERSION = '3.2.21';
+    const SCRIPT_VERSION = '3.2.22';
 
     // Auto-selecionar alvo de catapulta na confirmação de ataque na Praça de Reunião se especificado no URL
     try {
@@ -3975,14 +3975,47 @@
                     if (!allowMultiSameTarget && usedForThisTarget >= 1) continue;
 
                     let landMs;
+                    let launchMs;
+
                     if (strategy === 'sync') {
                         // Se a mesma aldeia repetir para o mesmo alvo, desfasa 200ms para evitar colisão no servidor
                         landMs = startMs + (usedForThisTarget * 200);
+                        if (nightExclude && nightImpact && isNightTime(landMs, nightStart, nightEnd)) continue;
+                        launchMs = landMs - (cand.travelSec * 1000);
+                        if (launchMs < minLaunchMs) continue;
+                        if (nightExclude && nightLaunch && isNightTime(launchMs, nightStart, nightEnd)) {
+                            nightLaunchSkippedCount++;
+                            continue;
+                        }
                     } else if (strategy === 'fake_train') {
                         landMs = startMs + (assignedPerTarget[targetCoord] * 200);
+                        if (nightExclude && nightImpact && isNightTime(landMs, nightStart, nightEnd)) continue;
+                        launchMs = landMs - (cand.travelSec * 1000);
+                        if (launchMs < minLaunchMs) continue;
+                        if (nightExclude && nightLaunch && isNightTime(launchMs, nightStart, nightEnd)) {
+                            nightLaunchSkippedCount++;
+                            continue;
+                        }
                     } else if (strategy === 'spam' || strategy === 'chaos') {
+                        let earliestViableLand = minLaunchMs + (cand.travelSec * 1000);
+                        if (nightExclude) {
+                            const valid = findEarliestValidTime(minLaunchMs, cand.travelSec, nightImpact, nightLaunch, nightStart, nightEnd);
+                            if (!valid || valid.landMs > endMs) continue;
+                            earliestViableLand = valid.landMs;
+                        }
+                        earliestViableLand = Math.max(startMs, earliestViableLand);
+                        if (earliestViableLand > endMs) continue;
+
                         const ratio = (tIdx * fakesPerTarget + assignedPerTarget[targetCoord]) / (targets.length * fakesPerTarget);
-                        landMs = startMs + (ratio * (endMs - startMs));
+                        const theoreticalLandMs = startMs + (ratio * (endMs - startMs));
+
+                        if (theoreticalLandMs >= earliestViableLand) {
+                            landMs = theoreticalLandMs;
+                        } else {
+                            // Adapta a chegada para o intervalo viável desta aldeia dentro da janela para não descartar o fake
+                            landMs = earliestViableLand + (ratio * (endMs - earliestViableLand));
+                        }
+
                         if (nightExclude && nightImpact && isNightTime(landMs, nightStart, nightEnd)) {
                             const nextDaytime = getNextDaytime(landMs, nightStart, nightEnd);
                             if (nextDaytime <= endMs) {
@@ -3991,22 +4024,67 @@
                                 continue;
                             }
                         }
+
+                        launchMs = landMs - (cand.travelSec * 1000);
+                        if (launchMs < minLaunchMs) {
+                            launchMs = minLaunchMs;
+                            landMs = launchMs + (cand.travelSec * 1000);
+                            if (landMs > endMs) continue;
+                        }
+
+                        if (nightExclude && nightLaunch && isNightTime(launchMs, nightStart, nightEnd)) {
+                            const valid = findEarliestValidTime(launchMs, cand.travelSec, nightImpact, nightLaunch, nightStart, nightEnd);
+                            if (valid && valid.landMs <= endMs) {
+                                launchMs = valid.launchMs;
+                                landMs = valid.landMs;
+                            } else {
+                                nightLaunchSkippedCount++;
+                                continue;
+                            }
+                        }
+
+                        if (launchMs < minLaunchMs || landMs > endMs) continue;
+                        if (nightExclude && nightImpact && isNightTime(landMs, nightStart, nightEnd)) continue;
+                        if (nightExclude && nightLaunch && isNightTime(launchMs, nightStart, nightEnd)) continue;
                     } else {
+                        let earliestViableLand = minLaunchMs + (cand.travelSec * 1000);
+                        if (nightExclude) {
+                            const valid = findEarliestValidTime(minLaunchMs, cand.travelSec, nightImpact, nightLaunch, nightStart, nightEnd);
+                            if (!valid || valid.landMs > endMs) continue;
+                            earliestViableLand = valid.landMs;
+                        }
+                        earliestViableLand = Math.max(startMs, earliestViableLand);
+                        if (earliestViableLand > endMs) continue;
+
                         let attempts = 0;
                         do {
-                            landMs = startMs + Math.random() * (endMs - startMs);
+                            landMs = earliestViableLand + Math.random() * (endMs - earliestViableLand);
                             attempts++;
                         } while (attempts < 10 && nightExclude && nightImpact && isNightTime(landMs, nightStart, nightEnd));
 
                         if (nightExclude && nightImpact && isNightTime(landMs, nightStart, nightEnd)) continue;
-                    }
 
-                    const launchMs = landMs - (cand.travelSec * 1000);
-                    if (launchMs < minLaunchMs) continue;
+                        launchMs = landMs - (cand.travelSec * 1000);
+                        if (launchMs < minLaunchMs) {
+                            launchMs = minLaunchMs;
+                            landMs = launchMs + (cand.travelSec * 1000);
+                            if (landMs > endMs) continue;
+                        }
 
-                    if (nightExclude && nightLaunch && isNightTime(launchMs, nightStart, nightEnd)) {
-                        nightLaunchSkippedCount++;
-                        continue;
+                        if (nightExclude && nightLaunch && isNightTime(launchMs, nightStart, nightEnd)) {
+                            const valid = findEarliestValidTime(launchMs, cand.travelSec, nightImpact, nightLaunch, nightStart, nightEnd);
+                            if (valid && valid.landMs <= endMs) {
+                                launchMs = valid.launchMs;
+                                landMs = valid.landMs;
+                            } else {
+                                nightLaunchSkippedCount++;
+                                continue;
+                            }
+                        }
+
+                        if (launchMs < minLaunchMs || landMs > endMs) continue;
+                        if (nightExclude && nightImpact && isNightTime(landMs, nightStart, nightEnd)) continue;
+                        if (nightExclude && nightLaunch && isNightTime(launchMs, nightStart, nightEnd)) continue;
                     }
 
                     originUsage[cand.village.id]++;
@@ -4042,9 +4120,12 @@
         }
 
         if (commands.length === 0) {
-            const timeDiffHours = ((startMs - now) / 3600000).toFixed(1);
-            const maxReachFields = ((startMs - now) / 1000 / 60 / speedMin).toFixed(1);
-            alert(`❌ Não foi possível agendar fakes para a hora definida.\n\nMotivo: A hora de impacto é daqui a ${timeDiffHours}h, o que permite um alcance máximo de ${maxReachFields} campos para a unidade selecionada.\n\nSoluções:\n1. Aumenta a hora de impacto para mais tarde.\n2. Escolhe uma unidade mais rápida (ex: Cavalaria ou Batedor).\n3. Seleciona o grupo 'Todas as Aldeias'.\n4. Desmarca a exclusão de horário noturno se estiver ativa.`);
+            const isExact = (strategy === 'sync' || strategy === 'fake_train');
+            const limitTimeMs = isExact ? startMs : endMs;
+            const timeDiffHours = ((limitTimeMs - now) / 3600000).toFixed(1);
+            const maxReachFields = ((limitTimeMs - now) / 1000 / 60 / speedMin).toFixed(1);
+            const modeText = isExact ? 'hora de impacto' : 'fim da janela de impacto';
+            alert(`❌ Não foi possível agendar fakes para o horário definido.\n\nMotivo: O ${modeText} é daqui a ${timeDiffHours}h, o que permite um alcance máximo de ${maxReachFields} campos para a unidade selecionada.\n\nSoluções:\n1. Aumenta a hora de impacto para mais tarde.\n2. Escolhe uma unidade mais rápida (ex: Cavalaria ou Batedor).\n3. Seleciona o grupo 'Todas as Aldeias' ou aumenta o limite Máx / Aldeia.\n4. Desmarca a exclusão de horário noturno se estiver ativa.`);
             return;
         }
 
@@ -4094,19 +4175,25 @@
         document.getElementById('tw-f-preview').value = output.trim();
         await navigator.clipboard.writeText(output.trim());
 
+        const isExact = (strategy === 'sync' || strategy === 'fake_train');
+        const limitTimeMs = isExact ? startMs : endMs;
         const totalExpected = targets.length * fakesPerTarget;
+        const maxCapacity = pool.length * maxPerOrigin;
         const uNames = { ram: 'Aríete/Cata', snob: 'Nobre', sword: 'Espada', axe: 'Machado', heavy: 'CP', light: 'CL', spy: 'Batedor' };
         const unitName = uNames[unit] || 'Tropas';
 
         if (commands.length < totalExpected) {
             const missing = totalExpected - commands.length;
-            const maxReachFields = Math.max(0, ((startMs - now) / 1000 / 60 / speedMin)).toFixed(1);
-            let nightExtra = '';
-            if (nightLaunchSkippedCount > 0) {
-                nightExtra = ` • 🌙 ${nightLaunchSkippedCount} excluídos por envio noturno (${String(nightStart).padStart(2,'0')}h-${String(nightEnd).padStart(2,'0')}h)`;
+            const maxReachFields = Math.max(0, ((limitTimeMs - now) / 1000 / 60 / speedMin)).toFixed(1);
+            let extraReason = '';
+            if (maxCapacity < totalExpected) {
+                extraReason += ` • capacidade máxima das ${pool.length} aldeias é de ${maxCapacity} fakes (máx ${maxPerOrigin}/aldeia)`;
             }
-            document.getElementById('tw-f-status').innerHTML = `<span style="color:#fbbf24; font-weight:bold;">⚠️ ${commands.length}/${totalExpected} fakes gerados (${missing} fora de alcance a tempo • alcance máx: ${maxReachFields}c com ${unitName}${nightExtra})!</span>`;
-            showToast(`⚠️ ${commands.length}/${totalExpected} Fakes gerados (${missing} fora de alcance a tempo)!`);
+            if (nightLaunchSkippedCount > 0) {
+                extraReason += ` • 🌙 ${nightLaunchSkippedCount} excluídos por envio noturno (${String(nightStart).padStart(2,'0')}h-${String(nightEnd).padStart(2,'0')}h)`;
+            }
+            document.getElementById('tw-f-status').innerHTML = `<span style="color:#fbbf24; font-weight:bold;">⚠️ ${commands.length}/${totalExpected} fakes gerados (${missing} não agendados • alcance máx: ${maxReachFields}c com ${unitName}${extraReason})!</span>`;
+            showToast(`⚠️ ${commands.length}/${totalExpected} Fakes gerados (${missing} não agendados)!`);
         } else {
             document.getElementById('tw-f-status').innerHTML = `<span style="color:#34d399;">✅ ${commands.length} fakes gerados e copiados para o Clipboard!</span>`;
             showToast(`⚡ ${commands.length} Fakes copiados para a Área de Transferência!`);
