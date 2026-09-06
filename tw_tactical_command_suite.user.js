@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW Tactical Command Suite
 // @namespace    https://tribalwars.com.pt/
-// @version      3.2.22
+// @version      3.2.23
 // @description  Suite militar avançada para Tribal Wars PT: Módulo Tático de Comandos (Deteção Inteligente de Ataques Inimigos a Chegar com Identificação Real do Jogador Atacante e Aldeia de Origem, Ataques & Retornos com filtros, agrupamento por alvos, ordenação interativa por clique nos cabeçalhos de coluna, exclusão opcional de micro-saques Modo Turbo para velocidade máxima, purga automática de comandos expirados e timers sincronizados com o servidor), Exclusão de Horário Noturno (Bónus Noturno) no Impacto e no Envio com horas configuráveis, Calculador Automático de Horário Mínimo de Impacto (1º Impacto e Cobertura Total de Alvos com ajuste instantâneo a 1 clique), identificação visual de Hoje/Amanhã na tabela, balanceamento round-robin de alvos, escalonamento sem colisão em repetições e Fakes Inteligentes 1% Dinâmico por Pontos (_60, _90, _115, _135), Escoltas Anti-Snipe de Precisão Cirúrgica a 40ms antes de cada Nobre (janela anti-snipe personalizável), Bate e Volta com folga configurável de regresso (padrão seguro de 10s para PSEvolution e bots), Rastreio em Tempo Real de Nobres a Caminho & em Retorno de Comandos + Treino na Academia, Deteção Rigorosa de 0 Nobres em Casa por Isolamento de Linhas HTML & Cruzamento de Comandos Ativos, Deduplicação Rigorosa de Nobres & Teto Físico de Tropas Fora, Sincronização Server-Live sem Cache, Validação Precisa de Envio & Horário Mínimo de Ataque à Prova de Falhas (⚡ com 5m folga, cálculo inteligente de nobres a regressar e seleção do Nuke Full mais perto), Suporte Automático a Modelos NT (NT 33% para 3 nobres, NT 25% para 4 nobres), Bunkers Desligados por Default, Alvo Cats do Nuke Muralha por Default, Arsenal Tático de Fakes, UI de Limpezas/Nobres/Demolição, e Planeador Tático.
 // @author       Diogo & Antigravity
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -12,7 +12,7 @@
 // ==/UserScript==
 
 (async function () {
-    const SCRIPT_VERSION = '3.2.22';
+    const SCRIPT_VERSION = '3.2.23';
 
     // Auto-selecionar alvo de catapulta na confirmação de ataque na Praça de Reunião se especificado no URL
     try {
@@ -3666,7 +3666,10 @@
         const savedMaxOrigin = getPref('tw_f_maxorigin', '4');
         if (document.getElementById('tw-f-maxorigin')) {
             document.getElementById('tw-f-maxorigin').value = savedMaxOrigin;
-            document.getElementById('tw-f-maxorigin').oninput = (e) => savePrefs('tw_f_maxorigin', e.target.value);
+            document.getElementById('tw-f-maxorigin').oninput = (e) => {
+                savePrefs('tw_f_maxorigin', e.target.value);
+                updateFakesHUD();
+            };
         }
 
         const savedAllowMulti = getPref('tw_f_allow_multi', 'true');
@@ -3697,10 +3700,7 @@
             const isSmart = document.getElementById('tw-f-smart-limit') && document.getElementById('tw-f-smart-limit').checked;
             const excludeCommitted = document.getElementById('tw-f-exclude-committed')?.checked;
             const committedMap = getCommittedSchedules();
-            
-            document.getElementById('tw-f-hud-targets').innerHTML = `${tList.length} <span style="font-size:12px; color:#94a3b8; font-weight:normal;">Alvos</span>`;
-            document.getElementById('tw-f-hud-capacity').innerHTML = `${tList.length * perTarget} <span style="font-size:12px; color:#94a3b8; font-weight:normal;">Comandos</span>`;
-            
+
             const uNames = { ram: 'Aríete / Cata (30m)', snob: 'Nobre (35m)', sword: 'Espada (22m)', axe: 'Machado (18m)', heavy: 'CP (11m)', light: 'CL (10m)', spy: 'Batedor (9m)' };
             const smartLabel = isSmart ? ' <span style="color:#c084fc; font-size:10px; font-weight:normal;">(🧠 1% Dinâmico)</span>' : '';
             document.getElementById('tw-f-hud-speed').innerHTML = (uNames[unit] || 'Aríete (30m)') + smartLabel;
@@ -3711,7 +3711,24 @@
             if (group === 'def') pool = pool.filter(v => v.rowClass === 'tw-row-def');
             else if (group === 'off') pool = pool.filter(v => v.rowClass === 'tw-row-off');
 
+            const maxPerOrigin = parseInt(document.getElementById('tw-f-maxorigin')?.value, 10) || 4;
+            const totalRequested = tList.length * perTarget;
+            const maxCapacity = pool.length * maxPerOrigin;
+
+            document.getElementById('tw-f-hud-targets').innerHTML = `${tList.length} <span style="font-size:12px; color:#94a3b8; font-weight:normal;">Alvos</span>`;
             document.getElementById('tw-f-hud-origins').innerHTML = `${pool.length} <span style="font-size:12px; color:#94a3b8; font-weight:normal;">Aldeias</span>`;
+
+            const capEl = document.getElementById('tw-f-hud-capacity');
+            const capSubEl = capEl ? capEl.nextElementSibling : null;
+            if (capEl) {
+                if (maxCapacity < totalRequested) {
+                    capEl.innerHTML = `<span style="color:#fbbf24;">${totalRequested}</span> <span style="font-size:12px; color:#94a3b8; font-weight:normal;">Pedidos</span>`;
+                    if (capSubEl) capSubEl.innerHTML = `<b style="color:#f87171;">⚠️ Teto: ${maxCapacity} fakes (${pool.length} ald. × ${maxPerOrigin})</b>`;
+                } else {
+                    capEl.innerHTML = `<span style="color:#34d399;">${totalRequested}</span> <span style="font-size:12px; color:#94a3b8; font-weight:normal;">Comandos</span>`;
+                    if (capSubEl) capSubEl.innerHTML = `Capacidade total: <b style="color:#34d399;">${maxCapacity}</b> (${pool.length} ald. × ${maxPerOrigin})`;
+                }
+            }
 
             // Cálculo dos Horários Mínimos de Impacto
             const infoEl = document.getElementById('tw-f-min-land-info');
@@ -4185,15 +4202,19 @@
         if (commands.length < totalExpected) {
             const missing = totalExpected - commands.length;
             const maxReachFields = Math.max(0, ((limitTimeMs - now) / 1000 / 60 / speedMin)).toFixed(1);
-            let extraReason = '';
+            
+            let reasonText = '';
             if (maxCapacity < totalExpected) {
-                extraReason += ` • capacidade máxima das ${pool.length} aldeias é de ${maxCapacity} fakes (máx ${maxPerOrigin}/aldeia)`;
+                const neededPerVillage = Math.ceil(totalExpected / pool.length);
+                reasonText = `⚠️ <b>${commands.length}/${totalExpected} fakes gerados</b> — Limite de aldeias atingido: tens ${pool.length} aldeias no grupo × ${maxPerOrigin} fakes = <b>máx ${maxCapacity} fakes possíveis</b>! (Dica: Aumenta 'Máx / Aldeia' para ${neededPerVillage} ou escolhe o grupo 'Todas as Aldeias' para agendar os ${totalExpected}).`;
+            } else if (nightLaunchSkippedCount > 0) {
+                reasonText = `⚠️ <b>${commands.length}/${totalExpected} fakes gerados</b> (${missing} excluídos por coincidirem com o Horário Noturno de envio: ${String(nightStart).padStart(2,'0')}h-${String(nightEnd).padStart(2,'0')}h).`;
+            } else {
+                reasonText = `⚠️ <b>${commands.length}/${totalExpected} fakes gerados</b> (${missing} fora de alcance até ao fim da janela • alcance máx: ${maxReachFields}c com ${unitName}).`;
             }
-            if (nightLaunchSkippedCount > 0) {
-                extraReason += ` • 🌙 ${nightLaunchSkippedCount} excluídos por envio noturno (${String(nightStart).padStart(2,'0')}h-${String(nightEnd).padStart(2,'0')}h)`;
-            }
-            document.getElementById('tw-f-status').innerHTML = `<span style="color:#fbbf24; font-weight:bold;">⚠️ ${commands.length}/${totalExpected} fakes gerados (${missing} não agendados • alcance máx: ${maxReachFields}c com ${unitName}${extraReason})!</span>`;
-            showToast(`⚠️ ${commands.length}/${totalExpected} Fakes gerados (${missing} não agendados)!`);
+
+            document.getElementById('tw-f-status').innerHTML = `<span style="color:#fbbf24; font-size:11.5px;">${reasonText}</span>`;
+            showToast(`⚠️ ${commands.length}/${totalExpected} Fakes gerados (${maxCapacity < totalExpected ? 'limite de aldeias atingido' : missing + ' não agendados'})!`);
         } else {
             document.getElementById('tw-f-status').innerHTML = `<span style="color:#34d399;">✅ ${commands.length} fakes gerados e copiados para o Clipboard!</span>`;
             showToast(`⚡ ${commands.length} Fakes copiados para a Área de Transferência!`);
