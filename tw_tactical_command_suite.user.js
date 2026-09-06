@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TW Tactical Command Suite
 // @namespace    https://tribalwars.com.pt/
-// @version      3.2.18
-// @description  Suite militar avançada para Tribal Wars PT: Módulo Tático de Comandos (Deteção Inteligente de Ataques Inimigos a Chegar com Identificação Real do Jogador Atacante e Aldeia de Origem, Ataques & Retornos com filtros, agrupamento por alvos, ordenação interativa por clique nos cabeçalhos de coluna, exclusão opcional de micro-saques Modo Turbo para velocidade máxima, purga automática de comandos expirados e timers sincronizados com o servidor), Calculador Automático de Horário Mínimo de Impacto (1º Impacto e Cobertura Total de Alvos com ajuste instantâneo a 1 clique), Horário Mínimo de Envio configurável, identificação visual de Hoje/Amanhã na tabela, balanceamento round-robin de alvos, escalonamento sem colisão em repetições e Fakes Inteligentes 1% Dinâmico por Pontos (_60, _90, _115, _135), Escoltas Anti-Snipe de Precisão Cirúrgica a 40ms antes de cada Nobre (janela anti-snipe personalizável), Bate e Volta com folga configurável de regresso (padrão seguro de 10s para PSEvolution e bots), Rastreio em Tempo Real de Nobres a Caminho & em Retorno de Comandos + Treino na Academia, Deteção Rigorosa de 0 Nobres em Casa por Isolamento de Linhas HTML & Cruzamento de Comandos Ativos, Deduplicação Rigorosa de Nobres & Teto Físico de Tropas Fora, Sincronização Server-Live sem Cache, Validação Precisa de Envio & Horário Mínimo de Ataque à Prova de Falhas (⚡ com 5m folga, cálculo inteligente de nobres a regressar e seleção do Nuke Full mais perto), Suporte Automático a Modelos NT (NT 33% para 3 nobres, NT 25% para 4 nobres), Bunkers Desligados por Default, Alvo Cats do Nuke Muralha por Default, Arsenal Tático de Fakes, UI de Limpezas/Nobres/Demolição, e Planeador Tático.
+// @version      3.2.19
+// @description  Suite militar avançada para Tribal Wars PT: Módulo Tático de Comandos (Deteção Inteligente de Ataques Inimigos a Chegar com Identificação Real do Jogador Atacante e Aldeia de Origem, Ataques & Retornos com filtros, agrupamento por alvos, ordenação interativa por clique nos cabeçalhos de coluna, exclusão opcional de micro-saques Modo Turbo para velocidade máxima, purga automática de comandos expirados e timers sincronizados com o servidor), Exclusão de Horário Noturno (Bónus Noturno) no Impacto e no Envio com horas configuráveis, Calculador Automático de Horário Mínimo de Impacto (1º Impacto e Cobertura Total de Alvos com ajuste instantâneo a 1 clique), Horário Mínimo de Envio configurável, identificação visual de Hoje/Amanhã na tabela, balanceamento round-robin de alvos, escalonamento sem colisão em repetições e Fakes Inteligentes 1% Dinâmico por Pontos (_60, _90, _115, _135), Escoltas Anti-Snipe de Precisão Cirúrgica a 40ms antes de cada Nobre (janela anti-snipe personalizável), Bate e Volta com folga configurável de regresso (padrão seguro de 10s para PSEvolution e bots), Rastreio em Tempo Real de Nobres a Caminho & em Retorno de Comandos + Treino na Academia, Deteção Rigorosa de 0 Nobres em Casa por Isolamento de Linhas HTML & Cruzamento de Comandos Ativos, Deduplicação Rigorosa de Nobres & Teto Físico de Tropas Fora, Sincronização Server-Live sem Cache, Validação Precisa de Envio & Horário Mínimo de Ataque à Prova de Falhas (⚡ com 5m folga, cálculo inteligente de nobres a regressar e seleção do Nuke Full mais perto), Suporte Automático a Modelos NT (NT 33% para 3 nobres, NT 25% para 4 nobres), Bunkers Desligados por Default, Alvo Cats do Nuke Muralha por Default, Arsenal Tático de Fakes, UI de Limpezas/Nobres/Demolição, e Planeador Tático.
 // @author       Diogo & Antigravity
 // @match        https://*.tribalwars.com.pt/game.php*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=tribalwars.com.pt
@@ -12,7 +12,7 @@
 // ==/UserScript==
 
 (async function () {
-    const SCRIPT_VERSION = '3.2.18';
+    const SCRIPT_VERSION = '3.2.19';
 
     // Auto-selecionar alvo de catapulta na confirmação de ataque na Praça de Reunião se especificado no URL
     try {
@@ -3382,6 +3382,37 @@
                             </div>
                         </div>
 
+                        <!-- Excluir Horário Noturno (Bónus Noturno) -->
+                        <div style="display:flex; flex-direction:column; gap:4px; margin-top:5px; padding:5px 6px; background:rgba(30, 41, 59, 0.6); border:1px solid #334155; border-radius:4px;">
+                            <div style="display:flex; justify-content:space-between; align-items:center;">
+                                <label style="display:flex; align-items:center; gap:5px; font-size:10px; color:#f8fafc; cursor:pointer; font-weight:bold;" title="Ativa a proteção contra horário noturno / bónus noturno">
+                                    <input type="checkbox" id="tw-f-night-exclude" style="cursor:pointer; width:13px; height:13px;">
+                                    🌙 Excluir Horário Noturno
+                                </label>
+                                <span style="font-size:8.5px; color:#c084fc; font-weight:600;" id="tw-f-night-badge">00:00 - 08:00</span>
+                            </div>
+                            <div id="tw-f-night-opts" style="display:none; flex-direction:column; gap:4px; margin-top:2px; border-top:1px dashed #334155; padding-top:4px;">
+                                <div style="display:flex; justify-content:space-between; align-items:center; font-size:9px; color:#94a3b8;">
+                                    <span>Intervalo Noturno:</span>
+                                    <div style="display:flex; align-items:center; gap:3px;">
+                                        <input type="number" id="tw-f-night-start" min="0" max="23" value="0" style="width:34px; padding:1px 2px; text-align:center; font-size:9.5px; background:#0f172a; border:1px solid #475569; color:#f8fafc; border-radius:3px;">h
+                                        <span>às</span>
+                                        <input type="number" id="tw-f-night-end" min="0" max="23" value="8" style="width:34px; padding:1px 2px; text-align:center; font-size:9.5px; background:#0f172a; border:1px solid #475569; color:#f8fafc; border-radius:3px;">h
+                                    </div>
+                                </div>
+                                <div style="display:grid; grid-template-columns: 1fr 1fr; gap:6px;">
+                                    <label style="display:flex; align-items:center; gap:4px; font-size:9px; color:#cbd5e1; cursor:pointer;" title="Evita que os fakes cheguem ao alvo durante o bónus noturno (00:00 - 08:00)">
+                                        <input type="checkbox" id="tw-f-night-impact" checked style="cursor:pointer; width:12px; height:12px;">
+                                        Evitar no Impacto
+                                    </label>
+                                    <label style="display:flex; align-items:center; gap:4px; font-size:9px; color:#cbd5e1; cursor:pointer;" title="Evita comandos que exijam envio enquanto estás a dormir (00:00 - 08:00)">
+                                        <input type="checkbox" id="tw-f-night-launch" checked style="cursor:pointer; width:12px; height:12px;">
+                                        Evitar no Envio
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+
                         <!-- Calculador Automático de Horário Mínimo de Impacto -->
                         <div id="tw-f-min-land-box" style="margin-top:6px; padding:6px; background:rgba(15, 23, 42, 0.85); border:1px solid #38bdf8; border-radius:4px; display:flex; flex-direction:column; gap:4px;">
                             <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -3543,6 +3574,63 @@
             document.getElementById('tw-f-min-launch').onchange = (e) => savePrefs('tw_f_min_launch', e.target.value);
         }
 
+        // Preferências e Listeners de Exclusão de Horário Noturno
+        const savedNightExclude = getPref('tw_f_night_exclude', 'false');
+        const savedNightStart = getPref('tw_f_night_start', '0');
+        const savedNightEnd = getPref('tw_f_night_end', '8');
+        const savedNightImpact = getPref('tw_f_night_impact', 'true');
+        const savedNightLaunch = getPref('tw_f_night_launch', 'true');
+
+        const nightExcludeEl = document.getElementById('tw-f-night-exclude');
+        const nightOptsEl = document.getElementById('tw-f-night-opts');
+        const nightStartEl = document.getElementById('tw-f-night-start');
+        const nightEndEl = document.getElementById('tw-f-night-end');
+        const nightImpactEl = document.getElementById('tw-f-night-impact');
+        const nightLaunchEl = document.getElementById('tw-f-night-launch');
+        const nightBadgeEl = document.getElementById('tw-f-night-badge');
+
+        const updateNightBadge = () => {
+            if (nightBadgeEl && nightStartEl && nightEndEl) {
+                const s = String(nightStartEl.value || 0).padStart(2, '0');
+                const e = String(nightEndEl.value || 8).padStart(2, '0');
+                nightBadgeEl.innerText = `${s}:00 - ${e}:00`;
+            }
+        };
+
+        if (nightExcludeEl) {
+            nightExcludeEl.checked = (savedNightExclude === 'true');
+            if (nightOptsEl) nightOptsEl.style.display = nightExcludeEl.checked ? 'flex' : 'none';
+            if (nightStartEl) nightStartEl.value = savedNightStart;
+            if (nightEndEl) nightEndEl.value = savedNightEnd;
+            if (nightImpactEl) nightImpactEl.checked = (savedNightImpact === 'true');
+            if (nightLaunchEl) nightLaunchEl.checked = (savedNightLaunch === 'true');
+            updateNightBadge();
+
+            nightExcludeEl.onchange = (e) => {
+                savePrefs('tw_f_night_exclude', String(e.target.checked));
+                if (nightOptsEl) nightOptsEl.style.display = e.target.checked ? 'flex' : 'none';
+                updateFakesHUD();
+            };
+            if (nightStartEl) nightStartEl.onchange = (e) => {
+                savePrefs('tw_f_night_start', e.target.value);
+                updateNightBadge();
+                updateFakesHUD();
+            };
+            if (nightEndEl) nightEndEl.onchange = (e) => {
+                savePrefs('tw_f_night_end', e.target.value);
+                updateNightBadge();
+                updateFakesHUD();
+            };
+            if (nightImpactEl) nightImpactEl.onchange = (e) => {
+                savePrefs('tw_f_night_impact', String(e.target.checked));
+                updateFakesHUD();
+            };
+            if (nightLaunchEl) nightLaunchEl.onchange = (e) => {
+                savePrefs('tw_f_night_launch', String(e.target.checked));
+                updateFakesHUD();
+            };
+        }
+
         const savedFakeSmartLimitTab = getPref('tw_f_smart_limit', 'true');
         if (document.getElementById('tw-f-smart-limit')) {
             document.getElementById('tw-f-smart-limit').checked = (savedFakeSmartLimitTab === 'true');
@@ -3606,6 +3694,63 @@
             return `${yr}-${mo}-${da}T${ho}:${mi}:${se}`;
         };
 
+        const isNightTime = (ms, startHour = 0, endHour = 8) => {
+            const d = new Date(ms);
+            const h = d.getHours();
+            if (startHour <= endHour) {
+                return h >= startHour && h < endHour;
+            } else {
+                return h >= startHour || h < endHour;
+            }
+        };
+
+        const getNextDaytime = (ms, startHour = 0, endHour = 8) => {
+            const d = new Date(ms);
+            if (!isNightTime(d.getTime(), startHour, endHour)) return ms;
+            d.setMinutes(0, 0, 0);
+            if (startHour <= endHour) {
+                d.setHours(endHour);
+            } else {
+                if (d.getHours() >= startHour) {
+                    d.setDate(d.getDate() + 1);
+                }
+                d.setHours(endHour);
+            }
+            return d.getTime();
+        };
+
+        const findEarliestValidTime = (minLaunchMs, travelSec, excludeImpact, excludeLaunch, nightStart = 0, nightEnd = 8) => {
+            if (!excludeImpact && !excludeLaunch) {
+                return { launchMs: minLaunchMs, landMs: minLaunchMs + (travelSec * 1000) };
+            }
+
+            let launchMs = minLaunchMs;
+            const stepLimit = 25;
+            let step = 0;
+
+            while (step < stepLimit) {
+                step++;
+                if (excludeLaunch && isNightTime(launchMs, nightStart, nightEnd)) {
+                    launchMs = getNextDaytime(launchMs, nightStart, nightEnd);
+                }
+
+                const landMs = launchMs + (travelSec * 1000);
+
+                if (excludeImpact && isNightTime(landMs, nightStart, nightEnd)) {
+                    const nextDayLandMs = getNextDaytime(landMs, nightStart, nightEnd);
+                    const neededLaunchMs = nextDayLandMs - (travelSec * 1000);
+                    if (neededLaunchMs >= minLaunchMs && (!excludeLaunch || !isNightTime(neededLaunchMs, nightStart, nightEnd))) {
+                        return { launchMs: neededLaunchMs, landMs: nextDayLandMs };
+                    }
+                    launchMs = nextDayLandMs;
+                    continue;
+                }
+
+                return { launchMs, landMs };
+            }
+            return null;
+        };
+
         const updateFakesHUD = () => {
             const raw = document.getElementById('tw-f-targets').value;
             const tList = Array.from(new Set(raw.match(/\d{3}\|\d{3}/g) || []));
@@ -3657,6 +3802,12 @@
 
             const speedMin = unitSpeedMinutes[unit] || unitSpeedMinutes.ram;
 
+            const nightExclude = document.getElementById('tw-f-night-exclude')?.checked || false;
+            const nightStart = parseInt(document.getElementById('tw-f-night-start')?.value, 10) || 0;
+            const nightEnd = parseInt(document.getElementById('tw-f-night-end')?.value, 10) || 8;
+            const nightImpact = document.getElementById('tw-f-night-impact')?.checked ?? true;
+            const nightLaunch = document.getElementById('tw-f-night-launch')?.checked ?? true;
+
             let globalMinLandMs = Infinity;
             let globalMinVillage = null;
             let globalMinTarget = null;
@@ -3669,28 +3820,39 @@
             tList.forEach(tCoord => {
                 let closestDist = Infinity;
                 let closestV = null;
+                let closestLandMs = Infinity;
+
                 pool.forEach(v => {
                     const dist = calcDistance(v.coords, tCoord);
-                    if (dist < closestDist) {
+                    const travelSec = dist * speedMin * 60;
+                    let candLandMs;
+
+                    if (nightExclude) {
+                        const valid = findEarliestValidTime(minLaunchMs, travelSec, nightImpact, nightLaunch, nightStart, nightEnd);
+                        if (!valid) return;
+                        candLandMs = valid.landMs;
+                    } else {
+                        candLandMs = minLaunchMs + (travelSec * 1000);
+                    }
+
+                    if (candLandMs < closestLandMs) {
+                        closestLandMs = candLandMs;
                         closestDist = dist;
                         closestV = v;
                     }
                 });
 
-                if (closestDist === Infinity) return;
+                if (closestLandMs === Infinity) return;
 
-                const travelSec = closestDist * speedMin * 60;
-                const targetMinLandMs = minLaunchMs + (travelSec * 1000);
-
-                if (targetMinLandMs < globalMinLandMs) {
-                    globalMinLandMs = targetMinLandMs;
+                if (closestLandMs < globalMinLandMs) {
+                    globalMinLandMs = closestLandMs;
                     globalMinVillage = closestV;
                     globalMinTarget = tCoord;
                     globalMinDist = closestDist;
                 }
 
-                if (targetMinLandMs > allTargetsMinLandMs) {
-                    allTargetsMinLandMs = targetMinLandMs;
+                if (closestLandMs > allTargetsMinLandMs) {
+                    allTargetsMinLandMs = closestLandMs;
                     maxTargetCoord = tCoord;
                     maxTargetDist = closestDist;
                 }
@@ -3698,7 +3860,7 @@
 
             if (globalMinLandMs === Infinity) {
                 infoEl.innerText = 'Erro no cálculo';
-                btnsEl.innerHTML = '<span style="font-size:8.5px; color:#f87171;">Não foi possível calcular distâncias.</span>';
+                btnsEl.innerHTML = '<span style="font-size:8.5px; color:#f87171;">Não foi possível calcular distâncias viáveis.</span>';
                 return;
             }
 
@@ -3755,6 +3917,9 @@
         document.getElementById('tw-f-exclude-committed').onchange = updateFakesHUD;
         if (document.getElementById('tw-f-min-launch')) document.getElementById('tw-f-min-launch').onchange = updateFakesHUD;
         if (document.getElementById('tw-f-ai')) document.getElementById('tw-f-ai').addEventListener('change', updateFakesHUD);
+        if (document.getElementById('tw-f-exact-time')) document.getElementById('tw-f-exact-time').addEventListener('input', updateFakesHUD);
+        if (document.getElementById('tw-f-start')) document.getElementById('tw-f-start').addEventListener('input', updateFakesHUD);
+        if (document.getElementById('tw-f-end')) document.getElementById('tw-f-end').addEventListener('input', updateFakesHUD);
         updateFakesHUD();
     }
 
@@ -3795,6 +3960,21 @@
             return;
         }
 
+        const nightExclude = document.getElementById('tw-f-night-exclude')?.checked || false;
+        const nightStart = parseInt(document.getElementById('tw-f-night-start')?.value, 10) || 0;
+        const nightEnd = parseInt(document.getElementById('tw-f-night-end')?.value, 10) || 8;
+        const nightImpact = document.getElementById('tw-f-night-impact')?.checked ?? true;
+        const nightLaunch = document.getElementById('tw-f-night-launch')?.checked ?? true;
+
+        if (nightExclude && nightImpact && (strategy === 'sync' || strategy === 'fake_train')) {
+            if (isNightTime(startMs, nightStart, nightEnd)) {
+                const sStr = String(nightStart).padStart(2, '0');
+                const eStr = String(nightEnd).padStart(2, '0');
+                alert(`⚠️ Atenção: A Hora de Impacto selecionada (${new Date(startMs).toLocaleTimeString('pt-PT')}) coincide com o Horário Noturno (${sStr}:00 às ${eStr}:00).\n\nPara prosseguir, desmarca a opção 'Evitar no Impacto' ou ajusta o horário para fora do período noturno.`);
+                return;
+            }
+        }
+
         let pool = [...allVillages];
         if (excludeCommitted) {
             pool = pool.filter(v => !committedMap[v.id]);
@@ -3831,8 +4011,14 @@
                 const travelSec = dist * speedMin * 60;
                 return { village: v, dist, travelSec };
             }).filter(item => {
-                const minPossibleLand = minLaunchMs + (item.travelSec * 1000);
-                return minPossibleLand <= endMs;
+                if (nightExclude) {
+                    const valid = findEarliestValidTime(minLaunchMs, item.travelSec, nightImpact, nightLaunch, nightStart, nightEnd);
+                    if (!valid) return false;
+                    return valid.landMs <= endMs;
+                } else {
+                    const minPossibleLand = minLaunchMs + (item.travelSec * 1000);
+                    return minPossibleLand <= endMs;
+                }
             }).sort((a, b) => a.dist - b.dist);
         });
 
@@ -3846,6 +4032,7 @@
         // Distribuição Round-Robin entre os alvos para maximizar cobertura
         let round = 0;
         let candidateAssignedInRound = true;
+        let nightLaunchSkippedCount = 0;
 
         while (round < fakesPerTarget && candidateAssignedInRound) {
             candidateAssignedInRound = false;
@@ -3873,12 +4060,31 @@
                     } else if (strategy === 'spam' || strategy === 'chaos') {
                         const ratio = (tIdx * fakesPerTarget + assignedPerTarget[targetCoord]) / (targets.length * fakesPerTarget);
                         landMs = startMs + (ratio * (endMs - startMs));
+                        if (nightExclude && nightImpact && isNightTime(landMs, nightStart, nightEnd)) {
+                            const nextDaytime = getNextDaytime(landMs, nightStart, nightEnd);
+                            if (nextDaytime <= endMs) {
+                                landMs = nextDaytime;
+                            } else {
+                                continue;
+                            }
+                        }
                     } else {
-                        landMs = startMs + Math.random() * (endMs - startMs);
+                        let attempts = 0;
+                        do {
+                            landMs = startMs + Math.random() * (endMs - startMs);
+                            attempts++;
+                        } while (attempts < 10 && nightExclude && nightImpact && isNightTime(landMs, nightStart, nightEnd));
+
+                        if (nightExclude && nightImpact && isNightTime(landMs, nightStart, nightEnd)) continue;
                     }
 
                     const launchMs = landMs - (cand.travelSec * 1000);
                     if (launchMs < minLaunchMs) continue;
+
+                    if (nightExclude && nightLaunch && isNightTime(launchMs, nightStart, nightEnd)) {
+                        nightLaunchSkippedCount++;
+                        continue;
+                    }
 
                     originUsage[cand.village.id]++;
                     targetOriginCount[targetCoord][cand.village.id] = usedForThisTarget + 1;
@@ -3915,7 +4121,7 @@
         if (commands.length === 0) {
             const timeDiffHours = ((startMs - now) / 3600000).toFixed(1);
             const maxReachFields = ((startMs - now) / 1000 / 60 / speedMin).toFixed(1);
-            alert(`❌ Não foi possível agendar fakes para a hora definida.\n\nMotivo: A hora de impacto é daqui a ${timeDiffHours}h, o que permite um alcance máximo de ${maxReachFields} campos para a unidade selecionada.\n\nSoluções:\n1. Aumenta a hora de impacto para mais tarde.\n2. Escolhe uma unidade mais rápida (ex: Cavalaria ou Batedor).\n3. Seleciona o grupo 'Todas as Aldeias'.`);
+            alert(`❌ Não foi possível agendar fakes para a hora definida.\n\nMotivo: A hora de impacto é daqui a ${timeDiffHours}h, o que permite um alcance máximo de ${maxReachFields} campos para a unidade selecionada.\n\nSoluções:\n1. Aumenta a hora de impacto para mais tarde.\n2. Escolhe uma unidade mais rápida (ex: Cavalaria ou Batedor).\n3. Seleciona o grupo 'Todas as Aldeias'.\n4. Desmarca a exclusão de horário noturno se estiver ativa.`);
             return;
         }
 
@@ -3972,7 +4178,11 @@
         if (commands.length < totalExpected) {
             const missing = totalExpected - commands.length;
             const maxReachFields = Math.max(0, ((startMs - now) / 1000 / 60 / speedMin)).toFixed(1);
-            document.getElementById('tw-f-status').innerHTML = `<span style="color:#fbbf24; font-weight:bold;">⚠️ ${commands.length}/${totalExpected} fakes gerados (${missing} fora de alcance a tempo • alcance máx: ${maxReachFields}c com ${unitName})!</span>`;
+            let nightExtra = '';
+            if (nightLaunchSkippedCount > 0) {
+                nightExtra = ` • 🌙 ${nightLaunchSkippedCount} excluídos por envio noturno (${String(nightStart).padStart(2,'0')}h-${String(nightEnd).padStart(2,'0')}h)`;
+            }
+            document.getElementById('tw-f-status').innerHTML = `<span style="color:#fbbf24; font-weight:bold;">⚠️ ${commands.length}/${totalExpected} fakes gerados (${missing} fora de alcance a tempo • alcance máx: ${maxReachFields}c com ${unitName}${nightExtra})!</span>`;
             showToast(`⚠️ ${commands.length}/${totalExpected} Fakes gerados (${missing} fora de alcance a tempo)!`);
         } else {
             document.getElementById('tw-f-status').innerHTML = `<span style="color:#34d399;">✅ ${commands.length} fakes gerados e copiados para o Clipboard!</span>`;
