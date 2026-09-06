@@ -525,22 +525,28 @@
         }
 
         function updateMapHighlights() {
-            if (selectedList.length === 0) {
-                $('[id^="map_village_"]').css('filter', 'none');
-                return;
-            }
-
-            const selectedCoords = new Set(selectedList.map(v => v.coord));
-            for (const coord of selectedCoords) {
-                const [x, y] = coord.split('|');
-                const key = parseInt(x, 10) * 1000 + parseInt(y, 10);
-                const v = (window.TWMap && TWMap.villages) ? TWMap.villages[key] : null;
-                if (v && v.id) {
-                    $(`#map_village_${v.id}`).css({
-                        filter: 'drop-shadow(0 0 5px #00ff00) brightness(140%)'
-                    });
+            const selectedVillageIds = new Set();
+            if (window.TWMap && TWMap.villages) {
+                for (const v of selectedList) {
+                    const [x, y] = v.coord.split('|');
+                    const key = parseInt(x, 10) * 1000 + parseInt(y, 10);
+                    const mapV = TWMap.villages[key];
+                    if (mapV && mapV.id) {
+                        selectedVillageIds.add(mapV.id.toString());
+                    }
                 }
             }
+
+            $('[id^="map_village_"]').each(function () {
+                const elId = this.id.replace('map_village_', '');
+                if (selectedVillageIds.has(elId)) {
+                    $(this).css('filter', 'drop-shadow(0 0 6px #00ff00) brightness(140%)');
+                } else {
+                    if (this.style.filter && this.style.filter !== 'none') {
+                        $(this).css('filter', 'none');
+                    }
+                }
+            });
         }
 
         function toggleVillage(coord) {
@@ -550,6 +556,10 @@
 
             if (existingIdx >= 0) {
                 selectedList.splice(existingIdx, 1);
+                const key = x * 1000 + y;
+                if (window.TWMap && TWMap.villages && TWMap.villages[key]) {
+                    $(`#map_village_${TWMap.villages[key].id}`).css('filter', 'none');
+                }
             } else {
                 const vData = getVillageDataByCoord(x, y);
                 selectedList.push(vData);
