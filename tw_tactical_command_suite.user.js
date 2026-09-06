@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TW Tactical Command Suite
 // @namespace    https://tribalwars.com.pt/
-// @version      3.2.17
-// @description  Suite militar avançada para Tribal Wars PT: Módulo Tático de Comandos (Deteção Inteligente de Ataques Inimigos a Chegar com Identificação Real do Jogador Atacante e Aldeia de Origem, Ataques & Retornos com filtros, agrupamento por alvos, ordenação interativa por clique nos cabeçalhos de coluna, exclusão opcional de micro-saques Modo Turbo para velocidade máxima, purga automática de comandos expirados e timers sincronizados com o servidor), Fakes com Horário Mínimo de Envio configurável, identificação visual de Hoje/Amanhã na tabela, balanceamento round-robin de alvos, escalonamento sem colisão em repetições e Fakes Inteligentes 1% Dinâmico por Pontos (_60, _90, _115, _135), Escoltas Anti-Snipe de Precisão Cirúrgica a 40ms antes de cada Nobre (janela anti-snipe personalizável), Bate e Volta com folga configurável de regresso (padrão seguro de 10s para PSEvolution e bots), Rastreio em Tempo Real de Nobres a Caminho & em Retorno de Comandos + Treino na Academia, Deteção Rigorosa de 0 Nobres em Casa por Isolamento de Linhas HTML & Cruzamento de Comandos Ativos, Deduplicação Rigorosa de Nobres & Teto Físico de Tropas Fora, Sincronização Server-Live sem Cache, Validação Precisa de Envio & Horário Mínimo de Ataque à Prova de Falhas (⚡ com 5m folga, cálculo inteligente de nobres a regressar e seleção do Nuke Full mais perto), Suporte Automático a Modelos NT (NT 33% para 3 nobres, NT 25% para 4 nobres), Bunkers Desligados por Default, Alvo Cats do Nuke Muralha por Default, Arsenal Tático de Fakes, UI de Limpezas/Nobres/Demolição, e Planeador Tático.
+// @version      3.2.18
+// @description  Suite militar avançada para Tribal Wars PT: Módulo Tático de Comandos (Deteção Inteligente de Ataques Inimigos a Chegar com Identificação Real do Jogador Atacante e Aldeia de Origem, Ataques & Retornos com filtros, agrupamento por alvos, ordenação interativa por clique nos cabeçalhos de coluna, exclusão opcional de micro-saques Modo Turbo para velocidade máxima, purga automática de comandos expirados e timers sincronizados com o servidor), Calculador Automático de Horário Mínimo de Impacto (1º Impacto e Cobertura Total de Alvos com ajuste instantâneo a 1 clique), Horário Mínimo de Envio configurável, identificação visual de Hoje/Amanhã na tabela, balanceamento round-robin de alvos, escalonamento sem colisão em repetições e Fakes Inteligentes 1% Dinâmico por Pontos (_60, _90, _115, _135), Escoltas Anti-Snipe de Precisão Cirúrgica a 40ms antes de cada Nobre (janela anti-snipe personalizável), Bate e Volta com folga configurável de regresso (padrão seguro de 10s para PSEvolution e bots), Rastreio em Tempo Real de Nobres a Caminho & em Retorno de Comandos + Treino na Academia, Deteção Rigorosa de 0 Nobres em Casa por Isolamento de Linhas HTML & Cruzamento de Comandos Ativos, Deduplicação Rigorosa de Nobres & Teto Físico de Tropas Fora, Sincronização Server-Live sem Cache, Validação Precisa de Envio & Horário Mínimo de Ataque à Prova de Falhas (⚡ com 5m folga, cálculo inteligente de nobres a regressar e seleção do Nuke Full mais perto), Suporte Automático a Modelos NT (NT 33% para 3 nobres, NT 25% para 4 nobres), Bunkers Desligados por Default, Alvo Cats do Nuke Muralha por Default, Arsenal Tático de Fakes, UI de Limpezas/Nobres/Demolição, e Planeador Tático.
 // @author       Diogo & Antigravity
 // @match        https://*.tribalwars.com.pt/game.php*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=tribalwars.com.pt
@@ -12,7 +12,7 @@
 // ==/UserScript==
 
 (async function () {
-    const SCRIPT_VERSION = '3.2.17';
+    const SCRIPT_VERSION = '3.2.18';
 
     // Auto-selecionar alvo de catapulta na confirmação de ataque na Praça de Reunião se especificado no URL
     try {
@@ -3381,6 +3381,17 @@
                                 <button class="tw-pill tw-fake-min-launch-shortcut" data-type="clear" style="padding:1px 5px; font-size:8.5px; color:#f87171;">Limpar</button>
                             </div>
                         </div>
+
+                        <!-- Calculador Automático de Horário Mínimo de Impacto -->
+                        <div id="tw-f-min-land-box" style="margin-top:6px; padding:6px; background:rgba(15, 23, 42, 0.85); border:1px solid #38bdf8; border-radius:4px; display:flex; flex-direction:column; gap:4px;">
+                            <div style="display:flex; justify-content:space-between; align-items:center;">
+                                <span style="font-size:9.5px; color:#38bdf8; font-weight:bold;">⚡ Impacto Mínimo Viável:</span>
+                                <span id="tw-f-min-land-info" style="font-size:8.5px; color:#94a3b8;">A calcular...</span>
+                            </div>
+                            <div id="tw-f-min-land-buttons" style="display:flex; gap:4px; flex-wrap:wrap;">
+                                <span style="font-size:8.5px; color:#64748b;">Insere alvos para calcular o 1º impacto.</span>
+                            </div>
+                        </div>
                     </div>
 
                     <div class="tw-card">
@@ -3584,12 +3595,26 @@
             document.getElementById('tw-f-status').innerHTML = `<span style="color:#c084fc;">💾 Agendamento registado na memória por 1 hora (${count} origens reservadas)!</span>`;
         };
 
+        const formatDatetimeLocal = (dateMs) => {
+            const d = new Date(dateMs);
+            const yr = d.getFullYear();
+            const mo = String(d.getMonth() + 1).padStart(2, '0');
+            const da = String(d.getDate()).padStart(2, '0');
+            const ho = String(d.getHours()).padStart(2, '0');
+            const mi = String(d.getMinutes()).padStart(2, '0');
+            const se = String(d.getSeconds()).padStart(2, '0');
+            return `${yr}-${mo}-${da}T${ho}:${mi}:${se}`;
+        };
+
         const updateFakesHUD = () => {
             const raw = document.getElementById('tw-f-targets').value;
             const tList = Array.from(new Set(raw.match(/\d{3}\|\d{3}/g) || []));
             const perTarget = parseInt(document.getElementById('tw-f-pertarget').value, 10) || 1;
             const unit = document.getElementById('tw-f-unit').value;
+            const group = document.getElementById('tw-f-group').value;
             const isSmart = document.getElementById('tw-f-smart-limit') && document.getElementById('tw-f-smart-limit').checked;
+            const excludeCommitted = document.getElementById('tw-f-exclude-committed')?.checked;
+            const committedMap = getCommittedSchedules();
             
             document.getElementById('tw-f-hud-targets').innerHTML = `${tList.length} <span style="font-size:12px; color:#94a3b8; font-weight:normal;">Alvos</span>`;
             document.getElementById('tw-f-hud-capacity').innerHTML = `${tList.length * perTarget} <span style="font-size:12px; color:#94a3b8; font-weight:normal;">Comandos</span>`;
@@ -3597,12 +3622,139 @@
             const uNames = { ram: 'Aríete / Cata (30m)', snob: 'Nobre (35m)', sword: 'Espada (22m)', axe: 'Machado (18m)', heavy: 'CP (11m)', light: 'CL (10m)', spy: 'Batedor (9m)' };
             const smartLabel = isSmart ? ' <span style="color:#c084fc; font-size:10px; font-weight:normal;">(🧠 1% Dinâmico)</span>' : '';
             document.getElementById('tw-f-hud-speed').innerHTML = (uNames[unit] || 'Aríete (30m)') + smartLabel;
+
+            // Filtro de pool para as origens disponíveis
+            let pool = [...allVillages];
+            if (excludeCommitted) pool = pool.filter(v => !committedMap[v.id]);
+            if (group === 'def') pool = pool.filter(v => v.rowClass === 'tw-row-def');
+            else if (group === 'off') pool = pool.filter(v => v.rowClass === 'tw-row-off');
+
+            document.getElementById('tw-f-hud-origins').innerHTML = `${pool.length} <span style="font-size:12px; color:#94a3b8; font-weight:normal;">Aldeias</span>`;
+
+            // Cálculo dos Horários Mínimos de Impacto
+            const infoEl = document.getElementById('tw-f-min-land-info');
+            const btnsEl = document.getElementById('tw-f-min-land-buttons');
+            if (!infoEl || !btnsEl) return;
+
+            if (tList.length === 0) {
+                infoEl.innerText = 'Insere alvos no Passo 1';
+                btnsEl.innerHTML = '<span style="font-size:8.5px; color:#64748b;">Nenhum alvo definido.</span>';
+                return;
+            }
+            if (pool.length === 0) {
+                infoEl.innerText = 'Sem origens disponíveis';
+                btnsEl.innerHTML = '<span style="font-size:8.5px; color:#f87171;">Nenhuma aldeia no grupo selecionado.</span>';
+                return;
+            }
+
+            const now = Date.now();
+            let minLaunchMs = now + 45000;
+            const minLaunchVal = document.getElementById('tw-f-min-launch')?.value;
+            if (minLaunchVal) {
+                const parsed = new Date(minLaunchVal).getTime();
+                if (!isNaN(parsed)) minLaunchMs = Math.max(minLaunchMs, parsed);
+            }
+
+            const speedMin = unitSpeedMinutes[unit] || unitSpeedMinutes.ram;
+
+            let globalMinLandMs = Infinity;
+            let globalMinVillage = null;
+            let globalMinTarget = null;
+            let globalMinDist = 0;
+
+            let allTargetsMinLandMs = -Infinity;
+            let maxTargetCoord = null;
+            let maxTargetDist = 0;
+
+            tList.forEach(tCoord => {
+                let closestDist = Infinity;
+                let closestV = null;
+                pool.forEach(v => {
+                    const dist = calcDistance(v.coords, tCoord);
+                    if (dist < closestDist) {
+                        closestDist = dist;
+                        closestV = v;
+                    }
+                });
+
+                if (closestDist === Infinity) return;
+
+                const travelSec = closestDist * speedMin * 60;
+                const targetMinLandMs = minLaunchMs + (travelSec * 1000);
+
+                if (targetMinLandMs < globalMinLandMs) {
+                    globalMinLandMs = targetMinLandMs;
+                    globalMinVillage = closestV;
+                    globalMinTarget = tCoord;
+                    globalMinDist = closestDist;
+                }
+
+                if (targetMinLandMs > allTargetsMinLandMs) {
+                    allTargetsMinLandMs = targetMinLandMs;
+                    maxTargetCoord = tCoord;
+                    maxTargetDist = closestDist;
+                }
+            });
+
+            if (globalMinLandMs === Infinity) {
+                infoEl.innerText = 'Erro no cálculo';
+                btnsEl.innerHTML = '<span style="font-size:8.5px; color:#f87171;">Não foi possível calcular distâncias.</span>';
+                return;
+            }
+
+            const formatShortTime = (ms) => {
+                const d = new Date(ms);
+                const isToday = d.toDateString() === new Date().toDateString();
+                const dayTag = isToday ? 'Hoje' : `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}`;
+                return `${dayTag} às ${d.toLocaleTimeString('pt-PT')}`;
+            };
+
+            const minLand1Str = formatShortTime(globalMinLandMs);
+            const minLandAllStr = formatShortTime(allTargetsMinLandMs);
+
+            infoEl.innerHTML = `<b style="color:#34d399;">1º: ${minLand1Str}</b> • <b style="color:#fbbf24;">Todos: ${minLandAllStr}</b>`;
+
+            btnsEl.innerHTML = `
+                <button type="button" class="tw-btn tw-btn-blue" id="tw-btn-apply-first-land" style="padding:2px 8px; font-size:9px; font-weight:bold; white-space:nowrap;" title="Ajusta o impacto para o 1º fake viável mais rápido (${cleanVillageDisplayName(globalMinVillage)} a ${globalMinDist.toFixed(1)}c de ${globalMinTarget})">
+                    ⚡ 1º Impacto Viável: ${minLand1Str}
+                </button>
+                <button type="button" class="tw-btn tw-btn-gold" id="tw-btn-apply-all-land" style="padding:2px 8px; font-size:9.5px; font-weight:bold; white-space:nowrap;" title="Ajusta o impacto para que TODOS os ${tList.length} alvos tenham pelo menos 1 aldeia com alcance viável (alvo mais distante ${maxTargetCoord} a ${maxTargetDist.toFixed(1)}c)">
+                    🎯 Cobrir Todos os ${tList.length} Alvos: ${minLandAllStr}
+                </button>
+            `;
+
+            const applyLandTime = (targetMs, label) => {
+                const strategy = document.getElementById('tw-f-ai').value;
+                const isExact = strategy === 'sync' || strategy === 'fake_train';
+                if (isExact) {
+                    const exInput = document.getElementById('tw-f-exact-time');
+                    if (exInput) {
+                        exInput.value = formatDatetimeLocal(targetMs);
+                        showToast(`⏰ Hora de Chegada dos fakes ajustada para ${label}!`);
+                    }
+                } else {
+                    const sInput = document.getElementById('tw-f-start');
+                    const eInput = document.getElementById('tw-f-end');
+                    if (sInput) sInput.value = formatDatetimeLocal(targetMs);
+                    if (eInput) eInput.value = formatDatetimeLocal(Math.max(targetMs + 3600000, allTargetsMinLandMs + 60000));
+                    showToast(`⏰ Janela de Impacto ajustada (${label} até ${formatShortTime(Math.max(targetMs + 3600000, allTargetsMinLandMs + 60000))})!`);
+                }
+            };
+
+            const btnFirst = document.getElementById('tw-btn-apply-first-land');
+            if (btnFirst) btnFirst.onclick = () => applyLandTime(globalMinLandMs, minLand1Str);
+
+            const btnAll = document.getElementById('tw-btn-apply-all-land');
+            if (btnAll) btnAll.onclick = () => applyLandTime(allTargetsMinLandMs + 60000, minLandAllStr);
         };
 
         document.getElementById('tw-f-targets').oninput = updateFakesHUD;
         document.getElementById('tw-f-pertarget').oninput = updateFakesHUD;
         document.getElementById('tw-f-unit').onchange = updateFakesHUD;
         document.getElementById('tw-f-group').onchange = updateFakesHUD;
+        document.getElementById('tw-f-exclude-committed').onchange = updateFakesHUD;
+        if (document.getElementById('tw-f-min-launch')) document.getElementById('tw-f-min-launch').onchange = updateFakesHUD;
+        if (document.getElementById('tw-f-ai')) document.getElementById('tw-f-ai').addEventListener('change', updateFakesHUD);
         updateFakesHUD();
     }
 
