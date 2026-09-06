@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TW Tactical Command Suite
 // @namespace    https://tribalwars.com.pt/
-// @version      3.2.16
-// @description  Suite militar avançada para Tribal Wars PT: Módulo Tático de Comandos (Deteção Inteligente de Ataques Inimigos a Chegar com Identificação Real do Jogador Atacante e Aldeia de Origem, Ataques & Retornos com filtros, agrupamento por alvos, ordenação interativa por clique nos cabeçalhos de coluna, exclusão opcional de micro-saques Modo Turbo para velocidade máxima, purga automática de comandos expirados e timers sincronizados com o servidor), Fakes Inteligentes 1% Dinâmico por Pontos (_60, _90, _115, _135) unificados na Aba Fakes & Mascaramento e no Planeador, Escoltas Anti-Snipe de Precisão Cirúrgica a 40ms antes de cada Nobre (janela anti-snipe personalizável), Bate e Volta com folga configurável de regresso (padrão seguro de 10s para PSEvolution e bots), Rastreio em Tempo Real de Nobres a Caminho & em Retorno de Comandos + Treino na Academia, Deteção Rigorosa de 0 Nobres em Casa por Isolamento de Linhas HTML & Cruzamento de Comandos Ativos, Deduplicação Rigorosa de Nobres & Teto Físico de Tropas Fora, Sincronização Server-Live sem Cache, Validação Precisa de Envio & Horário Mínimo de Ataque à Prova de Falhas (⚡ com 5m folga, cálculo inteligente de nobres a regressar e seleção do Nuke Full mais perto), Suporte Automático a Modelos NT (NT 33% para 3 nobres, NT 25% para 4 nobres), Bunkers Desligados por Default, Alvo Cats do Nuke Muralha por Default, Arsenal Tático de Fakes, UI de Limpezas/Nobres/Demolição, e Planeador Tático.
+// @version      3.2.17
+// @description  Suite militar avançada para Tribal Wars PT: Módulo Tático de Comandos (Deteção Inteligente de Ataques Inimigos a Chegar com Identificação Real do Jogador Atacante e Aldeia de Origem, Ataques & Retornos com filtros, agrupamento por alvos, ordenação interativa por clique nos cabeçalhos de coluna, exclusão opcional de micro-saques Modo Turbo para velocidade máxima, purga automática de comandos expirados e timers sincronizados com o servidor), Fakes com Horário Mínimo de Envio configurável, identificação visual de Hoje/Amanhã na tabela, balanceamento round-robin de alvos, escalonamento sem colisão em repetições e Fakes Inteligentes 1% Dinâmico por Pontos (_60, _90, _115, _135), Escoltas Anti-Snipe de Precisão Cirúrgica a 40ms antes de cada Nobre (janela anti-snipe personalizável), Bate e Volta com folga configurável de regresso (padrão seguro de 10s para PSEvolution e bots), Rastreio em Tempo Real de Nobres a Caminho & em Retorno de Comandos + Treino na Academia, Deteção Rigorosa de 0 Nobres em Casa por Isolamento de Linhas HTML & Cruzamento de Comandos Ativos, Deduplicação Rigorosa de Nobres & Teto Físico de Tropas Fora, Sincronização Server-Live sem Cache, Validação Precisa de Envio & Horário Mínimo de Ataque à Prova de Falhas (⚡ com 5m folga, cálculo inteligente de nobres a regressar e seleção do Nuke Full mais perto), Suporte Automático a Modelos NT (NT 33% para 3 nobres, NT 25% para 4 nobres), Bunkers Desligados por Default, Alvo Cats do Nuke Muralha por Default, Arsenal Tático de Fakes, UI de Limpezas/Nobres/Demolição, e Planeador Tático.
 // @author       Diogo & Antigravity
 // @match        https://*.tribalwars.com.pt/game.php*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=tribalwars.com.pt
@@ -12,7 +12,7 @@
 // ==/UserScript==
 
 (async function () {
-    const SCRIPT_VERSION = '3.2.16';
+    const SCRIPT_VERSION = '3.2.17';
 
     // Auto-selecionar alvo de catapulta na confirmação de ataque na Praça de Reunião se especificado no URL
     try {
@@ -3365,6 +3365,22 @@
                                 <input type="datetime-local" id="tw-f-end" class="tw-input" value="${dEnd}">
                             </div>
                         </div>
+
+                        <!-- Horário Mínimo de Envio (Lançamento Mínimo Opcional) -->
+                        <div style="display:flex; flex-direction:column; gap:2px; margin-top:5px; padding-top:5px; border-top:1px dashed #334155;">
+                            <div style="display:flex; justify-content:space-between; align-items:center;">
+                                <span style="font-size:10px; color:#cbd5e1; font-weight:bold;">🚀 Horário Mínimo de Envio:</span>
+                                <span style="font-size:8.5px; color:#94a3b8;" title="Comandos cujo envio seja antes desta hora serão descartados">Opcional</span>
+                            </div>
+                            <input type="datetime-local" id="tw-f-min-launch" class="tw-input" step="1" style="font-size:10px; color:#38bdf8;">
+                            <div style="display:flex; gap:3px; justify-content:space-between; margin-top:2px;">
+                                <button class="tw-pill tw-fake-min-launch-shortcut" data-type="now" style="padding:1px 5px; font-size:8.5px;">Agora</button>
+                                <button class="tw-pill tw-fake-min-launch-shortcut" data-type="plus1" style="padding:1px 5px; font-size:8.5px;">+1h</button>
+                                <button class="tw-pill tw-fake-min-launch-shortcut" data-type="today14" style="padding:1px 5px; font-size:8.5px;">Hoje 14h</button>
+                                <button class="tw-pill tw-fake-min-launch-shortcut" data-type="today20" style="padding:1px 5px; font-size:8.5px;">Hoje 20h</button>
+                                <button class="tw-pill tw-fake-min-launch-shortcut" data-type="clear" style="padding:1px 5px; font-size:8.5px; color:#f87171;">Limpar</button>
+                            </div>
+                        </div>
                     </div>
 
                     <div class="tw-card">
@@ -3468,6 +3484,53 @@
             exInput.value = `${yr}-${mo}-${da}T${ho}:${mi}:${se}`;
             showToast(`⏰ Hora de Chegada dos fakes ajustada para ${ho}:${mi}:${se} (${da}/${mo})`);
         });
+
+        document.querySelectorAll('.tw-fake-min-launch-shortcut').forEach(btn => btn.onclick = function() {
+            const type = this.getAttribute('data-type');
+            const minInput = document.getElementById('tw-f-min-launch');
+            if (!minInput) return;
+
+            if (type === 'clear') {
+                minInput.value = '';
+                savePrefs('tw_f_min_launch', '');
+                showToast('🧹 Horário mínimo de envio removido.');
+                return;
+            }
+
+            let d = new Date();
+            if (type === 'now') {
+                d = new Date(Date.now() + 60 * 1000);
+            } else if (type === 'plus1') {
+                d = new Date(Date.now() + 3600 * 1000);
+            } else if (type === 'today14') {
+                d = new Date();
+                d.setHours(14, 0, 0, 0);
+            } else if (type === 'today20') {
+                d = new Date();
+                d.setHours(20, 0, 0, 0);
+            }
+
+            const yr = d.getFullYear();
+            const mo = String(d.getMonth() + 1).padStart(2, '0');
+            const da = String(d.getDate()).padStart(2, '0');
+            const ho = String(d.getHours()).padStart(2, '0');
+            const mi = String(d.getMinutes()).padStart(2, '0');
+            const se = String(d.getSeconds()).padStart(2, '0');
+            minInput.value = `${yr}-${mo}-${da}T${ho}:${mi}:${se}`;
+            savePrefs('tw_f_min_launch', minInput.value);
+            showToast(`🚀 Horário Mínimo de Envio ajustado para ${ho}:${mi}:${se} (${da}/${mo})`);
+        });
+
+        const savedMinLaunch = getPref('tw_f_min_launch', '');
+        if (document.getElementById('tw-f-min-launch')) {
+            if (savedMinLaunch) {
+                const savedMs = new Date(savedMinLaunch).getTime();
+                if (!isNaN(savedMs) && savedMs > Date.now()) {
+                    document.getElementById('tw-f-min-launch').value = savedMinLaunch;
+                }
+            }
+            document.getElementById('tw-f-min-launch').onchange = (e) => savePrefs('tw_f_min_launch', e.target.value);
+        }
 
         const savedFakeSmartLimitTab = getPref('tw_f_smart_limit', 'true');
         if (document.getElementById('tw-f-smart-limit')) {
@@ -3593,15 +3656,25 @@
         }
 
         const now = Date.now();
-        const minLaunchMs = now + 45000;
+        let minLaunchMs = now + 45000;
+        const userMinLaunchStr = document.getElementById('tw-f-min-launch')?.value;
+        if (userMinLaunchStr) {
+            const userMinMs = new Date(userMinLaunchStr).getTime();
+            if (!isNaN(userMinMs)) {
+                minLaunchMs = Math.max(minLaunchMs, userMinMs);
+            }
+        }
+
         const originUsage = {};
         pool.forEach(v => originUsage[v.id] = 0);
 
         const commands = [];
         const speedMin = unitSpeedMinutes[unit] || unitSpeedMinutes.ram;
 
-        targets.forEach((targetCoord, tIdx) => {
-            const targetPool = pool.map(v => {
+        // Pré-calcular candidatos válidos para cada alvo
+        const targetPools = {};
+        targets.forEach(targetCoord => {
+            targetPools[targetCoord] = pool.map(v => {
                 const dist = calcDistance(v.coords, targetCoord);
                 const travelSec = dist * speedMin * 60;
                 return { village: v, dist, travelSec };
@@ -3609,26 +3682,44 @@
                 const minPossibleLand = minLaunchMs + (item.travelSec * 1000);
                 return minPossibleLand <= endMs;
             }).sort((a, b) => a.dist - b.dist);
+        });
 
-            if (targetPool.length === 0) return;
+        const targetOriginCount = {};
+        const assignedPerTarget = {};
+        targets.forEach(t => {
+            targetOriginCount[t] = {};
+            assignedPerTarget[t] = 0;
+        });
 
-            let assigned = 0;
-            let round = 0;
+        // Distribuição Round-Robin entre os alvos para maximizar cobertura
+        let round = 0;
+        let candidateAssignedInRound = true;
 
-            while (assigned < fakesPerTarget && round < 30) {
-                let candidateFoundInRound = false;
+        while (round < fakesPerTarget && candidateAssignedInRound) {
+            candidateAssignedInRound = false;
 
-                for (let i = 0; i < targetPool.length && assigned < fakesPerTarget; i++) {
-                    const cand = targetPool[i];
+            for (let tIdx = 0; tIdx < targets.length; tIdx++) {
+                const targetCoord = targets[tIdx];
+                if (assignedPerTarget[targetCoord] >= fakesPerTarget) continue;
+
+                const poolForTarget = targetPools[targetCoord];
+                if (!poolForTarget || poolForTarget.length === 0) continue;
+
+                for (let i = 0; i < poolForTarget.length; i++) {
+                    const cand = poolForTarget[i];
                     if (originUsage[cand.village.id] >= maxPerOrigin) continue;
+
+                    const usedForThisTarget = targetOriginCount[targetCoord][cand.village.id] || 0;
+                    if (!allowMultiSameTarget && usedForThisTarget >= 1) continue;
 
                     let landMs;
                     if (strategy === 'sync') {
-                        landMs = startMs;
+                        // Se a mesma aldeia repetir para o mesmo alvo, desfasa 200ms para evitar colisão no servidor
+                        landMs = startMs + (usedForThisTarget * 200);
                     } else if (strategy === 'fake_train') {
-                        landMs = startMs + (assigned * 200);
+                        landMs = startMs + (assignedPerTarget[targetCoord] * 200);
                     } else if (strategy === 'spam' || strategy === 'chaos') {
-                        const ratio = (tIdx * fakesPerTarget + assigned) / (targets.length * fakesPerTarget);
+                        const ratio = (tIdx * fakesPerTarget + assignedPerTarget[targetCoord]) / (targets.length * fakesPerTarget);
                         landMs = startMs + (ratio * (endMs - startMs));
                     } else {
                         landMs = startMs + Math.random() * (endMs - startMs);
@@ -3638,8 +3729,9 @@
                     if (launchMs < minLaunchMs) continue;
 
                     originUsage[cand.village.id]++;
-                    assigned++;
-                    candidateFoundInRound = true;
+                    targetOriginCount[targetCoord][cand.village.id] = usedForThisTarget + 1;
+                    assignedPerTarget[targetCoord]++;
+                    candidateAssignedInRound = true;
 
                     const fakeModelRes = resolveFakeModel(cand.village, modelName, isSmartFake);
                     const chosenModel = fakeModelRes.model;
@@ -3661,15 +3753,12 @@
                         isSmart: isSmartFake
                     });
 
-                    if (!allowMultiSameTarget) {
-                        // Passa para a próxima
-                    }
+                    break; // Distribui 1 fake por este alvo nesta ronda e avança
                 }
-
-                round++;
-                if (!candidateFoundInRound) break;
             }
-        });
+
+            round++;
+        }
 
         if (commands.length === 0) {
             const timeDiffHours = ((startMs - now) / 3600000).toFixed(1);
@@ -3682,6 +3771,27 @@
         lastGeneratedCommands = commands;
         lastGeneratedTarget = targets.join(' ');
 
+        const formatTableDateTime = (date, color = '#f8fafc') => {
+            const d = new Date(date);
+            const now = new Date();
+            const todayStr = now.toDateString();
+            const tomorrowStr = new Date(now.getTime() + 86400000).toDateString();
+            const dStr = d.toDateString();
+
+            let badge = '';
+            if (dStr === todayStr) {
+                badge = `<span style="font-size:9px; color:#34d399; font-weight:bold; display:block;">Hoje</span>`;
+            } else if (dStr === tomorrowStr) {
+                const dayMonth = `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`;
+                badge = `<span style="font-size:9px; color:#c084fc; font-weight:bold; display:block;">Amanhã (${dayMonth})</span>`;
+            } else {
+                const dayMonth = `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`;
+                badge = `<span style="font-size:9px; color:#94a3b8; font-weight:bold; display:block;">${dayMonth}</span>`;
+            }
+            const timeStr = `${d.toLocaleTimeString('pt-PT')}:${String(d.getMilliseconds()).padStart(3, '0')}`;
+            return `${badge}<b style="color:${color}; font-size:11px;">${timeStr}</b>`;
+        };
+
         let rows = '', output = '';
         commands.forEach((cmd, i) => {
             const smartBadge = cmd.isSmart ? `<span style="font-size:9px; color:#c084fc; display:block; font-weight:normal;">${cmd.pts ? cmd.pts.toLocaleString('pt-PT') + ' pts' : ''}</span>` : '';
@@ -3690,8 +3800,8 @@
                 <td style="text-align:left; padding-left:10px; font-weight:bold; color:#38bdf8;">${cmd.originName}</td>
                 <td style="font-weight:bold; color:#fbbf24;">${cmd.targetCoords}</td>
                 <td>${cmd.dist}c</td>
-                <td><b style="color:#f8fafc;">${cmd.launchTime.toLocaleTimeString('pt-PT')}:${String(cmd.launchTime.getMilliseconds()).padStart(3,'0')}</b></td>
-                <td><b style="color:#38bdf8;">${cmd.landTime.toLocaleTimeString('pt-PT')}:${String(cmd.landTime.getMilliseconds()).padStart(3,'0')}</b></td>
+                <td>${formatTableDateTime(cmd.launchTime, '#f8fafc')}</td>
+                <td>${formatTableDateTime(cmd.landTime, '#38bdf8')}</td>
                 <td><b style="color:#f43f5e;">${cmd.model}</b>${smartBadge}</td>
             </tr>`;
 
@@ -3702,8 +3812,20 @@
         document.getElementById('tw-f-tbody').innerHTML = rows;
         document.getElementById('tw-f-preview').value = output.trim();
         await navigator.clipboard.writeText(output.trim());
-        document.getElementById('tw-f-status').innerHTML = `<span style="color:#34d399;">✅ ${commands.length} fakes gerados e copiados para o Clipboard!</span>`;
-        showToast(`⚡ ${commands.length} Fakes copiados para a Área de Transferência!`);
+
+        const totalExpected = targets.length * fakesPerTarget;
+        const uNames = { ram: 'Aríete/Cata', snob: 'Nobre', sword: 'Espada', axe: 'Machado', heavy: 'CP', light: 'CL', spy: 'Batedor' };
+        const unitName = uNames[unit] || 'Tropas';
+
+        if (commands.length < totalExpected) {
+            const missing = totalExpected - commands.length;
+            const maxReachFields = Math.max(0, ((startMs - now) / 1000 / 60 / speedMin)).toFixed(1);
+            document.getElementById('tw-f-status').innerHTML = `<span style="color:#fbbf24; font-weight:bold;">⚠️ ${commands.length}/${totalExpected} fakes gerados (${missing} fora de alcance a tempo • alcance máx: ${maxReachFields}c com ${unitName})!</span>`;
+            showToast(`⚠️ ${commands.length}/${totalExpected} Fakes gerados (${missing} fora de alcance a tempo)!`);
+        } else {
+            document.getElementById('tw-f-status').innerHTML = `<span style="color:#34d399;">✅ ${commands.length} fakes gerados e copiados para o Clipboard!</span>`;
+            showToast(`⚡ ${commands.length} Fakes copiados para a Área de Transferência!`);
+        }
     }
 
     // ==========================================
