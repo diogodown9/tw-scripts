@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TW Tactical Command Suite
 // @namespace    https://tribalwars.com.pt/
-// @version      3.2.19
-// @description  Suite militar avançada para Tribal Wars PT: Módulo Tático de Comandos (Deteção Inteligente de Ataques Inimigos a Chegar com Identificação Real do Jogador Atacante e Aldeia de Origem, Ataques & Retornos com filtros, agrupamento por alvos, ordenação interativa por clique nos cabeçalhos de coluna, exclusão opcional de micro-saques Modo Turbo para velocidade máxima, purga automática de comandos expirados e timers sincronizados com o servidor), Exclusão de Horário Noturno (Bónus Noturno) no Impacto e no Envio com horas configuráveis, Calculador Automático de Horário Mínimo de Impacto (1º Impacto e Cobertura Total de Alvos com ajuste instantâneo a 1 clique), Horário Mínimo de Envio configurável, identificação visual de Hoje/Amanhã na tabela, balanceamento round-robin de alvos, escalonamento sem colisão em repetições e Fakes Inteligentes 1% Dinâmico por Pontos (_60, _90, _115, _135), Escoltas Anti-Snipe de Precisão Cirúrgica a 40ms antes de cada Nobre (janela anti-snipe personalizável), Bate e Volta com folga configurável de regresso (padrão seguro de 10s para PSEvolution e bots), Rastreio em Tempo Real de Nobres a Caminho & em Retorno de Comandos + Treino na Academia, Deteção Rigorosa de 0 Nobres em Casa por Isolamento de Linhas HTML & Cruzamento de Comandos Ativos, Deduplicação Rigorosa de Nobres & Teto Físico de Tropas Fora, Sincronização Server-Live sem Cache, Validação Precisa de Envio & Horário Mínimo de Ataque à Prova de Falhas (⚡ com 5m folga, cálculo inteligente de nobres a regressar e seleção do Nuke Full mais perto), Suporte Automático a Modelos NT (NT 33% para 3 nobres, NT 25% para 4 nobres), Bunkers Desligados por Default, Alvo Cats do Nuke Muralha por Default, Arsenal Tático de Fakes, UI de Limpezas/Nobres/Demolição, e Planeador Tático.
+// @version      3.2.20
+// @description  Suite militar avançada para Tribal Wars PT: Módulo Tático de Comandos (Deteção Inteligente de Ataques Inimigos a Chegar com Identificação Real do Jogador Atacante e Aldeia de Origem, Ataques & Retornos com filtros, agrupamento por alvos, ordenação interativa por clique nos cabeçalhos de coluna, exclusão opcional de micro-saques Modo Turbo para velocidade máxima, purga automática de comandos expirados e timers sincronizados com o servidor), Exclusão de Horário Noturno (Bónus Noturno) no Impacto e no Envio com horas configuráveis, Calculador Automático de Horário Mínimo de Impacto (1º Impacto e Cobertura Total de Alvos com ajuste instantâneo a 1 clique), identificação visual de Hoje/Amanhã na tabela, balanceamento round-robin de alvos, escalonamento sem colisão em repetições e Fakes Inteligentes 1% Dinâmico por Pontos (_60, _90, _115, _135), Escoltas Anti-Snipe de Precisão Cirúrgica a 40ms antes de cada Nobre (janela anti-snipe personalizável), Bate e Volta com folga configurável de regresso (padrão seguro de 10s para PSEvolution e bots), Rastreio em Tempo Real de Nobres a Caminho & em Retorno de Comandos + Treino na Academia, Deteção Rigorosa de 0 Nobres em Casa por Isolamento de Linhas HTML & Cruzamento de Comandos Ativos, Deduplicação Rigorosa de Nobres & Teto Físico de Tropas Fora, Sincronização Server-Live sem Cache, Validação Precisa de Envio & Horário Mínimo de Ataque à Prova de Falhas (⚡ com 5m folga, cálculo inteligente de nobres a regressar e seleção do Nuke Full mais perto), Suporte Automático a Modelos NT (NT 33% para 3 nobres, NT 25% para 4 nobres), Bunkers Desligados por Default, Alvo Cats do Nuke Muralha por Default, Arsenal Tático de Fakes, UI de Limpezas/Nobres/Demolição, e Planeador Tático.
 // @author       Diogo & Antigravity
 // @match        https://*.tribalwars.com.pt/game.php*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=tribalwars.com.pt
@@ -12,7 +12,7 @@
 // ==/UserScript==
 
 (async function () {
-    const SCRIPT_VERSION = '3.2.19';
+    const SCRIPT_VERSION = '3.2.20';
 
     // Auto-selecionar alvo de catapulta na confirmação de ataque na Praça de Reunião se especificado no URL
     try {
@@ -3366,22 +3366,6 @@
                             </div>
                         </div>
 
-                        <!-- Horário Mínimo de Envio (Lançamento Mínimo Opcional) -->
-                        <div style="display:flex; flex-direction:column; gap:2px; margin-top:5px; padding-top:5px; border-top:1px dashed #334155;">
-                            <div style="display:flex; justify-content:space-between; align-items:center;">
-                                <span style="font-size:10px; color:#cbd5e1; font-weight:bold;">🚀 Horário Mínimo de Envio:</span>
-                                <span style="font-size:8.5px; color:#94a3b8;" title="Comandos cujo envio seja antes desta hora serão descartados">Opcional</span>
-                            </div>
-                            <input type="datetime-local" id="tw-f-min-launch" class="tw-input" step="1" style="font-size:10px; color:#38bdf8;">
-                            <div style="display:flex; gap:3px; justify-content:space-between; margin-top:2px;">
-                                <button class="tw-pill tw-fake-min-launch-shortcut" data-type="now" style="padding:1px 5px; font-size:8.5px;">Agora</button>
-                                <button class="tw-pill tw-fake-min-launch-shortcut" data-type="plus1" style="padding:1px 5px; font-size:8.5px;">+1h</button>
-                                <button class="tw-pill tw-fake-min-launch-shortcut" data-type="today14" style="padding:1px 5px; font-size:8.5px;">Hoje 14h</button>
-                                <button class="tw-pill tw-fake-min-launch-shortcut" data-type="today20" style="padding:1px 5px; font-size:8.5px;">Hoje 20h</button>
-                                <button class="tw-pill tw-fake-min-launch-shortcut" data-type="clear" style="padding:1px 5px; font-size:8.5px; color:#f87171;">Limpar</button>
-                            </div>
-                        </div>
-
                         <!-- Excluir Horário Noturno (Bónus Noturno) -->
                         <div style="display:flex; flex-direction:column; gap:4px; margin-top:5px; padding:5px 6px; background:rgba(30, 41, 59, 0.6); border:1px solid #334155; border-radius:4px;">
                             <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -3526,53 +3510,6 @@
             exInput.value = `${yr}-${mo}-${da}T${ho}:${mi}:${se}`;
             showToast(`⏰ Hora de Chegada dos fakes ajustada para ${ho}:${mi}:${se} (${da}/${mo})`);
         });
-
-        document.querySelectorAll('.tw-fake-min-launch-shortcut').forEach(btn => btn.onclick = function() {
-            const type = this.getAttribute('data-type');
-            const minInput = document.getElementById('tw-f-min-launch');
-            if (!minInput) return;
-
-            if (type === 'clear') {
-                minInput.value = '';
-                savePrefs('tw_f_min_launch', '');
-                showToast('🧹 Horário mínimo de envio removido.');
-                return;
-            }
-
-            let d = new Date();
-            if (type === 'now') {
-                d = new Date(Date.now() + 60 * 1000);
-            } else if (type === 'plus1') {
-                d = new Date(Date.now() + 3600 * 1000);
-            } else if (type === 'today14') {
-                d = new Date();
-                d.setHours(14, 0, 0, 0);
-            } else if (type === 'today20') {
-                d = new Date();
-                d.setHours(20, 0, 0, 0);
-            }
-
-            const yr = d.getFullYear();
-            const mo = String(d.getMonth() + 1).padStart(2, '0');
-            const da = String(d.getDate()).padStart(2, '0');
-            const ho = String(d.getHours()).padStart(2, '0');
-            const mi = String(d.getMinutes()).padStart(2, '0');
-            const se = String(d.getSeconds()).padStart(2, '0');
-            minInput.value = `${yr}-${mo}-${da}T${ho}:${mi}:${se}`;
-            savePrefs('tw_f_min_launch', minInput.value);
-            showToast(`🚀 Horário Mínimo de Envio ajustado para ${ho}:${mi}:${se} (${da}/${mo})`);
-        });
-
-        const savedMinLaunch = getPref('tw_f_min_launch', '');
-        if (document.getElementById('tw-f-min-launch')) {
-            if (savedMinLaunch) {
-                const savedMs = new Date(savedMinLaunch).getTime();
-                if (!isNaN(savedMs) && savedMs > Date.now()) {
-                    document.getElementById('tw-f-min-launch').value = savedMinLaunch;
-                }
-            }
-            document.getElementById('tw-f-min-launch').onchange = (e) => savePrefs('tw_f_min_launch', e.target.value);
-        }
 
         // Preferências e Listeners de Exclusão de Horário Noturno
         const savedNightExclude = getPref('tw_f_night_exclude', 'false');
@@ -3792,14 +3729,7 @@
                 return;
             }
 
-            const now = Date.now();
-            let minLaunchMs = now + 45000;
-            const minLaunchVal = document.getElementById('tw-f-min-launch')?.value;
-            if (minLaunchVal) {
-                const parsed = new Date(minLaunchVal).getTime();
-                if (!isNaN(parsed)) minLaunchMs = Math.max(minLaunchMs, parsed);
-            }
-
+            const minLaunchMs = Date.now() + 45000;
             const speedMin = unitSpeedMinutes[unit] || unitSpeedMinutes.ram;
 
             const nightExclude = document.getElementById('tw-f-night-exclude')?.checked || false;
@@ -3915,7 +3845,6 @@
         document.getElementById('tw-f-unit').onchange = updateFakesHUD;
         document.getElementById('tw-f-group').onchange = updateFakesHUD;
         document.getElementById('tw-f-exclude-committed').onchange = updateFakesHUD;
-        if (document.getElementById('tw-f-min-launch')) document.getElementById('tw-f-min-launch').onchange = updateFakesHUD;
         if (document.getElementById('tw-f-ai')) document.getElementById('tw-f-ai').addEventListener('change', updateFakesHUD);
         if (document.getElementById('tw-f-exact-time')) document.getElementById('tw-f-exact-time').addEventListener('input', updateFakesHUD);
         if (document.getElementById('tw-f-start')) document.getElementById('tw-f-start').addEventListener('input', updateFakesHUD);
@@ -3988,14 +3917,7 @@
         }
 
         const now = Date.now();
-        let minLaunchMs = now + 45000;
-        const userMinLaunchStr = document.getElementById('tw-f-min-launch')?.value;
-        if (userMinLaunchStr) {
-            const userMinMs = new Date(userMinLaunchStr).getTime();
-            if (!isNaN(userMinMs)) {
-                minLaunchMs = Math.max(minLaunchMs, userMinMs);
-            }
-        }
+        const minLaunchMs = now + 45000;
 
         const originUsage = {};
         pool.forEach(v => originUsage[v.id] = 0);
