@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TW Tactical Command Suite
 // @namespace    https://tribalwars.com.pt/
-// @version      3.2.23
-// @description  Suite militar avançada para Tribal Wars PT: Módulo Tático de Comandos (Deteção Inteligente de Ataques Inimigos a Chegar com Identificação Real do Jogador Atacante e Aldeia de Origem, Ataques & Retornos com filtros, agrupamento por alvos, ordenação interativa por clique nos cabeçalhos de coluna, exclusão opcional de micro-saques Modo Turbo para velocidade máxima, purga automática de comandos expirados e timers sincronizados com o servidor), Exclusão de Horário Noturno (Bónus Noturno) no Impacto e no Envio com horas configuráveis, Calculador Automático de Horário Mínimo de Impacto (1º Impacto e Cobertura Total de Alvos com ajuste instantâneo a 1 clique), identificação visual de Hoje/Amanhã na tabela, balanceamento round-robin de alvos, escalonamento sem colisão em repetições e Fakes Inteligentes 1% Dinâmico por Pontos (_60, _90, _115, _135), Escoltas Anti-Snipe de Precisão Cirúrgica a 40ms antes de cada Nobre (janela anti-snipe personalizável), Bate e Volta com folga configurável de regresso (padrão seguro de 10s para PSEvolution e bots), Rastreio em Tempo Real de Nobres a Caminho & em Retorno de Comandos + Treino na Academia, Deteção Rigorosa de 0 Nobres em Casa por Isolamento de Linhas HTML & Cruzamento de Comandos Ativos, Deduplicação Rigorosa de Nobres & Teto Físico de Tropas Fora, Sincronização Server-Live sem Cache, Validação Precisa de Envio & Horário Mínimo de Ataque à Prova de Falhas (⚡ com 5m folga, cálculo inteligente de nobres a regressar e seleção do Nuke Full mais perto), Suporte Automático a Modelos NT (NT 33% para 3 nobres, NT 25% para 4 nobres), Bunkers Desligados por Default, Alvo Cats do Nuke Muralha por Default, Arsenal Tático de Fakes, UI de Limpezas/Nobres/Demolição, e Planeador Tático.
+// @version      3.2.24
+// @description  Suite militar avançada para Tribal Wars PT: Módulo Tático de Comandos (Deteção Inteligente de Ataques Inimigos a Chegar com Identificação Real do Jogador Atacante e Aldeia de Origem, Ataques & Retornos com filtros, agrupamento por alvos, ordenação interativa por clique nos cabeçalhos de coluna, exclusão opcional de micro-saques Modo Turbo para velocidade máxima, purga automática de comandos expirados e timers sincronizados com o servidor), Exclusão de Horário Noturno (Bónus Noturno) no Impacto e no Envio com horas configuráveis, Calculador Automático de Horário Mínimo de Impacto com Folga de Envio Configurável (1º Impacto e Cobertura Total de Alvos com ajuste instantâneo a 1 clique), identificação visual de Hoje/Amanhã na tabela, balanceamento round-robin de alvos, escalonamento sem colisão em repetições e Fakes Inteligentes 1% Dinâmico por Pontos (_60, _90, _115, _135), Escoltas Anti-Snipe de Precisão Cirúrgica a 40ms antes de cada Nobre (janela anti-snipe personalizável), Bate e Volta com folga configurável de regresso (padrão seguro de 10s para PSEvolution e bots), Rastreio em Tempo Real de Nobres a Caminho & em Retorno de Comandos + Treino na Academia, Deteção Rigorosa de 0 Nobres em Casa por Isolamento de Linhas HTML & Cruzamento de Comandos Ativos, Deduplicação Rigorosa de Nobres & Teto Físico de Tropas Fora, Sincronização Server-Live sem Cache, Validação Precisa de Envio & Horário Mínimo de Ataque à Prova de Falhas (⚡ com 5m folga, cálculo inteligente de nobres a regressar e seleção do Nuke Full mais perto), Suporte Automático a Modelos NT (NT 33% para 3 nobres, NT 25% para 4 nobres), Bunkers Desligados por Default, Alvo Cats do Nuke Muralha por Default, Arsenal Tático de Fakes, UI de Limpezas/Nobres/Demolição, e Planeador Tático.
 // @author       Diogo & Antigravity
 // @match        https://*.tribalwars.com.pt/game.php*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=tribalwars.com.pt
@@ -12,7 +12,7 @@
 // ==/UserScript==
 
 (async function () {
-    const SCRIPT_VERSION = '3.2.23';
+    const SCRIPT_VERSION = '3.2.24';
 
     // Auto-selecionar alvo de catapulta na confirmação de ataque na Praça de Reunião se especificado no URL
     try {
@@ -3469,6 +3469,14 @@
                         <div id="tw-f-min-land-box" style="margin-top:6px; padding:6px; background:rgba(15, 23, 42, 0.85); border:1px solid #38bdf8; border-radius:4px; display:flex; flex-direction:column; gap:4px;">
                             <div style="display:flex; justify-content:space-between; align-items:center;">
                                 <span style="font-size:9.5px; color:#38bdf8; font-weight:bold;">⚡ Impacto Mínimo Viável:</span>
+                                <div style="display:flex; align-items:center; gap:4px;" title="Margem de segurança para teres tempo de copiar o BBCode para o PSEvolution, rever a lista e iniciar sem que o 1º comando expire">
+                                    <span style="font-size:8.5px; color:#94a3b8;">Folga Envio:</span>
+                                    <input type="number" id="tw-f-buffer-min" value="3" min="0" max="60" style="width:34px; padding:1px 2px; text-align:center; font-size:9.5px; background:#0f172a; border:1px solid #38bdf8; color:#38bdf8; border-radius:3px; font-weight:bold;">
+                                    <span style="font-size:8.5px; color:#94a3b8;">min</span>
+                                </div>
+                            </div>
+                            <div style="display:flex; justify-content:space-between; align-items:center;">
+                                <span style="font-size:8.5px; color:#64748b;">Margem calculada:</span>
                                 <span id="tw-f-min-land-info" style="font-size:8.5px; color:#94a3b8;">A calcular...</span>
                             </div>
                             <div id="tw-f-min-land-buttons" style="display:flex; gap:4px; flex-wrap:wrap;">
@@ -3636,6 +3644,16 @@
             };
         }
 
+        const savedBufferMin = getPref('tw_f_buffer_min', '3');
+        const bufferEl = document.getElementById('tw-f-buffer-min');
+        if (bufferEl) {
+            bufferEl.value = savedBufferMin;
+            bufferEl.oninput = (e) => {
+                savePrefs('tw_f_buffer_min', e.target.value);
+                updateFakesHUD();
+            };
+        }
+
         const savedFakeSmartLimitTab = getPref('tw_f_smart_limit', 'true');
         if (document.getElementById('tw-f-smart-limit')) {
             document.getElementById('tw-f-smart-limit').checked = (savedFakeSmartLimitTab === 'true');
@@ -3746,7 +3764,9 @@
                 return;
             }
 
-            const minLaunchMs = Date.now() + 45000;
+            const bufferMin = parseInt(document.getElementById('tw-f-buffer-min')?.value, 10);
+            const bufferMs = (!isNaN(bufferMin) && bufferMin >= 0) ? (bufferMin * 60 * 1000) : 180000;
+            const minLaunchMs = Date.now() + bufferMs;
             const speedMin = unitSpeedMinutes[unit] || unitSpeedMinutes.ram;
 
             const nightExclude = document.getElementById('tw-f-night-exclude')?.checked || false;
@@ -3935,7 +3955,9 @@
         }
 
         const now = Date.now();
-        const minLaunchMs = now + 45000;
+        const bufferMin = parseInt(document.getElementById('tw-f-buffer-min')?.value, 10);
+        const bufferMs = (!isNaN(bufferMin) && bufferMin >= 0) ? (bufferMin * 60 * 1000) : 180000;
+        const minLaunchMs = now + bufferMs;
 
         const originUsage = {};
         pool.forEach(v => originUsage[v.id] = 0);
