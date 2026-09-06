@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW Tactical Command Suite
 // @namespace    https://tribalwars.com.pt/
-// @version      3.2.28
+// @version      3.2.29
 // @description  Suite militar avançada para Tribal Wars PT: Módulo Tático de Comandos (Deteção Inteligente de Ataques Inimigos a Chegar com Identificação Real do Jogador Atacante e Aldeia de Origem, Ataques & Retornos com filtros, agrupamento por alvos, ordenação interativa por clique nos cabeçalhos de coluna, exclusão opcional de micro-saques Modo Turbo para velocidade máxima, purga automática de comandos expirados e timers sincronizados com o servidor), Exclusão de Horário Noturno (Bónus Noturno) no Impacto e no Envio com horas configuráveis, Calculador Automático de Horário Mínimo de Impacto com Folga de Envio Configurável (1º Impacto e Cobertura Total de Alvos com ajuste instantâneo a 1 clique), identificação visual de Hoje/Amanhã na tabela, balanceamento round-robin de alvos, escalonamento sem colisão em repetições e Fakes Inteligentes 1% Dinâmico por Pontos (_60, _90, _115, _135), Escoltas Anti-Snipe de Precisão Cirúrgica a 40ms antes de cada Nobre (janela anti-snipe personalizável), Bate e Volta com folga configurável de regresso (padrão seguro de 10s para PSEvolution e bots), Rastreio em Tempo Real de Nobres a Caminho & em Retorno de Comandos + Treino na Academia, Deteção Rigorosa de 0 Nobres em Casa por Isolamento de Linhas HTML & Cruzamento de Comandos Ativos, Deduplicação Rigorosa de Nobres & Teto Físico de Tropas Fora, Sincronização Server-Live sem Cache, Validação Precisa de Envio & Horário Mínimo de Ataque à Prova de Falhas (⚡ com 5m folga, cálculo inteligente de nobres a regressar e seleção do Nuke Full mais perto), Suporte Automático a Modelos NT (NT 33% para 3 nobres, NT 25% para 4 nobres), Bunkers Desligados por Default, Alvo Cats do Nuke Muralha por Default, Arsenal Tático de Fakes, UI de Limpezas/Nobres/Demolição, e Planeador Tático.
 // @author       Diogo & Antigravity
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -12,7 +12,7 @@
 // ==/UserScript==
 
 (async function () {
-    const SCRIPT_VERSION = '3.2.28';
+    const SCRIPT_VERSION = '3.2.29';
 
     // Auto-selecionar alvo de catapulta na confirmação de ataque na Praça de Reunião se especificado no URL
     try {
@@ -3175,7 +3175,7 @@
                             <div class="tw-card" style="display:flex; flex-direction:row; gap:10px; align-items:center; justify-content:space-between; padding:8px 12px;">
                                 <div style="display:flex; align-items:center; gap:8px;">
                                     <span style="font-weight:700; color:#38bdf8; font-size:12px;">🎯 Alvo:</span>
-                                    <input type="text" id="tw-c-target" class="tw-input" style="width:95px; text-align:center; font-weight:bold; color:#fbbf24; font-size:13px; padding:4px 6px;" placeholder="xxx|yyy" maxlength="7" value="${targetVal}">
+                                    <input type="text" id="tw-c-target" class="tw-input" style="width:95px; text-align:center; font-weight:bold; color:#fbbf24; font-size:13px; padding:4px 6px;" placeholder="xxx|yyy" value="${targetVal}">
                                     
                                     <span style="font-weight:700; color:#94a3b8; font-size:12px; margin-left:6px;">Velocidade:</span>
                                     <select id="tw-c-unit" class="tw-select" style="font-weight:600; padding:4px 8px; font-size:12px;">
@@ -3217,14 +3217,32 @@
             `;
 
             const cTargetInput = document.getElementById('tw-c-target');
-            cTargetInput.addEventListener('input', (e) => {
-                let val = e.target.value;
-                if (/^\d{3}$/.test(val) && !val.includes('|')) {
-                    e.target.value = val + '|';
-                }
-                savedCounterTarget = e.target.value.trim();
-                renderCounterContent();
-            });
+            if (cTargetInput) {
+                cTargetInput.addEventListener('paste', (e) => {
+                    const text = (e.clipboardData || window.clipboardData)?.getData('text');
+                    if (text) {
+                        const m = text.match(/\d{3}\|\d{3}/);
+                        if (m) {
+                            e.preventDefault();
+                            cTargetInput.value = m[0];
+                            savedCounterTarget = m[0];
+                            renderCounterContent();
+                        }
+                    }
+                });
+                cTargetInput.addEventListener('input', (e) => {
+                    let val = e.target.value;
+                    const m = val.match(/\d{3}\|\d{3}/);
+                    if (m && val !== m[0]) {
+                        e.target.value = m[0];
+                        val = m[0];
+                    } else if (/^\d{3}$/.test(val.trim()) && !val.includes('|')) {
+                        e.target.value = val.trim() + '|';
+                    }
+                    savedCounterTarget = e.target.value.trim();
+                    renderCounterContent();
+                });
+            }
 
             document.getElementById('tw-c-unit').onchange = (e) => {
                 savedCounterUnit = e.target.value;
@@ -4401,7 +4419,7 @@
                         <div id="tw-box-target-single" style="display:${plannerMode==='single'?'grid':'none'}; grid-template-columns: 1fr 1fr; gap:6px;">
                             <div style="display:flex; flex-direction:column; gap:1px;">
                                 <span style="font-size:9px; color:#94a3b8;">Coordenada:</span>
-                                <input type="text" id="tw-nt-target" class="tw-input" placeholder="xxx|yyy" maxlength="7" style="font-weight:bold; color:#fbbf24; text-align:center; padding:5px 6px; font-size:12px;">
+                                <input type="text" id="tw-nt-target" class="tw-input" placeholder="xxx|yyy" style="font-weight:bold; color:#fbbf24; text-align:center; padding:5px 6px; font-size:12px;">
                             </div>
                             <div style="display:flex; flex-direction:column; gap:1px;">
                                 <span style="font-size:9px; color:#94a3b8;">Impacto Chegada:</span>
@@ -6006,17 +6024,31 @@
 
         if (targetInput) {
             const handleTargetChange = () => {
-                let val = targetInput.value;
-                if (/^\d{3}$/.test(val) && !val.includes('|')) {
+                let val = targetInput.value.trim();
+                const m = val.match(/\d{3}\|\d{3}/);
+                if (m && val !== m[0]) {
+                    targetInput.value = m[0];
+                    val = m[0];
+                } else if (/^\d{3}$/.test(val) && !val.includes('|')) {
                     targetInput.value = val + '|';
                 }
                 updateRadiusFakesHUD();
                 updateNobleProximityHUD(null, false);
                 updateNukeProximityHUD(null, false);
             };
+            targetInput.addEventListener('paste', (e) => {
+                const text = (e.clipboardData || window.clipboardData)?.getData('text');
+                if (text) {
+                    const m = text.match(/\d{3}\|\d{3}/);
+                    if (m) {
+                        e.preventDefault();
+                        targetInput.value = m[0];
+                        handleTargetChange();
+                    }
+                }
+            });
             targetInput.addEventListener('input', handleTargetChange);
             targetInput.addEventListener('change', handleTargetChange);
-            targetInput.addEventListener('paste', () => setTimeout(handleTargetChange, 50));
         }
 
         const selNoblePrimary = document.getElementById('tw-nt-noble-village');
