@@ -4387,7 +4387,7 @@
         const committedMap = getCommittedSchedules();
         const committedCount = Object.keys(committedMap).length;
 
-        const nobleVillages = allVillages.filter(v => (v.snobsHome > 0 || v.snobsTotal > 0));
+        const nobleVillages = allVillages.filter(v => (v.snobsHome > 0 || v.snobsTotal > 0 || (v.snobsInProd || 0) > 0));
         let nobleOptions = nobleVillages.map(v => {
             const isComm = !!committedMap[v.id];
             const pal = (v.paladin && v.paladin.isHome) ? v.paladin : null;
@@ -5562,7 +5562,7 @@
             const prevSelectedPrimary = preferredPrimaryId || selPrimary.value;
             const prevSelectedSecondary = selSecondary ? selSecondary.value : null;
 
-            const nobleVillages = allVillages.filter(v => (v.snobsHome > 0 || v.snobsTotal > 0));
+            const nobleVillages = allVillages.filter(v => (v.snobsHome > 0 || v.snobsTotal > 0 || (v.snobsInProd || 0) > 0));
             if (nobleVillages.length === 0) {
                 if (hintBox) {
                     hintBox.innerHTML = '❌ <b style="color:#ef4444;">Nenhuma aldeia tem nobres disponíveis.</b>';
