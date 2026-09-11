@@ -74,7 +74,7 @@
             minBarbPoints: savedBmConfig.minBarbPoints !== undefined ? savedBmConfig.minBarbPoints : 26,
             barbColor: savedBmConfig.barbColor || '#7b1113',
             showPlayers: savedBmConfig.showPlayers !== undefined ? savedBmConfig.showPlayers : true,
-            showTribes: savedBmConfig.showTribes !== undefined ? savedBmConfig.showTribes : true,
+            showTribes: savedBmConfig.showTribes !== undefined ? savedBmConfig.showTribes : false,
             showMyself: savedBmConfig.showMyself !== undefined ? savedBmConfig.showMyself : false,
             redTribes: savedBmConfig.redTribes || '',
             blueTribes: savedBmConfig.blueTribes || '',
@@ -406,7 +406,7 @@
                     </div>
 
                     <div class="ecp-btn-row" style="margin-top: 6px;">
-                        <a class="ecp-btn ecp-btn-primary" id="ecpCopyBtn" style="font-size:12px; padding:6px;">📋 Copiar para Área de Transferência</a>
+                        <a class="ecp-btn ecp-btn-primary" id="ecpCopyBtn" style="font-size:12px; padding:6px;">📋 Copiar para Área de Transferência (C)</a>
                         <a class="ecp-btn ecp-btn-danger" id="ecpClearBtn" style="flex: 0 0 auto;">🗑️ Limpar</a>
                     </div>
                 </div>
@@ -1182,6 +1182,24 @@
             }
         });
 
+        // Atalho de Teclado: Tecla 'C' para copiar
+        $(document).off('keydown.ecpHotkeyCopy').on('keydown.ecpHotkeyCopy', function (e) {
+            const activeEl = document.activeElement;
+            const activeTag = activeEl ? activeEl.tagName.toLowerCase() : '';
+            const isEditable = activeEl ? activeEl.isContentEditable : false;
+
+            // Não acionar quando o utilizador estiver a digitar em campos de texto
+            if (activeTag === 'input' || activeTag === 'textarea' || isEditable) {
+                return;
+            }
+
+            // Tecla 'C' ou 'c' isolada (sem Ctrl, Alt ou Meta)
+            if ((e.key === 'c' || e.key === 'C' || e.code === 'KeyC') && !e.ctrlKey && !e.altKey && !e.metaKey) {
+                e.preventDefault();
+                $('#ecpCopyBtn').trigger('click');
+            }
+        });
+
         $('#ecpClearBtn').on('click', function () {
             if (selectedList.length === 0) return;
             saveState();
@@ -1213,6 +1231,7 @@
             if (window.TWMap && TWMap.mapHandler && chainedOnMove) {
                 TWMap.mapHandler.onMove = chainedOnMove;
             }
+            $(document).off('keydown.ecpHotkeyCopy');
             $('[id^="map_village_"]').css('filter', 'none');
             $('.tw-ecp-map-label').remove();
             $('div[id*="dalesmckay_map_hilight_"]').remove();
