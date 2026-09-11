@@ -1,7 +1,17 @@
 /**
- * Script Name: Enhanced Map Coord Picker v3.0 (Coletor Avançado por Jogador, Tribo e Pontos)
- * Autor Original: RedAlert | Versão Aprimorada
+ * Script Name: Enhanced Map Coord Picker v3.5 (com BetterMap Integrado)
+ * Autor: RedAlert & Comunidade TW | Aprimorado por Diogo
  * Compatível com Tribal Wars / Tribos PT/BR
+ * Funcionalidades:
+ * - Coletor de Coordenadas com filtros por Jogador, Tribo, Pontos e Raio
+ * - Múltiplos formatos de exportação (Espaço, Linha, [coord], [claim], Tabela BBCode, com ID)
+ * - Ordenação por proximidade da aldeia atual, pontos ou aleatório
+ * - BetterMap Integrado:
+ *   * Etiquetas flutuantes no mapa com Pontos das Bárbaras e Nomes dos Jogadores
+ *   * Exibição de TAG da Tribo
+ *   * Colorir Tribos Inimigas (Vermelho), Aliadas (Azul) e Jogadores Marcados (Roxo)
+ *   * Destaque em Verde Neon com borda luminosa para aldeias selecionadas no Coletor
+ *   * Configuração interativa no painel e persistência automática no navegador
  */
 (function () {
     'use strict';
@@ -52,6 +62,31 @@
         let selectedList = [];
         let historyStack = [];
 
+        // Configuração do BetterMap Integrado (com persistência em localStorage)
+        let savedBmConfig = {};
+        try {
+            savedBmConfig = JSON.parse(localStorage.getItem('tw_ecp_bm_config') || '{}');
+        } catch (e) {}
+
+        const betterMapConfig = {
+            enabled: savedBmConfig.enabled !== undefined ? savedBmConfig.enabled : true,
+            showBarbs: savedBmConfig.showBarbs !== undefined ? savedBmConfig.showBarbs : true,
+            minBarbPoints: savedBmConfig.minBarbPoints !== undefined ? savedBmConfig.minBarbPoints : 26,
+            barbColor: savedBmConfig.barbColor || '#7b1113',
+            showPlayers: savedBmConfig.showPlayers !== undefined ? savedBmConfig.showPlayers : true,
+            showTribes: savedBmConfig.showTribes !== undefined ? savedBmConfig.showTribes : true,
+            showMyself: savedBmConfig.showMyself !== undefined ? savedBmConfig.showMyself : false,
+            redTribes: savedBmConfig.redTribes || '',
+            blueTribes: savedBmConfig.blueTribes || '',
+            customPlayers: savedBmConfig.customPlayers || ''
+        };
+
+        function saveBmConfig() {
+            try {
+                localStorage.setItem('tw_ecp_bm_config', JSON.stringify(betterMapConfig));
+            } catch (e) {}
+        }
+
         const worldCache = {
             players: null,
             tribes: null,
@@ -64,7 +99,7 @@
                 position: fixed;
                 top: 65px;
                 right: 20px;
-                width: 380px;
+                width: 385px;
                 background-color: #f4e4c1;
                 border: 2px solid #7d510f;
                 border-radius: 6px;
@@ -206,6 +241,26 @@
                 align-items: center;
                 gap: 4px;
             }
+            /* Estilo dos Rótulos do BetterMap no Mapa */
+            .tw-ecp-map-label {
+                position: absolute;
+                height: auto;
+                line-height: 12px;
+                font-size: 9px;
+                font-weight: bold;
+                z-index: 14;
+                display: block;
+                color: #ffffff !important;
+                text-align: center;
+                border-radius: 3px;
+                padding: 0 2px;
+                text-shadow: 0 0 2px #000, 0 0 2px #000, 0 1px 2px #000;
+                pointer-events: none;
+                overflow: hidden;
+                white-space: nowrap;
+                text-overflow: ellipsis;
+                box-sizing: border-box;
+            }
         `;
 
         $('#tw-ecp-styles').remove();
@@ -214,7 +269,7 @@
         const html = `
             <div id="tw-enhanced-coord-picker">
                 <div class="ecp-header" id="ecpHeader">
-                    <span class="ecp-title">📍 Coletor Avançado de Coordenadas</span>
+                    <span class="ecp-title">📍 Coletor de Coordenadas + BetterMap</span>
                     <div class="ecp-header-btns">
                         <span id="ecpToggleCollapse" title="Minimizar / Expandir">_</span>
                         <span id="ecpClose" title="Fechar">✕</span>
@@ -277,7 +332,44 @@
                         </div>
                     </div>
 
-                    <!-- Seção 4: Lista de Coordenadas e Contadores -->
+                    <!-- Seção 4: Etiquetas no Mapa (BetterMap) -->
+                    <div class="ecp-section">
+                        <div class="ecp-section-title">
+                            <span>🏷️ Etiquetas no Mapa (BetterMap)</span>
+                            <label style="cursor:pointer; font-weight:normal; font-size:10px;">
+                                <input type="checkbox" id="ecpBmEnable" ${betterMapConfig.enabled ? 'checked' : ''} /> <b>Ativar</b>
+                            </label>
+                        </div>
+                        <div id="ecpBmControls" style="${betterMapConfig.enabled ? '' : 'display:none;'}">
+                            <div style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:5px; font-size:10px;">
+                                <label style="cursor:pointer;"><input type="checkbox" id="ecpBmShowBarbs" ${betterMapConfig.showBarbs ? 'checked' : ''} /> Pontos Bárbaras</label>
+                                <label style="cursor:pointer;"><input type="checkbox" id="ecpBmShowPlayers" ${betterMapConfig.showPlayers ? 'checked' : ''} /> Jogadores</label>
+                                <label style="cursor:pointer;"><input type="checkbox" id="ecpBmShowTribes" ${betterMapConfig.showTribes ? 'checked' : ''} /> Tag Tribo</label>
+                            </div>
+                            <div style="display:flex; align-items:center; gap:5px; font-size:10px;">
+                                <span>Bárbaras mín:</span>
+                                <input type="number" id="ecpBmMinBarbPts" class="ecp-input-inline" value="${betterMapConfig.minBarbPoints}" style="width:48px;" />
+                                <span>pts</span>
+                                <span style="margin-left:auto; cursor:pointer; color:#8f5c22; text-decoration:underline;" id="ecpToggleColorRules">🎨 Cores</span>
+                            </div>
+                            <div id="ecpBmColorRules" style="display:none; padding:5px; background:#f5e5c9; border:1px dashed #c49a6c; border-radius:3px; margin-top:5px; font-size:10px;">
+                                <div style="margin-bottom:3px;">
+                                    <span style="color:#b71c1c; font-weight:bold;">🔴 Tribos Inimigas:</span>
+                                    <input type="text" id="ecpBmRedTribes" class="ecp-input-text" placeholder="Tags ex: WAR, FOE" value="${betterMapConfig.redTribes}" style="margin-top:2px; height:22px;" />
+                                </div>
+                                <div style="margin-bottom:3px;">
+                                    <span style="color:#0d47a1; font-weight:bold;">🔵 Tribos Aliadas:</span>
+                                    <input type="text" id="ecpBmBlueTribes" class="ecp-input-text" placeholder="Tags ex: ALLY, PNA" value="${betterMapConfig.blueTribes}" style="margin-top:2px; height:22px;" />
+                                </div>
+                                <div>
+                                    <span style="color:#4a148c; font-weight:bold;">🟣 Jogadores Marcados:</span>
+                                    <input type="text" id="ecpBmCustomPlayers" class="ecp-input-text" placeholder="Nomes ex: Alvo1, Alvo2" value="${betterMapConfig.customPlayers}" style="margin-top:2px; height:22px;" />
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Seção 5: Lista de Coordenadas e Contadores -->
                     <div class="ecp-section">
                         <div class="ecp-section-title">
                             <span>📋 Coordenadas Selecionadas</span>
@@ -294,7 +386,7 @@
                         </div>
                     </div>
 
-                    <!-- Seção 5: Formato de Saída e Ordenação -->
+                    <!-- Seção 6: Formato de Saída e Ordenação -->
                     <div class="ecp-section">
                         <div class="ecp-section-title"><span>📤 Formato & Ordenação</span></div>
                         <select id="ecpFormat" class="ecp-select">
@@ -414,7 +506,7 @@
 
         function getVillageDataByCoord(x, y) {
             const key = parseInt(x, 10) * 1000 + parseInt(y, 10);
-            const v = (window.TWMap && TWMap.villages) ? TWMap.villages[key] : null;
+            const v = (window.TWMap && TWMap.villages) ? (TWMap.villages[key] || TWMap.villages[`${x}${y}`]) : null;
 
             let name = 'Aldeia';
             let ownerId = 0;
@@ -522,6 +614,9 @@
             $('#ecpStatPlayers').text(playersCount);
 
             updateMapHighlights();
+            if (betterMapConfig.enabled) {
+                renderBetterMapLabels();
+            }
         }
 
         function updateMapHighlights() {
@@ -530,7 +625,7 @@
                 for (const v of selectedList) {
                     const [x, y] = v.coord.split('|');
                     const key = parseInt(x, 10) * 1000 + parseInt(y, 10);
-                    const mapV = TWMap.villages[key];
+                    const mapV = TWMap.villages[key] || TWMap.villages[`${x}${y}`];
                     if (mapV && mapV.id) {
                         selectedVillageIds.add(mapV.id.toString());
                     }
@@ -549,6 +644,112 @@
             });
         }
 
+        // --- RENDERIZADOR DO BETTERMAP ---
+        function renderBetterMapLabels() {
+            $('.tw-ecp-map-label').remove();
+            $('div[id*="dalesmckay_map_hilight_"]').remove();
+
+            if (!betterMapConfig.enabled || typeof TWMap === 'undefined' || !TWMap.villages || !TWMap.map) {
+                return;
+            }
+
+            const doc = document;
+            const myself = (window.game_data && game_data.player) ? game_data.player.name : '';
+            const selectedCoordsSet = new Set(selectedList.map(v => v.coord));
+
+            const redTribes = new Set((betterMapConfig.redTribes || '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean));
+            const blueTribes = new Set((betterMapConfig.blueTribes || '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean));
+            const customPlayers = new Set((betterMapConfig.customPlayers || '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean));
+
+            const tileSize = TWMap.tileSize || [53, 38];
+            const size = TWMap.size || [20, 20];
+            const mapPos = (TWMap.map && TWMap.map.pos) ? TWMap.map.pos : [0, 0];
+
+            for (let row = 0; row < size[1]; row++) {
+                for (let col = 0; col < size[0]; col++) {
+                    let coord = null;
+                    if (TWMap.map.coordByPixel) {
+                        coord = TWMap.map.coordByPixel(
+                            mapPos[0] + (tileSize[0] * col),
+                            mapPos[1] + (tileSize[1] * row)
+                        );
+                    }
+                    if (!coord) continue;
+
+                    const coordStr = `${coord[0]}|${coord[1]}`;
+                    const key = coord[0] * 1000 + coord[1];
+                    const village = TWMap.villages[key] || TWMap.villages[coord.join('')];
+                    if (!village || !village.id) continue;
+
+                    const tox = doc.getElementById('map_village_' + village.id);
+                    if (!tox) continue;
+
+                    const isBarb = (!village.owner || village.owner === '0' || village.owner === 0);
+                    const player = (!isBarb && TWMap.players) ? TWMap.players[village.owner] : null;
+                    const tribe = (player && player.ally && TWMap.allies) ? TWMap.allies[player.ally] : null;
+
+                    const rawPts = village.points ? village.points.toString().replace(/\./g, '') : '0';
+                    const points = parseInt(rawPts, 10) || 0;
+
+                    if (isBarb) {
+                        if (!betterMapConfig.showBarbs || points < betterMapConfig.minBarbPoints) continue;
+                    } else {
+                        if (!betterMapConfig.showPlayers) continue;
+                        if (!betterMapConfig.showMyself && player && player.name === myself) continue;
+                    }
+
+                    let labelText = '';
+                    if (isBarb) {
+                        labelText = points >= 1000 ? `${(points / 1000).toFixed(1)}k pts` : `${points} pts`;
+                    } else if (player) {
+                        if (betterMapConfig.showTribes && tribe && tribe.tag) {
+                            labelText = `[${tribe.tag}] ${player.name}`;
+                        } else {
+                            labelText = player.name;
+                        }
+                    }
+
+                    let bkColor = 'rgba(0, 0, 0, 0.65)';
+                    if (isBarb) {
+                        bkColor = betterMapConfig.barbColor || '#7b1113';
+                    } else if (player) {
+                        const pNameLower = player.name.toLowerCase();
+                        const tTagLower = (tribe && tribe.tag) ? tribe.tag.toLowerCase() : '';
+
+                        if (customPlayers.has(pNameLower)) {
+                            bkColor = '#6a1b9a'; // Roxo
+                        } else if (redTribes.has(tTagLower)) {
+                            bkColor = '#c62828'; // Vermelho
+                        } else if (blueTribes.has(tTagLower)) {
+                            bkColor = '#1565c0'; // Azul
+                        } else if (player.name === myself) {
+                            bkColor = '#2e7d32'; // Verde próprio
+                        }
+                    }
+
+                    const isSelected = selectedCoordsSet.has(coordStr);
+                    if (isSelected) {
+                        bkColor = '#2e7d32'; // Verde destaque
+                    }
+
+                    const cssval = tox.style;
+                    const div = doc.createElement('div');
+                    div.id = 'tw_ecp_label_' + village.id;
+                    div.className = 'tw-ecp-map-label';
+                    div.style.position = cssval.position || 'absolute';
+                    div.style.left = cssval.left;
+                    div.style.top = (parseInt(cssval.top, 10) + Math.max(16, tileSize[1] - 14)) + 'px';
+                    div.style.width = (tileSize[0] - 2) + 'px';
+                    div.style.backgroundColor = bkColor;
+                    div.style.opacity = '0.88';
+                    div.style.border = isSelected ? '1.5px solid #00ff00' : '1px solid rgba(0,0,0,0.85)';
+                    div.textContent = labelText;
+
+                    $(tox).after(div);
+                }
+            }
+        }
+
         function toggleVillage(coord) {
             saveState();
             const [x, y] = coord.split('|').map(n => parseInt(n, 10));
@@ -557,8 +758,11 @@
             if (existingIdx >= 0) {
                 selectedList.splice(existingIdx, 1);
                 const key = x * 1000 + y;
-                if (window.TWMap && TWMap.villages && TWMap.villages[key]) {
-                    $(`#map_village_${TWMap.villages[key].id}`).css('filter', 'none');
+                if (window.TWMap && TWMap.villages) {
+                    const mapV = TWMap.villages[key] || TWMap.villages[`${x}${y}`];
+                    if (mapV && mapV.id) {
+                        $(`#map_village_${mapV.id}`).css('filter', 'none');
+                    }
                 }
             } else {
                 const vData = getVillageDataByCoord(x, y);
@@ -578,7 +782,7 @@
 
                     const coord = pos.join('|');
                     const key = pos[0] * 1000 + pos[1];
-                    const v = (TWMap.villages) ? TWMap.villages[key] : null;
+                    const v = (TWMap.villages) ? (TWMap.villages[key] || TWMap.villages[`${pos[0]}${pos[1]}`]) : null;
 
                     if (v && v.id) {
                         toggleVillage(coord);
@@ -591,15 +795,90 @@
             };
         }
 
+        // Chaining de onMove e spawnSector do TWMap
+        let chainedOnMove = null;
         if (window.TWMap && TWMap.mapHandler) {
+            if (TWMap.mapHandler.onMove) {
+                chainedOnMove = TWMap.mapHandler.onMove;
+            }
+            TWMap.mapHandler.onMove = function (x, y) {
+                if (chainedOnMove) chainedOnMove(x, y);
+                if (betterMapConfig.enabled) {
+                    setTimeout(renderBetterMapLabels, 15);
+                }
+            };
+
             if (!TWMap.mapHandler._ecpSpawnSector) {
                 TWMap.mapHandler._ecpSpawnSector = TWMap.mapHandler.spawnSector;
                 TWMap.mapHandler.spawnSector = function (data, sector) {
                     TWMap.mapHandler._ecpSpawnSector(data, sector);
-                    setTimeout(updateMapHighlights, 15);
+                    setTimeout(function () {
+                        updateMapHighlights();
+                        if (betterMapConfig.enabled) {
+                            renderBetterMapLabels();
+                        }
+                    }, 15);
                 };
             }
         }
+
+        // Eventos dos Controles do BetterMap no Painel
+        $('#ecpBmEnable').on('change', function () {
+            betterMapConfig.enabled = this.checked;
+            $('#ecpBmControls').toggle(this.checked);
+            saveBmConfig();
+            if (this.checked) {
+                renderBetterMapLabels();
+            } else {
+                $('.tw-ecp-map-label').remove();
+            }
+        });
+
+        $('#ecpBmShowBarbs').on('change', function () {
+            betterMapConfig.showBarbs = this.checked;
+            saveBmConfig();
+            renderBetterMapLabels();
+        });
+
+        $('#ecpBmShowPlayers').on('change', function () {
+            betterMapConfig.showPlayers = this.checked;
+            saveBmConfig();
+            renderBetterMapLabels();
+        });
+
+        $('#ecpBmShowTribes').on('change', function () {
+            betterMapConfig.showTribes = this.checked;
+            saveBmConfig();
+            renderBetterMapLabels();
+        });
+
+        $('#ecpBmMinBarbPts').on('input change', function () {
+            betterMapConfig.minBarbPoints = parseInt($(this).val(), 10) || 0;
+            saveBmConfig();
+            renderBetterMapLabels();
+        });
+
+        $('#ecpToggleColorRules').on('click', function () {
+            $('#ecpBmColorRules').slideToggle(150);
+        });
+
+        $('#ecpBmRedTribes').on('input change', function () {
+            betterMapConfig.redTribes = $(this).val();
+            saveBmConfig();
+            renderBetterMapLabels();
+        });
+
+        $('#ecpBmBlueTribes').on('input change', function () {
+            betterMapConfig.blueTribes = $(this).val();
+            saveBmConfig();
+            renderBetterMapLabels();
+        });
+
+        $('#ecpBmCustomPlayers').on('input change', function () {
+            betterMapConfig.customPlayers = $(this).val();
+            saveBmConfig();
+            renderBetterMapLabels();
+        });
 
         // BUSCA POR JOGADOR OU TRIBO
         $('#ecpSearchBtn').on('click', async function () {
@@ -931,7 +1210,12 @@
                 TWMap.mapHandler.spawnSector = TWMap.mapHandler._ecpSpawnSector;
                 delete TWMap.mapHandler._ecpSpawnSector;
             }
+            if (window.TWMap && TWMap.mapHandler && chainedOnMove) {
+                TWMap.mapHandler.onMove = chainedOnMove;
+            }
             $('[id^="map_village_"]').css('filter', 'none');
+            $('.tw-ecp-map-label').remove();
+            $('div[id*="dalesmckay_map_hilight_"]').remove();
             $('#tw-enhanced-coord-picker').remove();
             $('#tw-ecp-styles').remove();
             if (window.UI && UI.InfoMessage) UI.InfoMessage('Coletor de Coordenadas encerrado.', 2000);
@@ -966,8 +1250,13 @@
             });
         }
 
+        // Execução inicial dos rótulos
+        if (betterMapConfig.enabled) {
+            setTimeout(renderBetterMapLabels, 100);
+        }
+
         if (window.UI && UI.SuccessMessage) {
-            UI.SuccessMessage('📍 Coletor Avançado v3.0 pronto a usar!', 2500);
+            UI.SuccessMessage('📍 Coletor + BetterMap v3.5 pronto a usar!', 2500);
         }
     } catch (err) {
         console.error('Erro crítico no Coletor de Coordenadas:', err);
