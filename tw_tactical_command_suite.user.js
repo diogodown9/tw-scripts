@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW Tactical Command Suite
 // @namespace    https://tribalwars.com.pt/
-// @version      3.2.36
+// @version      3.2.37
 // @description  Suite militar avançada para Tribal Wars PT: Módulo Tático de Comandos (Deteção Inteligente de Ataques Inimigos a Chegar com Identificação Real do Jogador Atacante e Aldeia de Origem, Ataques & Retornos com filtros, agrupamento por alvos, ordenação interativa por clique nos cabeçalhos de coluna, exclusão opcional de micro-saques Modo Turbo para velocidade máxima, purga automática de comandos expirados e timers sincronizados com o servidor), Exclusão de Horário Noturno (Bónus Noturno) no Impacto e no Envio com horas configuráveis, Calculador Automático de Horário Mínimo de Impacto com Folga de Envio Configurável (1º Impacto e Cobertura Total de Alvos com ajuste instantâneo a 1 clique), identificação visual de Hoje/Amanhã na tabela, balanceamento round-robin de alvos, escalonamento sem colisão em repetições e Fakes Inteligentes 1% Dinâmico por Pontos (_60, _90, _115, _135), Escoltas Anti-Snipe de Precisão Cirúrgica a 40ms antes de cada Nobre (janela anti-snipe personalizável), Bate e Volta com folga configurável de regresso (padrão seguro de 10s para PSEvolution e bots), Rastreio em Tempo Real de Nobres a Caminho & em Retorno de Comandos + Treino na Academia, Deteção Rigorosa de 0 Nobres em Casa por Isolamento de Linhas HTML & Cruzamento de Comandos Ativos, Deduplicação Rigorosa de Nobres & Teto Físico de Tropas Fora, Sincronização Server-Live sem Cache, Validação Precisa de Envio & Horário Mínimo de Ataque à Prova de Falhas (⚡ com 5m folga, cálculo inteligente de nobres a regressar e seleção do Nuke Full mais perto), Suporte Automático a Modelos NT (NT 33% para 3 nobres, NT 25% para 4 nobres), Bunkers Desligados por Default, Alvo Cats do Nuke Muralha por Default, Arsenal Tático de Fakes, UI de Limpezas/Nobres/Demolição, e Planeador Tático.
 // @author       Diogo & Antigravity
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -12,7 +12,7 @@
 // ==/UserScript==
 
 (async function () {
-    const SCRIPT_VERSION = '3.2.36';
+    const SCRIPT_VERSION = '3.2.37';
 
     // Auto-selecionar alvo de catapulta na confirmação de ataque na Praça de Reunião se especificado no URL
     try {
@@ -482,6 +482,7 @@
     let allParsedCommands = [];
     let allSnobProductions = [];
     let allNobleReturns = [];
+    let isSyncingCommands = false;
     let commandsFilter = 'players'; // 'players' (padrão: ataques e retornos a jogadores), 'all', 'attack', 'return', 'snob', 'farm', 'support'
     let commandsSearch = '';
     let commandsSort = getPref('tw_cmd_sort', 'time_asc'); // 'time_asc', 'time_desc', 'origin', 'target', 'snob_first'
@@ -623,9 +624,87 @@
         worldPlayersLoaded = true;
     }
 
+    const worldId = (typeof game_data !== 'undefined' && game_data.world) ? game_data.world : 'world';
+    const WORLD_CACHE_KEY_VILLAGES = 'tw_cache_' + worldId + '_villages_raw';
+    const WORLD_CACHE_KEY_PLAYERS = 'tw_cache_' + worldId + '_players_raw';
+    const WORLD_CACHE_KEY_TS = 'tw_cache_' + worldId + '_ts';
+    const WORLD_CACHE_TTL_MS = 6 * 3600 * 1000; // 6 horas de validade
+
+    function parseWorldVillagesData(text) {
+        if (!text) return;
+        const lines = text.trim().split('\n');
+        const vList = [];
+        const vMap = new Map();
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+            const parts = line.split(',');
+            if (parts.length >= 4) {
+                const coord = `${parts[2]}|${parts[3]}`;
+                let vName = parts[1] || '';
+                try { vName = decodeURIComponent(vName).replace(/\+/g, ' '); } catch (_) { vName = vName.replace(/\+/g, ' '); }
+                const vObj = {
+                    id: parts[0],
+                    name: vName,
+                    x: parseInt(parts[2], 10),
+                    y: parseInt(parts[3], 10),
+                    playerId: parts[4] || '0',
+                    points: parts.length >= 6 ? (parseInt(parts[5], 10) || 0) : 0,
+                    coord
+                };
+                vList.push(vObj);
+                vMap.set(coord, vObj);
+            }
+        }
+        worldVillages = vList;
+        worldVillageByCoord = vMap;
+        worldVillagesLoaded = true;
+    }
+
+    function parseWorldPlayersData(text) {
+        if (!text) return;
+        const lines = text.trim().split('\n');
+        const pMap = {};
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+            const parts = line.split(',');
+            if (parts.length >= 2) {
+                let pName = parts[1] || '';
+                try { pName = decodeURIComponent(pName).replace(/\+/g, ' '); } catch (_) { pName = pName.replace(/\+/g, ' '); }
+                pMap[parts[0]] = pName;
+            }
+        }
+        worldPlayers = pMap;
+        worldPlayersLoaded = true;
+    }
+
     async function fetchWorldData() {
         if (worldVillagesLoaded && worldPlayersLoaded) return;
         try {
+            // 1. Tentar carregar imediatamente a partir de localStorage (Instantâneo: ~20ms em vez de 1500ms)
+            try {
+                const cachedTs = parseInt(localStorage.getItem(WORLD_CACHE_KEY_TS) || '0', 10);
+                if (cachedTs && (Date.now() - cachedTs < WORLD_CACHE_TTL_MS)) {
+                    const cachedVillages = localStorage.getItem(WORLD_CACHE_KEY_VILLAGES);
+                    const cachedPlayers = localStorage.getItem(WORLD_CACHE_KEY_PLAYERS);
+                    if (cachedVillages && cachedPlayers) {
+                        parseWorldVillagesData(cachedVillages);
+                        parseWorldPlayersData(cachedPlayers);
+                        if (typeof window !== 'undefined') {
+                            window.__tw_world_cache = {
+                                villages: worldVillages,
+                                villageByCoord: worldVillageByCoord,
+                                players: worldPlayers,
+                                villagesLoaded: true,
+                                playersLoaded: true,
+                                loadedAt: Date.now()
+                            };
+                        }
+                        return;
+                    }
+                }
+            } catch (_) {}
+
+            // 2. Se a cache não existir ou expirou, descarregar do servidor em paralelo
             const fetches = [];
             const originBase = (typeof window !== 'undefined' && window.location && window.location.origin) ? window.location.origin : '';
 
@@ -647,35 +726,15 @@
                 return '';
             };
 
+            let fetchedVillagesRaw = '';
+            let fetchedPlayersRaw = '';
+
             if (!worldVillagesLoaded) {
                 fetches.push((async () => {
                     const text = await fetchText('/map/village.txt');
                     if (text) {
-                        const lines = text.trim().split('\n');
-                        const vList = [];
-                        const vMap = new Map();
-                        lines.forEach(line => {
-                            const parts = line.split(',');
-                            if (parts.length >= 4) {
-                                const coord = `${parts[2]}|${parts[3]}`;
-                                let vName = parts[1] || '';
-                                try { vName = decodeURIComponent(vName).replace(/\+/g, ' '); } catch (_) { vName = vName.replace(/\+/g, ' '); }
-                                const vObj = {
-                                    id: parts[0],
-                                    name: vName,
-                                    x: parseInt(parts[2], 10),
-                                    y: parseInt(parts[3], 10),
-                                    playerId: parts[4] || '0',
-                                    points: parts.length >= 6 ? (parseInt(parts[5], 10) || 0) : 0,
-                                    coord
-                                };
-                                vList.push(vObj);
-                                vMap.set(coord, vObj);
-                            }
-                        });
-                        worldVillages = vList;
-                        worldVillageByCoord = vMap;
-                        worldVillagesLoaded = true;
+                        fetchedVillagesRaw = text;
+                        parseWorldVillagesData(text);
                     }
                 })());
             }
@@ -684,23 +743,22 @@
                 fetches.push((async () => {
                     const text = await fetchText('/map/player.txt');
                     if (text) {
-                        const lines = text.trim().split('\n');
-                        const pMap = {};
-                        lines.forEach(line => {
-                            const parts = line.split(',');
-                            if (parts.length >= 2) {
-                                let pName = parts[1] || '';
-                                try { pName = decodeURIComponent(pName).replace(/\+/g, ' '); } catch (_) { pName = pName.replace(/\+/g, ' '); }
-                                pMap[parts[0]] = pName;
-                            }
-                        });
-                        worldPlayers = pMap;
-                        worldPlayersLoaded = true;
+                        fetchedPlayersRaw = text;
+                        parseWorldPlayersData(text);
                     }
                 })());
             }
 
             await Promise.all(fetches);
+
+            // Guardar em localStorage para arranques instantâneos futuros
+            if (fetchedVillagesRaw && fetchedPlayersRaw) {
+                try {
+                    localStorage.setItem(WORLD_CACHE_KEY_VILLAGES, fetchedVillagesRaw);
+                    localStorage.setItem(WORLD_CACHE_KEY_PLAYERS, fetchedPlayersRaw);
+                    localStorage.setItem(WORLD_CACHE_KEY_TS, String(Date.now()));
+                } catch (_) {}
+            }
 
             if (typeof window !== 'undefined' && worldVillagesLoaded && worldPlayersLoaded) {
                 window.__tw_world_cache = {
@@ -2364,6 +2422,7 @@
             const baseUrl = (typeof game_data !== 'undefined' && game_data.link_base_pure) ? game_data.link_base_pure : '/game.php?screen=';
             const currentVId = (typeof game_data !== 'undefined' && game_data.village) ? game_data.village.id : null;
             const currentVCoords = (typeof game_data !== 'undefined' && game_data.village && game_data.village.coord) ? game_data.village.coord : '';
+            const currentVName = (typeof game_data !== 'undefined' && game_data.village && game_data.village.name) ? game_data.village.name : '';
             const currentDocHtml = (typeof document !== 'undefined' && document.body) ? document.body.innerHTML : '';
             const currentHasCommands = currentDocHtml.includes('id="commands_outgoings"') || currentDocHtml.includes('class="command-row"');
             const villageOverviewUrl = (currentVId && !currentHasCommands)
@@ -2797,10 +2856,68 @@
                 }
             }
 
-            // 5. Recolha de Comandos da Conta (Overview Global + Grupos de Guerra + Overview de Aldeias de Guerra)
-            const rCmdResponses = await fetchAllAccountCommandsHtml(makeUrl, safeFetch, activeWarVillages, warGroupIds);
+            // =========================================================================
+            // FASE 1 CONCLUÍDA: Abertura Imediata da Interface (Lazy Loading Ativo)
+            // =========================================================================
+            counterSummaryData = summary;
+            updateMemoryHUD();
+            document.getElementById('tw-tabs-container').style.display = 'flex';
+            document.getElementById('tw-title-text').innerHTML = `⚡ TW Tactical Command Suite <span style="font-size:10px; font-weight:600; background:rgba(56,189,248,0.15); color:#38bdf8; padding:2px 7px; border-radius:4px; border:1px solid rgba(56,189,248,0.25); margin-left:6px; vertical-align:middle;">v${SCRIPT_VERSION}</span> <span style="font-size:11px; font-weight:normal; color:#94a3b8; margin-left:6px; vertical-align:middle;">(${allVillages.length} Aldeias Conectadas)</span>`;
 
-            // 6. Deteção de Nobres em Treino na Academia (DOM da página atual + página snob direta + popup + train)
+            document.getElementById('tab-btn-overview').onclick = () => switchTab('overview');
+            document.getElementById('tab-btn-counter').onclick = () => switchTab('counter');
+            document.getElementById('tab-btn-fakes').onclick = () => switchTab('fakes');
+            document.getElementById('tab-btn-nt').onclick = () => switchTab('nt');
+            if (document.getElementById('tab-btn-commands')) {
+                document.getElementById('tab-btn-commands').onclick = () => switchTab('commands');
+            }
+            document.getElementById('tw-btn-close').onclick = closeSuite;
+
+            // Indicar na aba de comandos que a sincronização em segundo plano está ativa
+            const cmdBadge = document.getElementById('tw-commands-count-badge');
+            if (cmdBadge) {
+                cmdBadge.innerHTML = '<span class="tw-spinner" style="width:9px; height:9px; border-width:1.5px; vertical-align:middle;"></span>';
+            }
+
+            // Renderizar imediatamente a Visão Geral (~500ms de tempo de abertura total!)
+            switchTab('overview');
+
+            // =========================================================================
+            // FASE 2: Sincronização em Segundo Plano (Academias, Comandos & Retornos)
+            // =========================================================================
+            syncBackgroundCommandsAndAcademies({
+                makeUrl,
+                safeFetch,
+                activeWarVillages,
+                warGroupIds,
+                rSnobDirect,
+                rSnobPopup,
+                rSnobTrain,
+                rVillageOverview,
+                currentDocHtml,
+                currentVId,
+                currentVCoords,
+                currentVName,
+                villagesWithAcademy
+            });
+        } catch (e) {
+            console.error('[TW Tactical] Erro em loadData:', e);
+            const mb = document.getElementById('tw-main-body');
+            if (mb) mb.innerHTML = `<div style="padding:40px; color:#f85149; text-align:center;">Erro: ${e.message}</div>`;
+        }
+    }
+
+    async function syncBackgroundCommandsAndAcademies(ctx) {
+        isSyncingCommands = true;
+        try {
+            const {
+                makeUrl, safeFetch, activeWarVillages, warGroupIds,
+                rSnobDirect, rSnobPopup, rSnobTrain, rVillageOverview,
+                currentDocHtml, currentVId, currentVCoords, currentVName,
+                villagesWithAcademy
+            } = ctx;
+
+            // 1. Deteção de Nobres em Treino na Academia (DOM da página atual + página snob direta + popup + train)
             allSnobProductions.length = 0;
             const addSnobProds = (list) => {
                 if (Array.isArray(list)) {
@@ -2840,8 +2957,8 @@
 
             // Consultar em paralelo a Academia de todas as aldeias com Academia para detetar nobres em treino
             const academyCheckIds = Array.from(villagesWithAcademy);
-            if (academyCheckIds.length > 0) {
-                await Promise.all(academyCheckIds.map(async (vId) => {
+            const academyPromise = (academyCheckIds.length > 0)
+                ? Promise.all(academyCheckIds.map(async (vId) => {
                     try {
                         const html = await safeFetch(`/game.php?village=${vId}&screen=snob`);
                         if (html) {
@@ -2851,10 +2968,16 @@
                             }
                         }
                     } catch (_) {}
-                }));
-            }
+                }))
+                : Promise.resolve();
 
-            // 7. Deteção de Nobres em Viagem / Comandos de Retorno
+            // Recolha de Comandos da Conta (Overview Global + Grupos de Guerra + Overview de Aldeias de Guerra)
+            const commandsPromise = fetchAllAccountCommandsHtml(makeUrl, safeFetch, activeWarVillages, warGroupIds);
+
+            // Aguardar por ambos
+            const [, rCmdResponses] = await Promise.all([academyPromise, commandsPromise]);
+
+            // 2. Deteção de Nobres em Viagem / Comandos de Retorno
             allNobleReturns.length = 0;
             const addNobleReturns = (list) => {
                 list.forEach(ret => {
@@ -2875,7 +2998,7 @@
             if (rVillageOverview) {
                 addNobleReturns(parseCommandsNobleReturns(rVillageOverview, currentVId, currentVCoords));
             }
-            rCmdResponses.forEach(r => {
+            (rCmdResponses || []).forEach(r => {
                 if (!r) return;
                 const rawHtml = typeof r === 'string' ? r : (r.html || '');
                 const vId = r.villageId || currentVId;
@@ -2883,7 +3006,7 @@
                 addNobleReturns(parseCommandsNobleReturns(rawHtml, vId, vCoords));
             });
 
-            // 8. Extração completa de Comandos & Retornos
+            // 3. Extração completa de Comandos & Retornos
             const cmdMap = new Map();
             const addAllCmds = (list) => {
                 const now = getTwServerTimeMs();
@@ -2906,8 +3029,7 @@
                 });
             };
 
-            const currentVName = (typeof game_data !== 'undefined' && game_data.village && game_data.village.name) ? game_data.village.name : '';
-            rCmdResponses.forEach(r => {
+            (rCmdResponses || []).forEach(r => {
                 if (!r) return;
                 const rawHtml = typeof r === 'string' ? r : (r.html || '');
                 const vId = r.villageId || currentVId;
@@ -2923,7 +3045,7 @@
                 .filter(c => (!commandsIgnoreFarms || !c.isFarm) && (!c.readyAtMs || c.readyAtMs > (nowCmds - 2000)))
                 .sort((a, b) => a.readyAtMs - b.readyAtMs);
 
-            // 9. Cruzamento inteligente de Comandos Ativos com allVillages para deduzir nobres fora e em casa
+            // 4. Cruzamento inteligente de Comandos Ativos com allVillages para deduzir nobres fora e em casa
             allVillages.forEach(v => {
                 const activeNobleCmds = allParsedCommands.filter(c => c.originCoords === v.coords && c.hasSnob && (!c.readyAtMs || c.readyAtMs > (nowCmds - 2000)));
                 if (activeNobleCmds.length > 0) {
@@ -2936,35 +3058,56 @@
                 }
             });
 
-            // 10. Sincronizar todos os eventos e status de Nobres em todas as aldeias
+            // 5. Sincronizar todos os eventos e status de Nobres em todas as aldeias
             syncNobleEventsAcrossVillages();
 
-            // 11. Enriquecer comandos a chegar incompletos com info_command e allParsedCommands com nomes de aldeias, atacantes e distâncias
+            // 6. Enriquecer comandos a chegar incompletos com info_command e allParsedCommands com nomes de aldeias, atacantes e distâncias
             await enrichIncompleteIncomings(allParsedCommands, safeFetch);
             allParsedCommands.forEach(c => enrichCommandDetails(c));
 
-            const cmdBadge = document.getElementById('tw-commands-count-badge');
-            if (cmdBadge) cmdBadge.textContent = allParsedCommands.filter(c => c.isPlayerTarget).length;
+            isSyncingCommands = false;
 
-            counterSummaryData = summary;
-            updateMemoryHUD();
-            document.getElementById('tw-tabs-container').style.display = 'flex';
-            document.getElementById('tw-title-text').innerHTML = `⚡ TW Tactical Command Suite <span style="font-size:10px; font-weight:600; background:rgba(56,189,248,0.15); color:#38bdf8; padding:2px 7px; border-radius:4px; border:1px solid rgba(56,189,248,0.25); margin-left:6px; vertical-align:middle;">v${SCRIPT_VERSION}</span> <span style="font-size:11px; font-weight:normal; color:#94a3b8; margin-left:6px; vertical-align:middle;">(${allVillages.length} Aldeias Conectadas)</span>`;
-            
-            document.getElementById('tab-btn-overview').onclick = () => switchTab('overview');
-            document.getElementById('tab-btn-counter').onclick = () => switchTab('counter');
-            document.getElementById('tab-btn-fakes').onclick = () => switchTab('fakes');
-            document.getElementById('tab-btn-nt').onclick = () => switchTab('nt');
-            if (document.getElementById('tab-btn-commands')) {
-                document.getElementById('tab-btn-commands').onclick = () => switchTab('commands');
+            const cmdBadge = document.getElementById('tw-commands-count-badge');
+            if (cmdBadge) {
+                cmdBadge.textContent = allParsedCommands.filter(c => c.isPlayerTarget).length;
             }
-            document.getElementById('tw-btn-close').onclick = closeSuite;
-            
-            switchTab('overview');
-        } catch (e) {
-            console.error('[TW Tactical] Erro em loadData:', e);
-            const mb = document.getElementById('tw-main-body');
-            if (mb) mb.innerHTML = `<div style="padding:40px; color:#f85149; text-align:center;">Erro: ${e.message}</div>`;
+
+            // Atualização reativa de interface
+            if (activeTab === 'commands') {
+                renderCommands();
+            } else if (activeTab === 'overview' && !document.getElementById('tw-search-villages')?.value) {
+                renderOverview();
+            } else if (activeTab === 'nt') {
+                const sourceSelect = document.getElementById('tw-nt-noble-village');
+                if (sourceSelect) {
+                    const curVal = sourceSelect.value;
+                    const committedMap = getCommittedSchedules();
+                    const nobleVillages = allVillages.filter(v => (v.snobsHome > 0 || v.snobsTotal > 0 || (v.snobsInProd || 0) > 0));
+                    let nobleOptions = nobleVillages.map(v => {
+                        const isComm = !!committedMap[v.id];
+                        const pal = (v.paladin && v.paladin.isHome) ? v.paladin : null;
+                        const palTag = pal ? ` [${pal.name}${pal.name === 'QuimConquista' ? ' ⚔️ Persuasão' : ''}]` : '';
+                        const inProdTag = (v.snobsInProd > 0) ? ` 🔨+${v.snobsInProd}` : '';
+                        const retTag = (v.snobsReturning > 0) ? ` ⏳+${v.snobsReturning}` : '';
+                        const nobleStatus = (v.snobsOutside > 0)
+                            ? `${v.snobsHome} na aldeia (⚠️ ${v.snobsOutside} fora${inProdTag}${retTag})`
+                            : ((v.snobsInProd > 0) ? `0 na aldeia (${inProdTag} em treino)` : `${v.snobsHome} Nobres`);
+                        return `<option value="${v.id}">${cleanVillageDisplayName(v)} • ${nobleStatus}${palTag}${isComm ? ' [🔒 Reservada]' : ''}</option>`;
+                    }).join('');
+                    if (!nobleOptions) nobleOptions = `<option value="">❌ Nenhuma aldeia com nobres</option>`;
+                    sourceSelect.innerHTML = nobleOptions;
+                    if (curVal && nobleVillages.some(v => v.id === curVal)) {
+                        sourceSelect.value = curVal;
+                    }
+                }
+            }
+
+            showToast(`📡 Sincronização concluída: ${allParsedCommands.length} comandos carregados!`, 2500);
+        } catch (err) {
+            isSyncingCommands = false;
+            console.warn('[TW Tactical] Erro na sincronização em segundo plano:', err);
+            const cmdBadge = document.getElementById('tw-commands-count-badge');
+            if (cmdBadge) cmdBadge.textContent = '0';
         }
     }
 
@@ -8366,6 +8509,22 @@
     }
 
     function renderCommands() {
+        const container = document.getElementById('tw-main-body');
+        if (!container) return;
+
+        if (isSyncingCommands && allParsedCommands.length === 0) {
+            container.innerHTML = `
+                <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%; min-height:400px; gap:16px;">
+                    <div class="tw-spinner" style="width:36px; height:36px; border-width:3px; border-top-color:#38bdf8;"></div>
+                    <div style="font-size:16px; font-weight:700; color:#f8fafc; letter-spacing:-0.01em;">A sincronizar comandos, retornos e ataques da conta...</div>
+                    <div style="font-size:12px; color:#94a3b8; max-width:450px; text-align:center; line-height:1.5;">
+                        A recolher ataques ativos, retornos de nobres e comandos de guerra em segundo plano. Os dados serão apresentados automaticamente em instantes.
+                    </div>
+                </div>
+            `;
+            return;
+        }
+
         const totalCmds = allParsedCommands.length;
         const playerCmds = allParsedCommands.filter(c => c.isPlayerTarget).length;
         const attackCmds = allParsedCommands.filter(c => c.isAttack && c.isPlayerTarget && !c.isIncoming).length;
@@ -8376,9 +8535,6 @@
         const snobCmds = allParsedCommands.filter(c => c.hasSnob).length;
         const farmCmds = allParsedCommands.filter(c => c.isFarm).length;
         const supportCmds = allParsedCommands.filter(c => c.isSupport).length;
-
-        const container = document.getElementById('tw-main-body');
-        if (!container) return;
 
         container.innerHTML = `
             <div style="display:flex; flex-direction:column; gap:10px; height:100%; overflow:hidden;">
