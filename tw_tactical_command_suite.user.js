@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW Tactical Command Suite
 // @namespace    https://tribalwars.com.pt/
-// @version      3.2.34
+// @version      3.2.35
 // @description  Suite militar avançada para Tribal Wars PT: Módulo Tático de Comandos (Deteção Inteligente de Ataques Inimigos a Chegar com Identificação Real do Jogador Atacante e Aldeia de Origem, Ataques & Retornos com filtros, agrupamento por alvos, ordenação interativa por clique nos cabeçalhos de coluna, exclusão opcional de micro-saques Modo Turbo para velocidade máxima, purga automática de comandos expirados e timers sincronizados com o servidor), Exclusão de Horário Noturno (Bónus Noturno) no Impacto e no Envio com horas configuráveis, Calculador Automático de Horário Mínimo de Impacto com Folga de Envio Configurável (1º Impacto e Cobertura Total de Alvos com ajuste instantâneo a 1 clique), identificação visual de Hoje/Amanhã na tabela, balanceamento round-robin de alvos, escalonamento sem colisão em repetições e Fakes Inteligentes 1% Dinâmico por Pontos (_60, _90, _115, _135), Escoltas Anti-Snipe de Precisão Cirúrgica a 40ms antes de cada Nobre (janela anti-snipe personalizável), Bate e Volta com folga configurável de regresso (padrão seguro de 10s para PSEvolution e bots), Rastreio em Tempo Real de Nobres a Caminho & em Retorno de Comandos + Treino na Academia, Deteção Rigorosa de 0 Nobres em Casa por Isolamento de Linhas HTML & Cruzamento de Comandos Ativos, Deduplicação Rigorosa de Nobres & Teto Físico de Tropas Fora, Sincronização Server-Live sem Cache, Validação Precisa de Envio & Horário Mínimo de Ataque à Prova de Falhas (⚡ com 5m folga, cálculo inteligente de nobres a regressar e seleção do Nuke Full mais perto), Suporte Automático a Modelos NT (NT 33% para 3 nobres, NT 25% para 4 nobres), Bunkers Desligados por Default, Alvo Cats do Nuke Muralha por Default, Arsenal Tático de Fakes, UI de Limpezas/Nobres/Demolição, e Planeador Tático.
 // @author       Diogo & Antigravity
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -12,7 +12,7 @@
 // ==/UserScript==
 
 (async function () {
-    const SCRIPT_VERSION = '3.2.34';
+    const SCRIPT_VERSION = '3.2.35';
 
     // Auto-selecionar alvo de catapulta na confirmação de ataque na Praça de Reunião se especificado no URL
     try {
@@ -833,21 +833,32 @@
         const rowMatches = html.match(/<tr[^>]*>([\s\S]*?)<\/tr>/gi) || [];
         
         rowMatches.forEach(row => {
-            // Ignorar cabeçalhos e elementos inativos
+            // 1. Ignorar cabeçalhos e elementos inativos
             if (/<th/i.test(row)) return;
             if (/oferta|modemenu|auto-minting/i.test(row)) return;
-            if (!/nobre|snob|academia/i.test(row)) return;
 
-            const vMatch = row.match(/village=(\d+)/);
-            const vId = vMatch ? String(vMatch[1]) : (currentVillageId ? String(currentVillageId) : null);
-            
-            const coordsMatch = row.match(/(\d{3}\|\d{3})/);
-            const coords = coordsMatch ? coordsMatch[1] : '';
+            // 2. Ignorar categoricamente a tabela estática de encomenda/recrutamento de nobres
+            // Essa tabela contém formulários/inputs (name="snob", type="submit", class train_snob_cell, btn-recruit, etc.)
+            if (/<input[^>]*name="snob"/i.test(row) || /train_snob_cell/i.test(row) || /class="[^"]*btn-recruit[^"]*"/i.test(row)) return;
+            if (/<input[^>]*type="submit"/i.test(row) && /educar|recrutar/i.test(row)) return;
+            if (/ainda podem ser educados|limite de nobres|total de nobres/i.test(row)) return;
 
-            // Extrair temporizador restante ou data-endtime
+            // 3. Deve referir-se expressamente a Nobre
+            if (!/nobre|snob/i.test(row)) return;
+
+            // 4. Critério obrigatório de FILA ATIVA:
+            // Uma fila ativa tem obrigatoriamente um link de cancelamento (cancel/cancelar)
+            // OU uma hora de conclusão ("hoje às ...", "amanhã às ...", "DD.MM. às ...")
+            const hasCancelLink = /action=cancel|cancelar/i.test(row);
+            const timeMatch = row.match(/(?:hoje|amanhã|[0-9\.]+|em\s+[0-9\.]+|a\s+[0-9\.]+)\s*às\s*(\d{1,2}:\d{2}:\d{2})/i);
+            const completionStr = timeMatch ? timeMatch[0] : '';
+
+            // Se não tem cancelamento nem hora de conclusão "às HH:MM:SS", NÃO é uma produção ativa
+            if (!hasCancelLink && !completionStr) return;
+
+            // 5. Temporizador ativo: APENAS class="timer" legítimo ou data-endtime (NUNCA tempo estático)
             const timerMatch = row.match(/class="[^"]*timer[^"]*"[^>]*>([^<]+)<\/span>/i) ||
-                               row.match(/data-endtime="(\d+)"/i) ||
-                               row.match(/>\s*(\d{1,2}:\d{2}:\d{2})\s*</);
+                               row.match(/data-endtime="(\d+)"/i);
             let timerStr = '';
             let endtimeSec = 0;
             if (timerMatch) {
@@ -859,14 +870,16 @@
             }
             const remainingSec = timerStr ? parseTimerSeconds(timerStr) : 0;
 
-            const timeMatch = row.match(/(?:hoje|amanhã|[0-9\.]+|em\s+[0-9\.]+|a\s+[0-9\.]+)\s*às\s*(\d{1,2}:\d{2}:\d{2})/i);
-            const completionStr = timeMatch ? timeMatch[0] : '';
+            if (!timerStr && !completionStr && !endtimeSec) return;
 
-            // Se não tiver temporizador nem hora de conclusão, verificar se tem indicação explícita de treino ativo
-            const hasExplicitTrain = /cancel|cancelar|treinando|em treino|em produção/i.test(row);
-            if (!timerStr && !completionStr && !endtimeSec && !hasExplicitTrain) return;
+            const vMatch = row.match(/village=(\d+)/);
+            const vId = vMatch ? String(vMatch[1]) : (currentVillageId ? String(currentVillageId) : null);
+            
+            const coordsMatch = row.match(/(\d{3}\|\d{3})/);
+            const coords = coordsMatch ? coordsMatch[1] : '';
 
-            const countMatch = row.match(/(\d+)\s*(?:x\s*)?Nobre/i) || row.match(/(\d+)\s*snob/i);
+            // Quantidade de nobres nessa linha da fila (geralmente "1 Nobre" na primeira célula)
+            const countMatch = row.match(/^[^<]*?(\d+)\s*(?:x\s*)?Nobre/i) || row.match(/<td>\s*(\d+)\s*(?:x\s*)?Nobre/i) || row.match(/(\d+)\s*x\s*snob/i);
             const count = countMatch ? parseInt(countMatch[1], 10) : 1;
 
             const now = Date.now();
@@ -2431,26 +2444,30 @@
                     const dB = parser.parseFromString(rBuildings, 'text/html');
                     const bTable = dB.querySelector('#buildings_table');
                     if (bTable) {
-                        const ths = Array.from(bTable.querySelectorAll('thead th, tr:first-child th'));
+                        const headerRow = bTable.querySelector('thead tr') || bTable.querySelector('tr');
+                        const ths = headerRow ? Array.from(headerRow.querySelectorAll('th')) : [];
                         const snobThIndex = ths.findIndex(th => /snob|academia/i.test(th.innerHTML || th.textContent));
-                        bTable.querySelectorAll('tbody tr, tr').forEach(tr => {
+                        const bodyRows = bTable.querySelectorAll('tbody tr').length > 0 ? bTable.querySelectorAll('tbody tr') : bTable.querySelectorAll('tr:not(:first-child)');
+                        bodyRows.forEach(tr => {
                             const a = tr.querySelector('a[href*="village="]');
                             if (!a) return;
                             const vIdMatch = a.href.match(/village=(\d+)/);
                             if (!vIdMatch) return;
                             const vId = vIdMatch[1];
+                            let hasAcademy = false;
                             if (snobThIndex !== -1) {
                                 const tds = Array.from(tr.querySelectorAll('td'));
                                 if (tds[snobThIndex]) {
                                     const val = parseInt(tds[snobThIndex].textContent.trim(), 10);
-                                    if (!isNaN(val) && val >= 1) villagesWithAcademy.add(vId);
+                                    if (!isNaN(val) && val >= 1) hasAcademy = true;
                                 }
                             } else {
                                 const hasSnobLvl = tr.querySelector('td.snob, [data-building="snob"]');
                                 if (hasSnobLvl && parseInt(hasSnobLvl.textContent.trim(), 10) >= 1) {
-                                    villagesWithAcademy.add(vId);
+                                    hasAcademy = true;
                                 }
                             }
+                            if (hasAcademy) villagesWithAcademy.add(vId);
                         });
                     }
                 } catch (_) {}
@@ -2464,12 +2481,6 @@
                 if (!a) return;
                 const vId = (a.href.match(/village=(\d+)/) || [])[1];
                 if (!vId) return;
-
-                const hasSnobInProd = tr.querySelector('img[src*="snob"], [data-unit="snob"], img[alt*="Nobre"], img[title*="Nobre"]') ||
-                                      /unit_snob|data-unit="snob"|snob\.png|title="[^"]*nobre/i.test(tr.innerHTML);
-                if (hasSnobInProd) {
-                    villageSnobsInProdMap[vId] = 1;
-                }
 
                 const tds = Array.from(tr.querySelectorAll('td'));
                 if (ptsHeaderIndex !== -1 && tds[ptsHeaderIndex]) {
@@ -2789,16 +2800,19 @@
             // 6. Deteção de Nobres em Treino na Academia (DOM da página atual + página snob direta + popup + train)
             allSnobProductions.length = 0;
             const addSnobProds = (list) => {
-                list.forEach(p => {
-                    const pVId = String(p.villageId || '');
-                    if (!allSnobProductions.some(existing => {
-                        const exVId = String(existing.villageId || '');
-                        const matchVillage = (exVId && pVId && exVId === pVId) || (existing.coords && p.coords && existing.coords === p.coords);
-                        return matchVillage && Math.abs(existing.readyAtMs - p.readyAtMs) < 30000;
-                    })) {
-                        allSnobProductions.push(p);
-                    }
-                });
+                if (Array.isArray(list)) {
+                    list.forEach(p => {
+                        if (!p || !p.villageId) return;
+                        const pVId = String(p.villageId || '');
+                        if (!allSnobProductions.some(existing => {
+                            const exVId = String(existing.villageId || '');
+                            const matchVillage = (exVId && pVId && exVId === pVId) || (existing.coords && p.coords && existing.coords === p.coords);
+                            return matchVillage && Math.abs(existing.readyAtMs - p.readyAtMs) < 30000;
+                        })) {
+                            allSnobProductions.push(p);
+                        }
+                    });
+                }
             };
 
             addSnobProds(parseAcademyProduction(rSnobDirect, currentVId));
@@ -2807,6 +2821,13 @@
             if (currentVId && !allSnobProductions.some(p => String(p.villageId) === String(currentVId))) {
                 addSnobProds(parseAcademyProduction(currentDocHtml, currentVId));
             }
+
+            // Assegurar que qualquer aldeia com nobres ou com nome referente a nobre é verificada
+            allVillages.forEach(v => {
+                if (v.snobsHome > 0 || v.snobsTotal > 0 || v.snobsOutside > 0 || (v.name && /nobre|snob/i.test(v.name))) {
+                    villagesWithAcademy.add(String(v.id));
+                }
+            });
 
             // Consultar em paralelo a Academia de todas as aldeias com Academia para detetar nobres em treino
             const academyCheckIds = Array.from(villagesWithAcademy).filter(id => String(id) !== String(currentVId));
