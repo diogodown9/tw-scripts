@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW Tactical Command Suite
 // @namespace    https://tribalwars.com.pt/
-// @version      3.2.37
+// @version      3.2.38
 // @description  Suite militar avançada para Tribal Wars PT: Módulo Tático de Comandos (Deteção Inteligente de Ataques Inimigos a Chegar com Identificação Real do Jogador Atacante e Aldeia de Origem, Ataques & Retornos com filtros, agrupamento por alvos, ordenação interativa por clique nos cabeçalhos de coluna, exclusão opcional de micro-saques Modo Turbo para velocidade máxima, purga automática de comandos expirados e timers sincronizados com o servidor), Exclusão de Horário Noturno (Bónus Noturno) no Impacto e no Envio com horas configuráveis, Calculador Automático de Horário Mínimo de Impacto com Folga de Envio Configurável (1º Impacto e Cobertura Total de Alvos com ajuste instantâneo a 1 clique), identificação visual de Hoje/Amanhã na tabela, balanceamento round-robin de alvos, escalonamento sem colisão em repetições e Fakes Inteligentes 1% Dinâmico por Pontos (_60, _90, _115, _135), Escoltas Anti-Snipe de Precisão Cirúrgica a 40ms antes de cada Nobre (janela anti-snipe personalizável), Bate e Volta com folga configurável de regresso (padrão seguro de 10s para PSEvolution e bots), Rastreio em Tempo Real de Nobres a Caminho & em Retorno de Comandos + Treino na Academia, Deteção Rigorosa de 0 Nobres em Casa por Isolamento de Linhas HTML & Cruzamento de Comandos Ativos, Deduplicação Rigorosa de Nobres & Teto Físico de Tropas Fora, Sincronização Server-Live sem Cache, Validação Precisa de Envio & Horário Mínimo de Ataque à Prova de Falhas (⚡ com 5m folga, cálculo inteligente de nobres a regressar e seleção do Nuke Full mais perto), Suporte Automático a Modelos NT (NT 33% para 3 nobres, NT 25% para 4 nobres), Bunkers Desligados por Default, Alvo Cats do Nuke Muralha por Default, Arsenal Tático de Fakes, UI de Limpezas/Nobres/Demolição, e Planeador Tático.
 // @author       Diogo & Antigravity
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -12,7 +12,7 @@
 // ==/UserScript==
 
 (async function () {
-    const SCRIPT_VERSION = '3.2.37';
+    const SCRIPT_VERSION = '3.2.38';
 
     // Auto-selecionar alvo de catapulta na confirmação de ataque na Praça de Reunião se especificado no URL
     try {
@@ -1209,6 +1209,49 @@
         return results;
     }
 
+    function detectNobleInCommandRow(row, label = '', originCoords = '') {
+        if (!row) return false;
+
+        // 1. Deteção Oficial por Ícone Gráfico do Tribos (100% autoritário e imune a nomes de aldeias)
+        // No Tribos, comandos reais com nobres usam sempre ficheiros com "snob" na imagem:
+        // return_snob.png / .webp, attack_snob.png / .webp, unit_snob.png / .webp, snob.png / .webp
+        const hasOfficialSnobIcon = /src="[^"]*(?:return_snob|attack_snob|unit_snob|\/snob)\.(?:png|webp|gif)"/i.test(row) ||
+                                    /data-unit="snob"/i.test(row) ||
+                                    /class="[^"]*\bunit-item-snob\b[^"]*"/i.test(row);
+
+        if (hasOfficialSnobIcon) return true;
+
+        // 2. Análise da Etiqueta do Comando (label)
+        const cleanLabel = (label || '').trim();
+
+        // Se o nome do comando for o padrão automático gerado pelo próprio Tribos:
+        // ex: "Retorno de Nobre (318|451) K43", "Ataque a Nobre (318|451) K43", "Apoio a Nobre"
+        // A palavra "Nobre" ou "Snob" pertence unicamente ao NOME DA ALDEIA, NÃO a uma unidade nobre!
+        const isDefaultAutoName = /^(?:retorno\s+de(?:\s+apoio\s+a)?|ataque\s+(?:a|contra)|saque\s+a|apoio\s+(?:a|para)|cancelamento\s+de)\s+/i.test(cleanLabel);
+
+        if (isDefaultAutoName) {
+            // Sem o ícone oficial de nobre, o nome automático com "Nobre" é apenas o nome da aldeia alvo/origem
+            return false;
+        }
+
+        // 3. Se for uma renomeação manual explícita efetuada pelo jogador:
+        // ex: "[Nobre]", "NT 1", "Snob", "1x Nobre"
+        const hasExplicitManualNobleTag = /\[\s*(?:nobre|snob|nt)\s*\]|\b(?:nt|snob|nobre)\s*\d+|\bnt\b/i.test(cleanLabel);
+        if (hasExplicitManualNobleTag) {
+            // Se conhecemos a aldeia de origem própria e ela tem comprovadamente 0 nobres no total da conta,
+            // não pode ser um nobre real a sair/voltar dessa aldeia
+            if (originCoords && typeof allVillages !== 'undefined' && Array.isArray(allVillages)) {
+                const origV = allVillages.find(v => v.coords === originCoords);
+                if (origV && (origV.snobsTotal || 0) === 0 && (origV.snobsHome || 0) === 0 && (origV.snobsInProd || 0) === 0) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        return false;
+    }
+
     function parseCommandsNobleReturns(html, fallbackVillageId = null, fallbackCoords = null) {
         if (!html) return [];
         const returns = [];
@@ -1217,7 +1260,13 @@
         const rowMatches = [];
         while ((trM = trRegex.exec(html)) !== null) {
             const row = trM[0];
-            const hasSnob = row.includes('snob') || row.includes('nobre') || row.includes('return_snob');
+            let label = '';
+            const lm = row.match(/class="quickedit-label"[^>]*>([\s\S]*?)<\/span>/i) ||
+                       row.match(/<a[^>]*screen=info_command[^>]*>([\s\S]*?)<\/a>/i) ||
+                       row.match(/<a[^>]*>([\s\S]*?)<\/a>/i);
+            if (lm) label = lm[1].replace(/<[^>]+>/g, '').trim();
+
+            const hasSnob = detectNobleInCommandRow(row, label, fallbackCoords);
             if (!hasSnob) continue;
 
             const isReturn = (row.includes('return') || row.includes('retorno') || row.includes('regresso') || row.includes('other_back') || row.includes('back.webp')) &&
@@ -1556,7 +1605,6 @@
             else if (isAttack) type = 'attack';
             else if (isSupport) type = 'support';
 
-            const hasSnob = /snob|nobre|snob\.webp|return_snob\.webp/i.test(row);
             const hasPaladin = /knight|paladino|knight\.webp/i.test(row);
             const hasSpy = /spy|batedor|spy\.webp/i.test(row);
             const isLarge = /attack_large|grande ataque/i.test(row);
@@ -1653,6 +1701,8 @@
                     targetCoords = allCoords[0];
                 }
             }
+
+            const hasSnob = detectNobleInCommandRow(row, label, originCoords);
 
             if (isIncoming) {
                 if (isSupport) {
