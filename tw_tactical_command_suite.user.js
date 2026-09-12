@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW Tactical Command Suite
 // @namespace    https://tribalwars.com.pt/
-// @version      3.2.32
+// @version      3.2.33
 // @description  Suite militar avançada para Tribal Wars PT: Módulo Tático de Comandos (Deteção Inteligente de Ataques Inimigos a Chegar com Identificação Real do Jogador Atacante e Aldeia de Origem, Ataques & Retornos com filtros, agrupamento por alvos, ordenação interativa por clique nos cabeçalhos de coluna, exclusão opcional de micro-saques Modo Turbo para velocidade máxima, purga automática de comandos expirados e timers sincronizados com o servidor), Exclusão de Horário Noturno (Bónus Noturno) no Impacto e no Envio com horas configuráveis, Calculador Automático de Horário Mínimo de Impacto com Folga de Envio Configurável (1º Impacto e Cobertura Total de Alvos com ajuste instantâneo a 1 clique), identificação visual de Hoje/Amanhã na tabela, balanceamento round-robin de alvos, escalonamento sem colisão em repetições e Fakes Inteligentes 1% Dinâmico por Pontos (_60, _90, _115, _135), Escoltas Anti-Snipe de Precisão Cirúrgica a 40ms antes de cada Nobre (janela anti-snipe personalizável), Bate e Volta com folga configurável de regresso (padrão seguro de 10s para PSEvolution e bots), Rastreio em Tempo Real de Nobres a Caminho & em Retorno de Comandos + Treino na Academia, Deteção Rigorosa de 0 Nobres em Casa por Isolamento de Linhas HTML & Cruzamento de Comandos Ativos, Deduplicação Rigorosa de Nobres & Teto Físico de Tropas Fora, Sincronização Server-Live sem Cache, Validação Precisa de Envio & Horário Mínimo de Ataque à Prova de Falhas (⚡ com 5m folga, cálculo inteligente de nobres a regressar e seleção do Nuke Full mais perto), Suporte Automático a Modelos NT (NT 33% para 3 nobres, NT 25% para 4 nobres), Bunkers Desligados por Default, Alvo Cats do Nuke Muralha por Default, Arsenal Tático de Fakes, UI de Limpezas/Nobres/Demolição, e Planeador Tático.
 // @author       Diogo & Antigravity
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -12,7 +12,7 @@
 // ==/UserScript==
 
 (async function () {
-    const SCRIPT_VERSION = '3.2.32';
+    const SCRIPT_VERSION = '3.2.33';
 
     // Auto-selecionar alvo de catapulta na confirmação de ataque na Praça de Reunião se especificado no URL
     try {
@@ -833,9 +833,9 @@
         const rowMatches = html.match(/<tr[^>]*>([\s\S]*?)<\/tr>/gi) || [];
         
         rowMatches.forEach(row => {
-            // Ignorar cabeçalhos, ofertas premium, menus e linhas inactivas
+            // Ignorar cabeçalhos e elementos inativos
             if (/<th/i.test(row)) return;
-            if (/premium|oferta|modemenu|train_snob_cell|auto-minting/i.test(row)) return;
+            if (/oferta|modemenu|auto-minting/i.test(row)) return;
             if (!/nobre|snob|academia/i.test(row)) return;
 
             const vMatch = row.match(/village=(\d+)/);
@@ -844,31 +844,49 @@
             const coordsMatch = row.match(/(\d{3}\|\d{3})/);
             const coords = coordsMatch ? coordsMatch[1] : '';
 
-            const timerMatch = row.match(/class="timer"[^>]*>([^<]+)<\/span>/i) || row.match(/timer">([^<]+)<\/span>/i);
-            const timerStr = timerMatch ? timerMatch[1].trim() : '';
+            // Extrair temporizador restante ou data-endtime
+            const timerMatch = row.match(/class="[^"]*timer[^"]*"[^>]*>([^<]+)<\/span>/i) ||
+                               row.match(/data-endtime="(\d+)"/i) ||
+                               row.match(/>\s*(\d{1,2}:\d{2}:\d{2})\s*</);
+            let timerStr = '';
+            let endtimeSec = 0;
+            if (timerMatch) {
+                if (/^\d{9,11}$/.test(timerMatch[1].trim())) {
+                    endtimeSec = parseInt(timerMatch[1].trim(), 10);
+                } else {
+                    timerStr = timerMatch[1].trim();
+                }
+            }
             const remainingSec = timerStr ? parseTimerSeconds(timerStr) : 0;
 
-            const timeMatch = row.match(/(hoje|amanhã|[0-9\.]+)\s*às\s*(\d{1,2}:\d{2}:\d{2})/i);
+            const timeMatch = row.match(/(?:hoje|amanhã|[0-9\.]+|em\s+[0-9\.]+|a\s+[0-9\.]+)\s*às\s*(\d{1,2}:\d{2}:\d{2})/i);
             const completionStr = timeMatch ? timeMatch[0] : '';
 
-            // Se não tiver temporizador nem hora de conclusão, não é uma fila ativa de treino
-            if (!timerStr && !completionStr) return;
+            // Se não tiver temporizador nem hora de conclusão, verificar se tem indicação explícita de treino ativo
+            const hasExplicitTrain = /cancel|cancelar|treinando|em treino|em produção/i.test(row);
+            if (!timerStr && !completionStr && !endtimeSec && !hasExplicitTrain) return;
 
             const countMatch = row.match(/(\d+)\s*(?:x\s*)?Nobre/i) || row.match(/(\d+)\s*snob/i);
             const count = countMatch ? parseInt(countMatch[1], 10) : 1;
 
             const now = Date.now();
-            // Priorizar a hora de conclusão do jogo (evita desvios por latência ou relógio local)
-            const readyAtMs = completionStr ? (parseTwDateTime(completionStr) || (now + remainingSec * 1000)) : (now + remainingSec * 1000);
+            let readyAtMs = now + 3600000;
+            if (endtimeSec > 0) {
+                readyAtMs = endtimeSec * 1000;
+            } else if (completionStr) {
+                readyAtMs = parseTwDateTime(completionStr) || (now + remainingSec * 1000);
+            } else if (remainingSec > 0) {
+                readyAtMs = now + remainingSec * 1000;
+            }
 
             for (let i = 0; i < count; i++) {
                 prods.push({
                     villageId: vId,
                     coords,
                     type: 'production',
-                    timerStr,
-                    remainingSec,
-                    completionStr,
+                    timerStr: timerStr || (remainingSec ? formatDuration(remainingSec) : ''),
+                    remainingSec: remainingSec || Math.max(0, Math.floor((readyAtMs - now) / 1000)),
+                    completionStr: completionStr || new Date(readyAtMs).toLocaleTimeString('pt-PT'),
                     readyAtMs
                 });
             }
@@ -2404,6 +2422,7 @@
 
             const farmMap = {};
             const villagePointsMap = {};
+            const villageSnobsInProdMap = {};
             const prodThs = Array.from(dP.querySelectorAll('#production_table thead th'));
             const ptsHeaderIndex = prodThs.findIndex(th => /ponto|point|punkt/i.test(th.textContent.trim()));
 
@@ -2412,6 +2431,12 @@
                 if (!a) return;
                 const vId = (a.href.match(/village=(\d+)/) || [])[1];
                 if (!vId) return;
+
+                const hasSnobInProd = tr.querySelector('img[src*="snob"], [data-unit="snob"], img[alt*="Nobre"], img[title*="Nobre"]') ||
+                                      /unit_snob|data-unit="snob"|snob\.png|title="[^"]*nobre/i.test(tr.innerHTML);
+                if (hasSnobInProd) {
+                    villageSnobsInProdMap[vId] = 1;
+                }
 
                 const tds = Array.from(tr.querySelectorAll('td'));
                 if (ptsHeaderIndex !== -1 && tds[ptsHeaderIndex]) {
@@ -2634,6 +2659,7 @@
                         || (typeof game_data !== 'undefined' && game_data.village && game_data.village.id == vId ? (game_data.village.points || 0) : 0)
                         || 0;
 
+                    const inProdFromOverview = villageSnobsInProdMap[vId] || 0;
                     const vObj = {
                         id: vId, name: vName, coords, points: vPoints, troops: vTroops, troopsDict: dict, homeTroopsDict: homeDict,
                         movingTroopsDict: movingDict, awayTroopsDict: awayDict,
@@ -2643,10 +2669,10 @@
                         snobsHome: snobsHome,
                         snobsTotal: snobsTotal,
                         snobsOutside: snobsOutside,
-                        snobsInProd: 0,
+                        snobsInProd: inProdFromOverview,
                         snobsReturning: 0,
                         noblePendingEvents: [],
-                        hasSnobsAway: snobsOutside > 0,
+                        hasSnobsAway: snobsOutside > 0 || inProdFromOverview > 0,
                         totalOffPop: vTot.offense,
                         totalDefPop: vTot.defense,
                         homeOffPop,
@@ -2671,6 +2697,18 @@
 
                     allVillages.push(vObj);
                     villagesById[vId] = vObj;
+                    if (inProdFromOverview > 0) {
+                        allSnobProductions.push({
+                            villageId: vId,
+                            coords,
+                            type: 'production',
+                            timerStr: '',
+                            remainingSec: 3600,
+                            completionStr: '',
+                            readyAtMs: Date.now() + 3600000,
+                            note: 'Nobre em treino na Academia'
+                        });
+                    }
                 });
             } else {
                 console.warn('[TW Tactical] uTable não disponível. Módulo militar e comandos continuam operacionais.');
@@ -4388,16 +4426,28 @@
         const committedCount = Object.keys(committedMap).length;
 
         const nobleVillages = allVillages.filter(v => (v.snobsHome > 0 || v.snobsTotal > 0 || (v.snobsInProd || 0) > 0));
-        let nobleOptions = nobleVillages.map(v => {
-            const isComm = !!committedMap[v.id];
-            const pal = (v.paladin && v.paladin.isHome) ? v.paladin : null;
-            const palTag = pal ? ` [${pal.name}${pal.name === 'QuimConquista' ? ' ⚔️ Persuasão' : ''}]` : '';
-            const nobleStatus = (v.snobsOutside > 0)
-                ? `${v.snobsHome} na aldeia (⚠️ ${v.snobsOutside} fora)`
-                : `${v.snobsHome} Nobres`;
-            return `<option value="${v.id}">${cleanVillageDisplayName(v)} • ${nobleStatus}${palTag}${isComm ? ' [🔒 Reservada]' : ''}</option>`;
-        }).join('');
-        if (!nobleOptions) nobleOptions = `<option value="">❌ Nenhuma aldeia com nobres</option>`;
+        const otherVillages = allVillages.filter(v => !(v.snobsHome > 0 || v.snobsTotal > 0 || (v.snobsInProd || 0) > 0));
+        let nobleOptions = '';
+        if (nobleVillages.length > 0) {
+            nobleOptions += `<optgroup label="⭐ Aldeias com Nobres / Em Trânsito / Em Treino (${nobleVillages.length})">` +
+                nobleVillages.map(v => {
+                    const isComm = !!committedMap[v.id];
+                    const pal = (v.paladin && v.paladin.isHome) ? v.paladin : null;
+                    const palTag = pal ? ` [${pal.name}${pal.name === 'QuimConquista' ? ' ⚔️ Persuasão' : ''}]` : '';
+                    const nobleStatus = (v.snobsOutside > 0)
+                        ? `${v.snobsHome} na aldeia (⚠️ ${v.snobsOutside} fora)`
+                        : ((v.snobsInProd > 0) ? `0 na aldeia (🔨+${v.snobsInProd} em treino)` : `${v.snobsHome} Nobres`);
+                    return `<option value="${v.id}">${cleanVillageDisplayName(v)} • ${nobleStatus}${palTag}${isComm ? ' [🔒 Reservada]' : ''}</option>`;
+                }).join('') + `</optgroup>`;
+        }
+        if (otherVillages.length > 0) {
+            nobleOptions += `<optgroup label="📋 Todas as Outras Aldeias da Conta (${otherVillages.length})">` +
+                otherVillages.map(v => {
+                    const inProdStr = (v.snobsInProd > 0) ? ` • 🔨+${v.snobsInProd} em treino` : ' • 0 Nobres';
+                    return `<option value="${v.id}">${cleanVillageDisplayName(v)}${inProdStr}</option>`;
+                }).join('') + `</optgroup>`;
+        }
+        if (!nobleOptions) nobleOptions = `<option value="">❌ Nenhuma aldeia encontrada</option>`;
 
         const paladinOptionsHtml = allAccountPaladins.map(p => {
             const roleIcon = p.isOffense ? '⚔️' : '🛡️';
@@ -5563,15 +5613,17 @@
             const prevSelectedSecondary = selSecondary ? selSecondary.value : null;
 
             const nobleVillages = allVillages.filter(v => (v.snobsHome > 0 || v.snobsTotal > 0 || (v.snobsInProd || 0) > 0));
-            if (nobleVillages.length === 0) {
+            const otherVillages = allVillages.filter(v => !(v.snobsHome > 0 || v.snobsTotal > 0 || (v.snobsInProd || 0) > 0));
+
+            if (nobleVillages.length === 0 && otherVillages.length === 0) {
                 if (hintBox) {
-                    hintBox.innerHTML = '❌ <b style="color:#ef4444;">Nenhuma aldeia tem nobres disponíveis.</b>';
+                    hintBox.innerHTML = '❌ <b style="color:#ef4444;">Nenhuma aldeia conectada.</b>';
                     hintBox.style.background = 'rgba(239, 68, 68, 0.15)';
                     hintBox.style.borderColor = '#ef4444';
                     hintBox.style.color = '#fca5a5';
                 }
-                selPrimary.innerHTML = '<option value="">❌ Nenhuma aldeia com nobres</option>';
-                if (selSecondary) selSecondary.innerHTML = '<option value="">❌ Nenhuma aldeia com nobres</option>';
+                selPrimary.innerHTML = '<option value="">❌ Nenhuma aldeia encontrada</option>';
+                if (selSecondary) selSecondary.innerHTML = '<option value="">❌ Nenhuma aldeia encontrada</option>';
                 return;
             }
 
@@ -5584,15 +5636,26 @@
                     hintBox.style.borderColor = '#475569';
                     hintBox.style.color = '#94a3b8';
                 }
-                const defaultOptions = nobleVillages.map(v => {
-                    const isComm = !!committedMap[v.id];
-                    const pal = (v.paladin && v.paladin.isHome) ? v.paladin : null;
-                    const palTag = pal ? ` [${pal.name}${pal.name === 'QuimConquista' ? ' ⚔️ Persuasão' : ''}]` : '';
-                    const nobleStatus = (v.snobsOutside > 0)
-                        ? `${v.snobsHome} na aldeia (⚠️ ${v.snobsOutside} fora)`
-                        : `${v.snobsHome} Nobres`;
-                    return `<option value="${v.id}">${cleanVillageDisplayName(v)} • ${nobleStatus}${palTag}${isComm ? ' [🔒 Reservada]' : ''}</option>`;
-                }).join('');
+                let defaultOptions = '';
+                if (nobleVillages.length > 0) {
+                    defaultOptions += `<optgroup label="⭐ Aldeias com Nobres / Em Trânsito / Em Treino (${nobleVillages.length})">` +
+                        nobleVillages.map(v => {
+                            const isComm = !!committedMap[v.id];
+                            const pal = (v.paladin && v.paladin.isHome) ? v.paladin : null;
+                            const palTag = pal ? ` [${pal.name}${pal.name === 'QuimConquista' ? ' ⚔️ Persuasão' : ''}]` : '';
+                            const nobleStatus = (v.snobsOutside > 0)
+                                ? `${v.snobsHome} na aldeia (⚠️ ${v.snobsOutside} fora)`
+                                : ((v.snobsInProd > 0) ? `0 na aldeia (🔨+${v.snobsInProd} em treino)` : `${v.snobsHome} Nobres`);
+                            return `<option value="${v.id}">${cleanVillageDisplayName(v)} • ${nobleStatus}${palTag}${isComm ? ' [🔒 Reservada]' : ''}</option>`;
+                        }).join('') + `</optgroup>`;
+                }
+                if (otherVillages.length > 0) {
+                    defaultOptions += `<optgroup label="📋 Todas as Outras Aldeias da Conta (${otherVillages.length})">` +
+                        otherVillages.map(v => {
+                            const inProdStr = (v.snobsInProd > 0) ? ` • 🔨+${v.snobsInProd} em treino` : ' • 0 Nobres';
+                            return `<option value="${v.id}">${cleanVillageDisplayName(v)}${inProdStr}</option>`;
+                        }).join('') + `</optgroup>`;
+                }
                 selPrimary.innerHTML = defaultOptions;
                 if (selSecondary) selSecondary.innerHTML = defaultOptions;
                 if (prevSelectedPrimary && selPrimary.querySelector(`option[value="${prevSelectedPrimary}"]`)) {
@@ -5633,77 +5696,84 @@
                 return a.dist - b.dist;
             });
 
-            const closest = listWithDist[0];
+            const otherListWithDist = otherVillages.map(v => {
+                const dist = calcDistance(v.coords, target);
+                const sec = dist * snobSpeedMin * 60;
+                return {
+                    village: v,
+                    dist,
+                    sec,
+                    timeStr: formatDuration(sec)
+                };
+            }).sort((a, b) => a.dist - b.dist);
+
+            const closest = listWithDist[0] || otherListWithDist[0];
             const closestWithEnough = listWithDist.find(i => i.hasReqNobles && (!excludeCommitted || !i.isComm))
                 || listWithDist.find(i => i.hasReqNobles)
                 || listWithDist.find(i => i.hasTotalNobles && (!excludeCommitted || !i.isComm))
                 || closest;
 
+            // Função para gerar HTML das opções com optgroups
+            const renderNobleDropdownOptions = (isSecondary = false) => {
+                let html = '';
+                if (listWithDist.length > 0) {
+                    html += `<optgroup label="⭐ Aldeias com Nobres / Em Trânsito / Em Treino (${listWithDist.length})">`;
+                    html += listWithDist.map((item, idx) => {
+                        const v = item.village;
+                        const pal = (v.paladin && v.paladin.isHome) ? v.paladin : null;
+                        const palTag = pal ? ` [${pal.name}${pal.name === 'QuimConquista' ? ' ⚔️ Persuasão' : ''}]` : '';
+                        const isClosest = (closest && v.id === closest.village.id);
+                        const isBestWithEnough = (closestWithEnough && v.id === closestWithEnough.village.id);
+                        
+                        let prefix = `[#${idx + 1}] `;
+                        if (!isSecondary && isBestWithEnough) {
+                            prefix = item.hasReqNobles ? '⭐ [MAIS PERTO PRONTA] ' : '⚠️ [MAIS PERTO] ';
+                        } else if (!isSecondary && isClosest && !isBestWithEnough) {
+                            prefix = '⭐ [1º MAIS PERTO] ';
+                        } else if (isSecondary && idx === 1) {
+                            prefix = '⭐ [2º MAIS PERTO] ';
+                        }
+
+                        let nobleStatus = '';
+                        const inProdTag = (v.snobsInProd > 0) ? ` 🔨+${v.snobsInProd}` : '';
+                        const retTag = (v.snobsReturning > 0) ? ` ⏳+${v.snobsReturning}` : '';
+                        if (item.hasReqNobles) {
+                            if (item.snobsOutside > 0) {
+                                nobleStatus = `${v.snobsHome} na aldeia (⚠️ ${item.snobsOutside} fora${inProdTag}${retTag})`;
+                            } else {
+                                nobleStatus = `${v.snobsHome} Nobres${inProdTag}`;
+                            }
+                        } else {
+                            if (item.snobsOutside > 0 || v.snobsInProd > 0) {
+                                nobleStatus = `⚠️ ${v.snobsHome}/${reqNobles} na aldeia (${item.snobsOutside} fora${inProdTag}${retTag})`;
+                            } else {
+                                nobleStatus = `⚠️ ${v.snobsHome}/${reqNobles} Nobres`;
+                            }
+                        }
+
+                        const commTag = item.isComm ? ' [🔒 Reservada]' : '';
+                        return `<option value="${v.id}" data-dist="${item.dist.toFixed(2)}" data-time="${item.timeStr}">${prefix}${cleanVillageDisplayName(v)} • ${item.dist.toFixed(1)}c • ⏳ ${item.timeStr} • ${nobleStatus}${palTag}${commTag}</option>`;
+                    }).join('');
+                    html += `</optgroup>`;
+                }
+                if (otherListWithDist.length > 0) {
+                    html += `<optgroup label="📋 Todas as Outras Aldeias da Conta (${otherListWithDist.length})">`;
+                    html += otherListWithDist.map((item, idx) => {
+                        const v = item.village;
+                        const inProdStr = (v.snobsInProd > 0) ? ` • 🔨+${v.snobsInProd} em treino` : ' • 0 Nobres';
+                        return `<option value="${v.id}" data-dist="${item.dist.toFixed(2)}" data-time="${item.timeStr}">[#${listWithDist.length + idx + 1}] ${cleanVillageDisplayName(v)} • ${item.dist.toFixed(1)}c • ⏳ ${item.timeStr}${inProdStr}</option>`;
+                    }).join('');
+                    html += `</optgroup>`;
+                }
+                return html;
+            };
+
             // Renderizar opções para Aldeia Nobres Principal
-            selPrimary.innerHTML = listWithDist.map((item, idx) => {
-                const v = item.village;
-                const pal = (v.paladin && v.paladin.isHome) ? v.paladin : null;
-                const palTag = pal ? ` [${pal.name}${pal.name === 'QuimConquista' ? ' ⚔️ Persuasão' : ''}]` : '';
-                const isClosest = (v.id === closest.village.id);
-                const isBestWithEnough = (v.id === closestWithEnough.village.id);
-                
-                let prefix = `[#${idx + 1}] `;
-                if (isBestWithEnough) {
-                    prefix = item.hasReqNobles ? '⭐ [MAIS PERTO PRONTA] ' : '⚠️ [MAIS PERTO] ';
-                } else if (isClosest && !isBestWithEnough) {
-                    prefix = '⭐ [1º MAIS PERTO] ';
-                }
-
-                let nobleStatus = '';
-                const inProdTag = (v.snobsInProd > 0) ? ` 🔨+${v.snobsInProd}` : '';
-                const retTag = (v.snobsReturning > 0) ? ` ⏳+${v.snobsReturning}` : '';
-                if (item.hasReqNobles) {
-                    if (item.snobsOutside > 0) {
-                        nobleStatus = `${v.snobsHome} na aldeia (⚠️ ${item.snobsOutside} fora${inProdTag}${retTag})`;
-                    } else {
-                        nobleStatus = `${v.snobsHome} Nobres${inProdTag}`;
-                    }
-                } else {
-                    if (item.snobsOutside > 0 || v.snobsInProd > 0) {
-                        nobleStatus = `⚠️ ${v.snobsHome}/${reqNobles} na aldeia (${item.snobsOutside} fora${inProdTag}${retTag})`;
-                    } else {
-                        nobleStatus = `⚠️ ${v.snobsHome}/${reqNobles} Nobres`;
-                    }
-                }
-
-                const commTag = item.isComm ? ' [🔒 Reservada]' : '';
-                return `<option value="${v.id}" data-dist="${item.dist.toFixed(2)}" data-time="${item.timeStr}">${prefix}${cleanVillageDisplayName(v)} • ${item.dist.toFixed(1)}c • ⏳ ${item.timeStr} • ${nobleStatus}${palTag}${commTag}</option>`;
-            }).join('');
+            selPrimary.innerHTML = renderNobleDropdownOptions(false);
 
             // Renderizar opções para Aldeia Nobres Secundária (Split 2x2)
             if (selSecondary) {
-                selSecondary.innerHTML = listWithDist.map((item, idx) => {
-                    const v = item.village;
-                    const pal = (v.paladin && v.paladin.isHome) ? v.paladin : null;
-                    const palTag = pal ? ` [${pal.name}${pal.name === 'QuimConquista' ? ' ⚔️ Persuasão' : ''}]` : '';
-                    const is2ndClosest = (idx === 1);
-                    const prefix = is2ndClosest ? '⭐ [2º MAIS PERTO] ' : `[#${idx + 1}] `;
-                    
-                    let nobleStatus = '';
-                    const inProdTag2 = (v.snobsInProd > 0) ? ` 🔨+${v.snobsInProd}` : '';
-                    const retTag2 = (v.snobsReturning > 0) ? ` ⏳+${v.snobsReturning}` : '';
-                    if (item.hasReqNobles) {
-                        if (item.snobsOutside > 0) {
-                            nobleStatus = `${v.snobsHome} na aldeia (⚠️ ${item.snobsOutside} fora${inProdTag2}${retTag2})`;
-                        } else {
-                            nobleStatus = `${v.snobsHome} Nobres${inProdTag2}`;
-                        }
-                    } else {
-                        if (item.snobsOutside > 0 || v.snobsInProd > 0) {
-                            nobleStatus = `⚠️ ${v.snobsHome}/${reqNobles} na aldeia (${item.snobsOutside} fora${inProdTag2}${retTag2})`;
-                        } else {
-                            nobleStatus = `⚠️ ${v.snobsHome}/${reqNobles} Nobres`;
-                        }
-                    }
-
-                    const commTag = item.isComm ? ' [🔒 Reservada]' : '';
-                    return `<option value="${v.id}" data-dist="${item.dist.toFixed(2)}" data-time="${item.timeStr}">${prefix}${cleanVillageDisplayName(v)} • ${item.dist.toFixed(1)}c • ⏳ ${item.timeStr} • ${nobleStatus}${palTag}${commTag}</option>`;
-                }).join('');
+                selSecondary.innerHTML = renderNobleDropdownOptions(true);
             }
 
             // Seleção da aldeia no dropdown
@@ -5723,7 +5793,7 @@
                 if (isUserManualChange && prevSelectedSecondary && selSecondary.querySelector(`option[value="${prevSelectedSecondary}"]`)) {
                     selSecondary.value = prevSelectedSecondary;
                 } else {
-                    const secondBest = listWithDist.find(item => item.village.id !== selPrimary.value) || listWithDist[1] || listWithDist[0];
+                    const secondBest = listWithDist.find(item => item.village.id !== selPrimary.value) || otherListWithDist.find(item => item.village.id !== selPrimary.value) || listWithDist[1] || listWithDist[0];
                     if (secondBest) selSecondary.value = secondBest.village.id;
                 }
             }
@@ -5731,7 +5801,8 @@
             // Atualizar o banner indicador
             if (hintBox) {
                 const currentPrimaryId = selPrimary.value;
-                const currentPrimaryItem = listWithDist.find(i => i.village.id === currentPrimaryId) || closestWithEnough;
+                const currentPrimaryItem = listWithDist.find(i => i.village.id === currentPrimaryId) || otherListWithDist.find(i => i.village.id === currentPrimaryId) || closestWithEnough;
+                if (!currentPrimaryItem) return;
                 const selV = currentPrimaryItem.village;
                 const isCurrentClosest = (currentPrimaryItem.village.id === closestWithEnough.village.id);
                 const bestV = closestWithEnough.village;
