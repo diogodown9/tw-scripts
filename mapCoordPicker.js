@@ -272,7 +272,7 @@
                     <span class="ecp-title">📍 Coletor de Coordenadas + BetterMap</span>
                     <div class="ecp-header-btns">
                         <span id="ecpToggleCollapse" title="Minimizar / Expandir">_</span>
-                        <span id="ecpClose" title="Fechar">✕</span>
+                        <span id="ecpClose" title="Fechar (ESC)">✕</span>
                     </div>
                 </div>
                 <div class="ecp-body" id="ecpBody">
@@ -1182,13 +1182,20 @@
             }
         });
 
-        // Atalho de Teclado: Tecla 'C' para copiar
-        $(document).off('keydown.ecpHotkeyCopy').on('keydown.ecpHotkeyCopy', function (e) {
+        // Atalhos de Teclado: Tecla 'C' para copiar | Tecla 'ESC' para fechar
+        $(document).off('keydown.ecpHotkeys').on('keydown.ecpHotkeys', function (e) {
+            // Tecla ESC para fechar o script
+            if (e.key === 'Escape' || e.key === 'Esc' || e.keyCode === 27) {
+                e.preventDefault();
+                $('#ecpClose').trigger('click');
+                return;
+            }
+
             const activeEl = document.activeElement;
             const activeTag = activeEl ? activeEl.tagName.toLowerCase() : '';
             const isEditable = activeEl ? activeEl.isContentEditable : false;
 
-            // Não acionar quando o utilizador estiver a digitar em campos de texto
+            // Não acionar cópia quando o utilizador estiver a digitar em campos de texto
             if (activeTag === 'input' || activeTag === 'textarea' || isEditable) {
                 return;
             }
@@ -1231,7 +1238,7 @@
             if (window.TWMap && TWMap.mapHandler && chainedOnMove) {
                 TWMap.mapHandler.onMove = chainedOnMove;
             }
-            $(document).off('keydown.ecpHotkeyCopy');
+            $(document).off('keydown.ecpHotkeys');
             $('[id^="map_village_"]').css('filter', 'none');
             $('.tw-ecp-map-label').remove();
             $('div[id*="dalesmckay_map_hilight_"]').remove();
