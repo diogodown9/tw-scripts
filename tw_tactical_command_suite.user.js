@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TW Tactical Command Suite
 // @namespace    https://tribalwars.com.pt/
-// @version      3.3.0
-// @description  Suite militar avançada para Tribal Wars PT: Módulo Tático de Comandos com Radar Inimigo & Intel de Jogador (Pesquisa de Jogador com Autocomplete Instantâneo sem lag, Varredura Assíncrona com Rate-Limiting Seguro, Classificação Automática de Ameaças: 👑 Nobres, ⚔️ Nukes/Grande Escala, 🗡️ Fakes, 👁️ Espionagens e 🛡️ Apoios, Painéis Retráteis por Aldeia de Destino, Relógio Decrescente ao Vivo e Exportação BBCode), Deteção Inteligente de Ataques Inimigos a Chegar com Identificação Real do Jogador Atacante e Aldeia de Origem, Ataques & Retornos com filtros, agrupamento por alvos, ordenação interativa por clique nos cabeçalhos de coluna, exclusão opcional de micro-saques Modo Turbo para velocidade máxima, purga automática de comandos expirados e timers sincronizados com o servidor), Exclusão de Horário Noturno (Bónus Noturno) no Impacto e no Envio com horas configuráveis, Calculador Automático de Horário Mínimo de Impacto com Folga de Envio Configurável (1º Impacto e Cobertura Total de Alvos com ajuste instantâneo a 1 clique), identificação visual de Hoje/Amanhã na tabela, balanceamento round-robin de alvos, escalonamento sem colisão em repetições e Fakes Inteligentes 1% Dinâmico por Pontos (_60, _90, _115, _135), Escoltas Anti-Snipe de Precisão Cirúrgica a 40ms antes de cada Nobre (janela anti-snipe personalizável), Bate e Volta com folga configurável de regresso (padrão seguro de 10s para PSEvolution e bots), Rastreio em Tempo Real de Nobres a Caminho & em Retorno de Comandos + Treino na Academia, Deteção Rigorosa de 0 Nobres em Casa por Isolamento de Linhas HTML & Cruzamento de Comandos Ativos, Deduplicação Rigorosa de Nobres & Teto Físico de Tropas Fora, Sincronização Server-Live sem Cache, Validação Precisa de Envio & Horário Mínimo de Ataque à Prova de Falhas (⚡ com 5m folga, cálculo inteligente de nobres a regressar e seleção do Nuke Full mais perto), Suporte Automático a Modelos NT (NT 33% para 3 nobres, NT 25% para 4 nobres), Bunkers Desligados por Default, Alvo Cats do Nuke Muralha por Default, Arsenal Tático de Fakes, UI de Limpezas/Nobres/Demolição, e Planeador Tático.
+// @version      3.3.1
+// @description  Suite militar avançada para Tribal Wars PT: Módulo Tático de Comandos com Radar Inimigo & Intel de Jogador (Pesquisa de Jogador com Autocomplete Instantâneo sem lag, Varredura Assíncrona com Rate-Limiting Seguro, Classificação Automática de Ameaças: 👑 Nobres, ⚔️ Nukes/Grande Escala, 🗡️ Fakes, 👁️ Espionagens e 🛡️ Apoios, Painéis Retráteis por Aldeia de Destino, Relógio Decrescente ao Vivo e Exportação BBCode), Deteção Inteligente de Ataques Inimigos a Chegar com Identificação Real do Jogador Atacante e Aldeia de Origem, Ataques & Retornos com filtros, agrupamento por alvos, ordenação interativa por clique nos cabeçalhos de coluna, exclusão opcional de micro-saques Modo Turbo para velocidade máxima, purga automática de comandos expirados e timers sincronizados com o servidor), Exclusão de Horário Noturno (Bónus Noturno) no Impacto e no Envio com horas configuráveis, Calculador Automático de Horário Mínimo de Impacto com Folga de Envio Configurável (1º Impacto e Cobertura Total de Alvos com ajuste instantâneo a 1 clique), identificação visual de Hoje/Amanhã na tabela, balanceamento round-robin de alvos, escalonamento sem colisão em repetições e Fakes Inteligentes 1% Dinâmico por Pontos (_60, _90, _115, _135), Escoltas Anti-Snipe de Precisão Cirúrgica a 40ms antes de cada Nobre (janela anti-snipe personalizável), Bate e Volta com folga configurável de regresso (padrão seguro de 10s para PSEvolution e bots), Rastreio em Tempo Real de Nobres a Caminho & em Retorno de Comandos + Treino na Academia, Deteção Rigorosa de 0 Nobres em Casa por Isolamento de Linhas HTML & Cruzamento de Comandos Ativos, Deduplicação Rigorosa de Nobres & Teto Físico de Tropas Fora, Sincronização Server-Live sem Cache, Validação Precisa de Envio & Horário Mínimo de Ataque à Prova de Falhas (⚡ com 5m folga, cálculo inteligente de nobres a regressar e seleção do Nuke Full mais perto), Suporte Automático a Modelos NT (NobreFull para NT Simples com Nuke no 1º Nobre, NT 33% para 3 nobres, NT 25% para 4 nobres), Bunkers Desligados por Default, Alvo Cats do Nuke Muralha por Default, Arsenal Tático de Fakes, UI de Limpezas/Nobres/Demolição, e Planeador Tático.
 // @author       Diogo & Antigravity
 // @match        https://*.tribalwars.com.pt/game.php*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=tribalwars.com.pt
@@ -12,7 +12,7 @@
 // ==/UserScript==
 
 (async function () {
-    const SCRIPT_VERSION = '3.3.0';
+    const SCRIPT_VERSION = '3.3.1';
 
     // Auto-selecionar alvo de catapulta na confirmação de ataque na Praça de Reunião se especificado no URL
     try {
@@ -4777,7 +4777,7 @@
                             <select id="tw-nt-attack-mode" class="tw-select" style="padding:5px 6px; font-size:11.5px; font-weight:bold; color:#38bdf8;">
                                 <option value="standard_anti" selected>🛡️ NT + Escoltas Anti-Snipe (Full / 3 Aldeias)</option>
                                 <option value="standard_anti_50">🛡️ NT + Anti-Snipe 50% (2 Aldeias / Fácil)</option>
-                                <option value="nt_simple">👑 NT Simples (Ondas de Nobres Diretas)</option>
+                                <option value="nt_simple">👑 NT Simples / NobreFull (Limpeza no 1º Nobre)</option>
                                 <option value="nt_clean">⚔️ NT + Nuke Limpeza (Sem Anti-Snipe)</option>
                                 <option value="split_2x2">🔀 NT Dividido (Split 2x2 Aldeias Distintas)</option>
                                 <option value="snob_solo">🔄 Re-Nobre: Bate e Volta (1 Nobre / 4 Viagens)</option>
@@ -5333,7 +5333,7 @@
                 if (antiCatTargetSelect) antiCatTargetSelect.value = 'none';
                 if (catTargetSelect) catTargetSelect.value = 'none';
                 const snobEl = document.getElementById('tw-nt-model-snob');
-                if (snobEl) snobEl.value = 'NT 25%';
+                if (snobEl) snobEl.value = 'NobreFull';
             } else if (mode === 'nt_clean') {
                 if (nobleCountSelect) nobleCountSelect.value = '4';
                 if (archSelect) archSelect.value = 'single_4';
@@ -5533,11 +5533,18 @@
                 modelSnobInput.disabled = !hasNobles;
                 modelSnobInput.style.opacity = hasNobles ? '1' : '0.4';
                 if (isBateVolta) {
-                    if (['NT 25%', 'NT 33%', 'NT - 2 - 50%', 'NT 50%'].includes(modelSnobInput.value)) modelSnobInput.value = 'Nobre';
+                    if (['NT 25%', 'NT 33%', 'NT - 2 - 50%', 'NT 50%', 'NobreFull'].includes(modelSnobInput.value)) modelSnobInput.value = 'Nobre';
                 } else if (isSplit) {
-                    if (['NT 25%', 'NT 33%', 'Nobre'].includes(modelSnobInput.value)) modelSnobInput.value = 'NT - 2 - 50%';
+                    if (['NT 25%', 'NT 33%', 'Nobre', 'NobreFull'].includes(modelSnobInput.value)) modelSnobInput.value = 'NT - 2 - 50%';
+                } else if (attackMode === 'nt_simple') {
+                    if (['NT 25%', 'NT 33%', 'NT - 2 - 50%', 'NT 50%', 'Nobre', 'NobreFull'].includes(modelSnobInput.value)) {
+                        if (nobleCount === 1) modelSnobInput.value = 'Nobre';
+                        else if (nobleCount === 2) modelSnobInput.value = 'NT - 2 - 50%';
+                        else if (nobleCount === 3) modelSnobInput.value = 'NT 33%';
+                        else modelSnobInput.value = 'NobreFull';
+                    }
                 } else if (hasNobles) {
-                    if (['NT 25%', 'NT 33%', 'NT - 2 - 50%', 'NT 50%', 'Nobre'].includes(modelSnobInput.value)) {
+                    if (['NT 25%', 'NT 33%', 'NT - 2 - 50%', 'NT 50%', 'Nobre', 'NobreFull'].includes(modelSnobInput.value)) {
                         if (nobleCount === 1) modelSnobInput.value = 'Nobre';
                         else if (nobleCount === 2) modelSnobInput.value = 'NT - 2 - 50%';
                         else if (nobleCount === 3) modelSnobInput.value = 'NT 33%';
@@ -6643,7 +6650,7 @@
 
             const modelNuke = document.getElementById('tw-nt-model-nuke').value.trim() || 'Ataque Full';
             const modelAnti = document.getElementById('tw-nt-model-anti').value.trim() || 'Ataque Full';
-            const modelSnob = document.getElementById('tw-nt-model-snob').value.trim() || (nobleCount === 3 ? 'NT 33%' : (nobleCount === 2 ? 'NT - 2 - 50%' : (nobleCount === 1 ? 'Nobre' : 'NT 25%')));
+            const modelSnob = document.getElementById('tw-nt-model-snob').value.trim() || (attackMode === 'nt_simple' ? 'NobreFull' : (nobleCount === 3 ? 'NT 33%' : (nobleCount === 2 ? 'NT - 2 - 50%' : (nobleCount === 1 ? 'Nobre' : 'NT 25%'))));
             const catTargetBuilding = document.getElementById('tw-nt-cat-target-building').value;
             const nukeCatTarget = document.getElementById('tw-nt-nuke-cat-target') ? document.getElementById('tw-nt-nuke-cat-target').value : 'wall';
             const antiCatTarget = document.getElementById('tw-nt-anti-cat-target') ? document.getElementById('tw-nt-anti-cat-target').value : 'none';
@@ -7297,7 +7304,7 @@
         const paladinChoice = document.getElementById('tw-nt-paladin-choice') ? document.getElementById('tw-nt-paladin-choice').value : 'auto';
         const modelNuke = document.getElementById('tw-nt-model-nuke').value.trim() || 'Ataque Full';
         const modelAnti = document.getElementById('tw-nt-model-anti').value.trim() || 'Ataque Full';
-        const modelSnob = document.getElementById('tw-nt-model-snob').value.trim() || (needed1 === 3 ? 'NT 33%' : (needed1 === 2 ? 'NT - 2 - 50%' : (needed1 === 1 ? 'Nobre' : 'NT 25%')));
+        const modelSnob = document.getElementById('tw-nt-model-snob').value.trim() || (attackMode === 'nt_simple' ? 'NobreFull' : (needed1 === 3 ? 'NT 33%' : (needed1 === 2 ? 'NT - 2 - 50%' : (needed1 === 1 ? 'Nobre' : 'NT 25%'))));
         const catTargetBuilding = document.getElementById('tw-nt-cat-target-building').value;
         const nukeCatTarget = document.getElementById('tw-nt-nuke-cat-target') ? document.getElementById('tw-nt-nuke-cat-target').value : 'wall';
         const antiCatTarget = document.getElementById('tw-nt-anti-cat-target') ? document.getElementById('tw-nt-anti-cat-target').value : 'none';
