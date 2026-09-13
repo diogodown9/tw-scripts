@@ -3141,27 +3141,11 @@
             } else if (activeTab === 'overview' && !document.getElementById('tw-search-villages')?.value) {
                 renderOverview();
             } else if (activeTab === 'nt') {
-                const sourceSelect = document.getElementById('tw-nt-noble-village');
-                if (sourceSelect) {
-                    const curVal = sourceSelect.value;
-                    const committedMap = getCommittedSchedules();
-                    const nobleVillages = allVillages.filter(v => (v.snobsHome > 0 || v.snobsTotal > 0 || (v.snobsInProd || 0) > 0));
-                    let nobleOptions = nobleVillages.map(v => {
-                        const isComm = !!committedMap[v.id];
-                        const pal = (v.paladin && v.paladin.isHome) ? v.paladin : null;
-                        const palTag = pal ? ` [${pal.name}${pal.name === 'QuimConquista' ? ' ⚔️ Persuasão' : ''}]` : '';
-                        const inProdTag = (v.snobsInProd > 0) ? ` 🔨+${v.snobsInProd}` : '';
-                        const retTag = (v.snobsReturning > 0) ? ` ⏳+${v.snobsReturning}` : '';
-                        const nobleStatus = (v.snobsOutside > 0)
-                            ? `${v.snobsHome} na aldeia (⚠️ ${v.snobsOutside} fora${inProdTag}${retTag})`
-                            : ((v.snobsInProd > 0) ? `0 na aldeia (${inProdTag} em treino)` : `${v.snobsHome} Nobres`);
-                        return `<option value="${v.id}">${cleanVillageDisplayName(v)} • ${nobleStatus}${palTag}${isComm ? ' [🔒 Reservada]' : ''}</option>`;
-                    }).join('');
-                    if (!nobleOptions) nobleOptions = `<option value="">❌ Nenhuma aldeia com nobres</option>`;
-                    sourceSelect.innerHTML = nobleOptions;
-                    if (curVal && nobleVillages.some(v => v.id === curVal)) {
-                        sourceSelect.value = curVal;
-                    }
+                if (typeof window.__tw_updateNobleHUD === 'function') {
+                    window.__tw_updateNobleHUD(null, false);
+                }
+                if (typeof window.__tw_updateNukeHUD === 'function') {
+                    window.__tw_updateNukeHUD(null, false);
                 }
             }
 
@@ -6594,6 +6578,8 @@
             updateNobleProximityHUD(null, false);
             updateNukeProximityHUD(null, false);
         }
+        window.__tw_updateNobleHUD = updateNobleProximityHUD;
+        window.__tw_updateNukeHUD = updateNukeProximityHUD;
     }
 
     // ==========================================
