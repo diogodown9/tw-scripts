@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW Tactical Command Suite
 // @namespace    https://tribalwars.com.pt/
-// @version      3.3.1
+// @version      3.6.1
 // @description  Suite militar avançada para Tribal Wars PT: Módulo Tático de Comandos com Radar Inimigo & Intel de Jogador (Pesquisa de Jogador com Autocomplete Instantâneo sem lag, Varredura Assíncrona com Rate-Limiting Seguro, Classificação Automática de Ameaças: 👑 Nobres, ⚔️ Nukes/Grande Escala, 🗡️ Fakes, 👁️ Espionagens e 🛡️ Apoios, Painéis Retráteis por Aldeia de Destino, Relógio Decrescente ao Vivo e Exportação BBCode), Deteção Inteligente de Ataques Inimigos a Chegar com Identificação Real do Jogador Atacante e Aldeia de Origem, Ataques & Retornos com filtros, agrupamento por alvos, ordenação interativa por clique nos cabeçalhos de coluna, exclusão opcional de micro-saques Modo Turbo para velocidade máxima, purga automática de comandos expirados e timers sincronizados com o servidor), Exclusão de Horário Noturno (Bónus Noturno) no Impacto e no Envio com horas configuráveis, Calculador Automático de Horário Mínimo de Impacto com Folga de Envio Configurável (1º Impacto e Cobertura Total de Alvos com ajuste instantâneo a 1 clique), identificação visual de Hoje/Amanhã na tabela, balanceamento round-robin de alvos, escalonamento sem colisão em repetições e Fakes Inteligentes 1% Dinâmico por Pontos (_60, _90, _115, _135), Escoltas Anti-Snipe de Precisão Cirúrgica a 40ms antes de cada Nobre (janela anti-snipe personalizável), Bate e Volta com folga configurável de regresso (padrão seguro de 10s para PSEvolution e bots), Rastreio em Tempo Real de Nobres a Caminho & em Retorno de Comandos + Treino na Academia, Deteção Rigorosa de 0 Nobres em Casa por Isolamento de Linhas HTML & Cruzamento de Comandos Ativos, Deduplicação Rigorosa de Nobres & Teto Físico de Tropas Fora, Sincronização Server-Live sem Cache, Validação Precisa de Envio & Horário Mínimo de Ataque à Prova de Falhas (⚡ com 5m folga, cálculo inteligente de nobres a regressar e seleção do Nuke Full mais perto), Suporte Automático a Modelos NT (NobreFull para NT Simples com Nuke no 1º Nobre, NT 33% para 3 nobres, NT 25% para 4 nobres), Bunkers Desligados por Default, Alvo Cats do Nuke Muralha por Default, Arsenal Tático de Fakes, UI de Limpezas/Nobres/Demolição, e Planeador Tático.
 // @author       Diogo & Antigravity
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -12,7 +12,7 @@
 // ==/UserScript==
 
 (async function () {
-    const SCRIPT_VERSION = '3.3.1';
+    const SCRIPT_VERSION = '3.6.1';
 
     // Auto-selecionar alvo de catapulta na confirmação de ataque na Praça de Reunião se especificado no URL
     try {
@@ -103,6 +103,7 @@
         .tw-kpi-red::after { background: #f43f5e; }
         .tw-kpi-green::after { background: #10b981; }
         .tw-kpi-gold::after { background: #f59e0b; }
+        .tw-kpi-orange::after { background: #fb923c; }
         .tw-kpi-purple::after { background: #a855f7; }
         .tw-kpi-label { font-size: 10px; font-weight: 700; text-transform: uppercase; color: #94a3b8; letter-spacing: 0.05em; display: flex; justify-content: space-between; }
         .tw-kpi-value { font-size: 18px; font-weight: 800; color: #f8fafc; margin-top: 2px; }
@@ -229,6 +230,7 @@
                 <button class="tw-tab" id="tab-btn-counter">⚔️ Contador Tático</button>
                 <button class="tw-tab" id="tab-btn-fakes">🎭 Fakes & Mascaramento</button>
                 <button class="tw-tab tw-tab-special" id="tab-btn-nt">👑 Planeador de Ataques</button>
+                <button class="tw-tab" id="tab-btn-defense">🛡️ Defesa IA</button>
                 <button class="tw-tab" id="tab-btn-commands" style="border-left:1px solid #334155; margin-left:4px;">📡 Comandos & Retornos <span id="tw-commands-count-badge" style="font-size:10px; background:rgba(56,189,248,0.2); color:#38bdf8; padding:1px 6px; border-radius:10px; margin-left:4px; font-weight:bold;">0</span></button>
             </div>
         </div>
@@ -257,6 +259,27 @@
     // SISTEMA DE MEMÓRIA & RESERVAS INTELIGENTES
     // ==========================================
     const MEMORY_STORAGE_KEY = 'tw_committed_schedules_v2';
+
+    function safeText(value, fallback = '') {
+        if (value === null || value === undefined) return fallback;
+        return typeof value === 'string' ? value : String(value);
+    }
+
+    function buildCommandTypeInfo(cmd) {
+        const typeText = safeText(cmd && cmd.type, '');
+        const infoText = safeText(cmd && cmd.info, '');
+        const actionType = safeText(cmd && cmd.actionType, '');
+        return {
+            typeText,
+            infoText,
+            actionType,
+            hasBateVolta: /Bate e Volta/i.test(typeText),
+            hasNoble: /Nobre|NT/i.test(typeText) || /Nobre|NT/i.test(infoText),
+            hasNuke: /Nuke|Nuke|Anti/i.test(typeText) || /Nuke|Nuke|Anti/i.test(infoText),
+            hasBunker: /Bunker/i.test(typeText) || /Bunker/i.test(infoText),
+            hasAttack: /Attack|Ataque/i.test(actionType) || /Attack|Ataque/i.test(typeText)
+        };
+    }
 
     function getCommittedSchedules() {
         try {
@@ -289,34 +312,40 @@
         const expiresAt = now + durationMs;
         let count = 0;
 
-        commands.forEach(cmd => {
-            if (!cmd.originId) return;
+        const normalizedCommands = Array.isArray(commands) ? commands : [];
+
+        normalizedCommands.forEach(cmd => {
+            if (!cmd || !cmd.originId) return;
             const existing = current[cmd.originId];
-            
+            const meta = buildCommandTypeInfo(cmd);
+            const commandType = meta.typeText;
+            const infoText = meta.infoText;
+            const actionType = meta.actionType;
+
             let snobsInCmd = 0;
-            if (cmd.type.includes('Bate e Volta')) {
+            if (meta.hasBateVolta) {
                 snobsInCmd = (existing && existing.snobsCommitted) ? 0 : 1;
             } else {
-                const match = cmd.type.match(/(\d+)\s*Nobres?/i) || (cmd.info && cmd.info.match(/(\d+)\s*Nobres?/i)) || cmd.type.match(/\((\d+)N\)/i);
+                const match = commandType.match(/(\d+)\s*Nobres?/i) || infoText.match(/(\d+)\s*Nobres?/i) || commandType.match(/\((\d+)N\)/i);
                 if (match) {
                     snobsInCmd = parseInt(match[1], 10) || 1;
-                } else if (cmd.type.includes('Nobre') || cmd.type.includes('NT')) {
+                } else if (meta.hasNoble) {
                     snobsInCmd = 1;
                 }
             }
 
             current[cmd.originId] = {
                 villageId: cmd.originId,
-                name: cmd.originName || (villagesById[cmd.originId] ? villagesById[cmd.originId].name : 'Aldeia'),
-                coords: cmd.originCoords || (villagesById[cmd.originId] ? villagesById[cmd.originId].coords : ''),
-                targetCoords: cmd.targetCoords || targetCoord,
+                name: safeText(cmd.originName || (villagesById[cmd.originId] ? villagesById[cmd.originId].name : 'Aldeia')),
+                coords: safeText(cmd.originCoords || (villagesById[cmd.originId] ? villagesById[cmd.originId].coords : '')),
+                targetCoords: safeText(cmd.targetCoords || targetCoord),
                 model: cmd.model,
-                type: cmd.type,
-                actionType: cmd.actionType,
+                type: commandType || safeText(cmd.typeLabel, 'Comando'),
+                actionType: actionType || 'Unknown',
                 committedAt: now,
                 expiresAt: Math.max(expiresAt, (existing ? existing.expiresAt : 0), (cmd.landTime ? cmd.landTime.getTime() : expiresAt)),
-                isOffenseCommitted: cmd.actionType === 'Attack' || cmd.type.includes('Nuke') || cmd.type.includes('Anti') || cmd.type.includes('NT'),
-                isDefenseCommitted: cmd.actionType === 'Support' || cmd.type.includes('Bunker'),
+                isOffenseCommitted: actionType === 'Attack' || /Nuke|Anti|NT/i.test(commandType) || /Nuke|Anti|NT/i.test(infoText),
+                isDefenseCommitted: actionType === 'Support' || /Bunker/i.test(commandType) || /Bunker/i.test(infoText),
                 snobsCommitted: snobsInCmd + (existing ? (existing.snobsCommitted || 0) : 0)
             };
             count++;
@@ -478,6 +507,80 @@
     let lastGeneratedCommands = [];
     let lastGeneratedTarget = '';
     let plannerMode = 'single'; // 'single' ou 'multi'
+    const PLANNER_STATE_KEY = 'tw_planner_state_v1';
+    const LAST_PLAN_SUMMARY_KEY = 'tw_last_plan_summary_v1';
+
+    function savePlannerStateSnapshot() {
+        try {
+            const ids = [
+                'tw-nt-target', 'tw-nt-landtime', 'tw-nt-targets-multi', 'tw-nt-landtime-multi', 'tw-nt-attack-mode',
+                'tw-nt-noble-count', 'tw-nt-ms-interval', 'tw-nt-architecture', 'tw-nt-bv-anchor', 'tw-nt-bv-buffer',
+                'tw-nt-lead-nukes', 'tw-nt-nuke-cat-target', 'tw-nt-anti-mode', 'tw-nt-anti-cat-target', 'tw-nt-anti-ms-lead',
+                'tw-nt-cat-target-building', 'tw-nt-req-paladin-nuke', 'tw-nt-paladin-choice', 'tw-nt-prefer-full-nukes',
+                'tw-nt-bunker-count', 'tw-nt-bunker-gap', 'tw-nt-bunker-step', 'tw-nt-model-bunker-1', 'tw-nt-pop-bunker-1',
+                'tw-nt-model-bunker-2', 'tw-nt-pop-bunker-2', 'tw-nt-fake-enable', 'tw-nt-fake-radius', 'tw-nt-fake-count',
+                'tw-nt-fake-style', 'tw-nt-fake-model', 'tw-nt-fake-max-origin', 'tw-nt-fake-include-target', 'tw-nt-fake-smart-limit',
+                'tw-nt-noble-village', 'tw-nt-noble-village-2', 'tw-nt-exclude-committed'
+            ];
+            const state = { plannerMode };
+            ids.forEach(id => {
+                const el = document.getElementById(id);
+                if (!el) return;
+                if (el.type === 'checkbox') state[id] = !!el.checked;
+                else state[id] = el.value;
+            });
+            localStorage.setItem(PLANNER_STATE_KEY, JSON.stringify(state));
+        } catch (_) {}
+    }
+
+    function restorePlannerStateSnapshot() {
+        try {
+            const raw = localStorage.getItem(PLANNER_STATE_KEY);
+            if (!raw) return false;
+            const state = JSON.parse(raw);
+            if (!state || typeof state !== 'object') return false;
+            if (state.plannerMode === 'multi' || state.plannerMode === 'single') plannerMode = state.plannerMode;
+            const ids = Object.keys(state).filter(key => key !== 'plannerMode');
+            ids.forEach(id => {
+                const el = document.getElementById(id);
+                if (!el) return;
+                if (el.type === 'checkbox') el.checked = !!state[id];
+                else el.value = state[id] ?? el.value;
+            });
+            return true;
+        } catch (_) { return false; }
+    }
+
+    function buildPlannerSummaryText() {
+        const targetInput = (plannerMode === 'single') ? document.getElementById('tw-nt-target') : document.getElementById('tw-nt-targets-multi');
+        const landInput = (plannerMode === 'single') ? document.getElementById('tw-nt-landtime') : document.getElementById('tw-nt-landtime-multi');
+        const targetValue = targetInput ? targetInput.value.trim() : '';
+        const landValue = landInput ? landInput.value.trim() : '';
+        const cmdCount = Array.isArray(lastGeneratedCommands) ? lastGeneratedCommands.length : 0;
+        const targetLabel = targetValue || lastGeneratedTarget || '—';
+        const landLabel = landValue || '—';
+        const modeLabel = plannerMode === 'multi' ? 'Campanha multialvo' : 'Ataque único';
+        const summaryLines = [
+            `TW Tactical Planner • ${modeLabel}`,
+            `Alvo(s): ${targetLabel}`,
+            `Cheg. prevista: ${landLabel}`,
+            `Comandos: ${cmdCount}`,
+            `Dica PSEvolution: copia o BBCode gerado e revisa a ordem antes de clicar em Enviar.`
+        ];
+        return summaryLines.join('\n');
+    }
+
+    function storeLastPlanSummary() {
+        try {
+            const summary = buildPlannerSummaryText();
+            localStorage.setItem(LAST_PLAN_SUMMARY_KEY, JSON.stringify({
+                savedAt: Date.now(),
+                summary,
+                target: lastGeneratedTarget,
+                commandCount: Array.isArray(lastGeneratedCommands) ? lastGeneratedCommands.length : 0
+            }));
+        } catch (_) {}
+    }
     let allAccountPaladins = [];
     let allParsedCommands = [];
     let allSnobProductions = [];
@@ -2931,6 +3034,9 @@
             document.getElementById('tab-btn-counter').onclick = () => switchTab('counter');
             document.getElementById('tab-btn-fakes').onclick = () => switchTab('fakes');
             document.getElementById('tab-btn-nt').onclick = () => switchTab('nt');
+            if (document.getElementById('tab-btn-defense')) {
+                document.getElementById('tab-btn-defense').onclick = () => switchTab('defense');
+            }
             if (document.getElementById('tab-btn-commands')) {
                 document.getElementById('tab-btn-commands').onclick = () => switchTab('commands');
             }
@@ -3173,6 +3279,9 @@
         document.getElementById('tab-btn-counter').classList.toggle('active', tab === 'counter');
         document.getElementById('tab-btn-fakes').classList.toggle('active', tab === 'fakes');
         document.getElementById('tab-btn-nt').classList.toggle('active', tab === 'nt');
+        if (document.getElementById('tab-btn-defense')) {
+            document.getElementById('tab-btn-defense').classList.toggle('active', tab === 'defense');
+        }
         if (document.getElementById('tab-btn-commands')) {
             document.getElementById('tab-btn-commands').classList.toggle('active', tab === 'commands');
         }
@@ -3181,6 +3290,7 @@
         else if (tab === 'counter') renderCounter();
         else if (tab === 'fakes') renderFakes();
         else if (tab === 'nt') renderAttackPlanner();
+        else if (tab === 'defense') renderDefensePlanner();
         else if (tab === 'commands') renderCommands();
     }
 
@@ -5143,6 +5253,9 @@
                             <span id="tw-nt-cmd-counter" style="display:inline-block; font-size:10px; font-weight:bold; padding:2px 7px; background:#1e293b; color:#38bdf8; border-radius:10px; border:1px solid #0284c7;">0 comandos</span>
                         </div>
                         <div style="display:flex; align-items:center; gap:6px;">
+                            <button class="tw-btn" id="tw-btn-copy-summary" style="padding:3px 10px; font-size:10px; font-weight:bold; background:#0f172a; border-color:#a855f7; color:#e9d5ff; box-shadow:0 0 6px rgba(168,85,247,0.2);" title="Copia um resumo do plano para colar como nota ou integração com o PSEvolution">
+                                📝 Resumo PSE
+                            </button>
                             <button class="tw-btn" id="tw-btn-copy-bbcode" style="padding:3px 10px; font-size:10px; font-weight:bold; background:#0f172a; border-color:#f59e0b; color:#fbbf24; box-shadow:0 0 6px rgba(245,158,11,0.2);" title="Copia o código BBCode gerado diretamente para o clipboard">
                                 📋 Copiar BBCode
                             </button>
@@ -5207,6 +5320,27 @@
                     btnToggleTable.innerHTML = '↕️ Expandir Tabela';
                     btnToggleTable.style.borderColor = '#0284c7';
                     btnToggleTable.style.color = '#38bdf8';
+                }
+            };
+        }
+
+        const btnCopySummary = document.getElementById('tw-btn-copy-summary');
+        if (btnCopySummary) {
+            btnCopySummary.onclick = async () => {
+                const summaryText = buildPlannerSummaryText();
+                if (!summaryText || summaryText.includes('—')) {
+                    showToast('⚠️ Gera primeiro o plano para ter resumo útil.');
+                    return;
+                }
+                try {
+                    if (navigator.clipboard && navigator.clipboard.writeText) {
+                        await navigator.clipboard.writeText(summaryText);
+                    } else {
+                        safeCopyText(summaryText);
+                    }
+                    showToast('📝 Resumo PSE copiado para o Clipboard!');
+                } catch (e) {
+                    showToast('❌ Erro ao copiar resumo PSE.');
                 }
             };
         }
@@ -6580,13 +6714,1997 @@
             document.getElementById('tw-nt-status').innerHTML = `<span style="color:#c084fc;">💾 Agendamento registado na memória por ${hours}h (${count} aldeias reservadas)!</span>`;
         };
 
+        restorePlannerStateSnapshot();
         syncPlannerFormState();
         if (plannerMode === 'single') {
             updateNobleProximityHUD(null, false);
             updateNukeProximityHUD(null, false);
         }
+
+        const plannerInputIds = [
+            'tw-nt-target', 'tw-nt-landtime', 'tw-nt-targets-multi', 'tw-nt-landtime-multi', 'tw-nt-attack-mode',
+            'tw-nt-noble-count', 'tw-nt-ms-interval', 'tw-nt-architecture', 'tw-nt-bv-anchor', 'tw-nt-bv-buffer',
+            'tw-nt-lead-nukes', 'tw-nt-nuke-cat-target', 'tw-nt-anti-mode', 'tw-nt-anti-cat-target', 'tw-nt-anti-ms-lead',
+            'tw-nt-cat-target-building', 'tw-nt-req-paladin-nuke', 'tw-nt-paladin-choice', 'tw-nt-prefer-full-nukes',
+            'tw-nt-bunker-count', 'tw-nt-bunker-gap', 'tw-nt-bunker-step', 'tw-nt-model-bunker-1', 'tw-nt-pop-bunker-1',
+            'tw-nt-model-bunker-2', 'tw-nt-pop-bunker-2', 'tw-nt-fake-enable', 'tw-nt-fake-radius', 'tw-nt-fake-count',
+            'tw-nt-fake-style', 'tw-nt-fake-model', 'tw-nt-fake-max-origin', 'tw-nt-fake-include-target', 'tw-nt-fake-smart-limit',
+            'tw-nt-noble-village', 'tw-nt-noble-village-2', 'tw-nt-exclude-committed'
+        ];
+        plannerInputIds.forEach(id => {
+            const el = document.getElementById(id);
+            if (!el) return;
+            ['input', 'change'].forEach(evtName => {
+                el.addEventListener(evtName, () => {
+                    savePlannerStateSnapshot();
+                });
+            });
+        });
+
         window.__tw_updateNobleHUD = updateNobleProximityHUD;
         window.__tw_updateNukeHUD = updateNukeProximityHUD;
+    }
+
+    function safeNumber(value, fallback = 0) {
+        const n = Number(value);
+        return Number.isFinite(n) ? n : fallback;
+    }
+
+    function getDefenseThreatPlayerName(cmd) {
+        if (!cmd) return 'Player';
+        if (cmd.attackerPlayerName && String(cmd.attackerPlayerName).trim()) return String(cmd.attackerPlayerName).trim();
+        if (cmd.originCoords) {
+            const owner = typeof getCoordOwnership === 'function' ? getCoordOwnership(cmd.originCoords) : null;
+            if (owner && owner.playerName && owner.playerName !== 'Player') return owner.playerName;
+        }
+        const originVillage = (Array.isArray(worldVillages) ? worldVillages : []).find(v => v.coord === cmd.originCoords) || null;
+        if (originVillage && originVillage.playerId && worldPlayers && worldPlayers[originVillage.playerId]) {
+            return worldPlayers[originVillage.playerId];
+        }
+        return 'Player';
+    }
+
+    function getDefenseTargetPriority(village, targetCoords) {
+        if (!village && !targetCoords) return 0;
+        let priority = 0;
+        if (village) {
+            priority += safeNumber(village.farm && village.farm.used, 0) / 4500;
+            priority += safeNumber(village.points, 0) / 1200;
+            if (village.rowClass === 'tw-row-def') priority += 12;
+            if (village.rowClass === 'tw-row-off') priority += 8;
+            if (village.roleTag && village.roleTag.label) {
+                const label = String(village.roleTag.label).toLowerCase();
+                if (/core|main|hub|capital|bunker|defensa|nobre|snob|nuke|offense|ataque/i.test(label)) {
+                    priority += 18;
+                }
+            }
+            if (village.homeTroopsDict) {
+                priority += Math.min(25, ((safeNumber(village.homeTroopsDict.defense, 0) + safeNumber(village.homeTroopsDict.knight, 0) * 2) / 80));
+            }
+        }
+        if (targetCoords && worldVillageByCoord && worldVillageByCoord.has(targetCoords)) {
+            const ww = worldVillageByCoord.get(targetCoords);
+            if (ww && safeNumber(ww.points, 0)) priority += Math.min(28, safeNumber(ww.points, 0) / 1800);
+        }
+        return Math.max(0, Math.min(100, priority));
+    }
+
+    function getDefenseDefensePotential(village) {
+        if (!village) return 0;
+        const troopBase = (
+            safeNumber(village.homeTroopsDict && village.homeTroopsDict.spear, 0) +
+            safeNumber(village.homeTroopsDict && village.homeTroopsDict.sword, 0) * 1.3 +
+            safeNumber(village.homeTroopsDict && village.homeTroopsDict.axe, 0) * 1.1 +
+            safeNumber(village.homeTroopsDict && village.homeTroopsDict.archer, 0) * 1.5 +
+            safeNumber(village.homeTroopsDict && village.homeTroopsDict.heavy, 0) * 2.2 +
+            safeNumber(village.homeTroopsDict && village.homeTroopsDict.spy, 0) * 0.4 +
+            safeNumber(village.homeTroopsDict && village.homeTroopsDict.knight, 0) * 3.5
+        );
+        const wall = safeNumber(village.wall, 0) * 4;
+        const farm = safeNumber(village.farm && village.farm.used, 0) / 1200;
+        return Math.min(100, Math.round((troopBase / 150) + wall + farm));
+    }
+
+    function estimateDefenseAutomationScore(playerThreats) {
+        if (!Array.isArray(playerThreats) || playerThreats.length < 3) return 0;
+        const times = playerThreats
+            .map(t => safeNumber(t && (t.readyAtMs || t.landTime || Date.now()), Date.now()))
+            .filter(n => Number.isFinite(n))
+            .sort((a, b) => a - b);
+        if (times.length < 3) return 0;
+
+        let spacingVariance = 0;
+        for (let i = 1; i < times.length; i++) {
+            spacingVariance += Math.abs((times[i] - times[i - 1]) - (times[1] - times[0]));
+        }
+        const avgGap = times.length > 1 ? (times[times.length - 1] - times[0]) / (times.length - 1) : 0;
+        const regularity = avgGap > 0 ? Math.max(0, 100 - (spacingVariance / Math.max(1, times.length - 1)) / 60000) : 0;
+        const repeatedTargets = new Set(playerThreats.map(t => t && t.targetCoords).filter(Boolean)).size;
+        const sameTargetBias = repeatedTargets <= 2 ? 12 : 0;
+        const botScore = Math.min(42, Math.max(0, regularity * 0.45) + sameTargetBias);
+        return Math.round(botScore);
+    }
+
+    function buildDefenseRiskScore(cmd, incomingThreats) {
+        if (!cmd || !cmd.isIncoming || cmd.isSupport) return 0;
+        const incoming = Array.isArray(incomingThreats) ? incomingThreats : (Array.isArray(allParsedCommands) ? allParsedCommands : []);
+        const playerKey = getDefenseThreatPlayerName(cmd);
+        const samePlayerThreats = incoming.filter(c => c && c.isIncoming && !c.isSupport && getDefenseThreatPlayerName(c) === playerKey);
+        const playerCount = samePlayerThreats.length;
+
+        let score = 12;
+        const fullText = `${cmd.type || ''} ${cmd.info || ''} ${cmd.label || ''}`.toLowerCase();
+
+        const typeWeight = /(nuke|full|grande escala|limpeza|catapult|snob|nobre|paladino)/i.test(fullText) ? 30 : /(ataque|saque|invasao)/i.test(fullText) ? 12 : 0;
+        score += typeWeight;
+        if (cmd.hasSnob) score += 18;
+        if (cmd.hasPaladin) score += 12;
+        if (/fake|falsa|mascar|simul/gi.test(fullText)) score -= 12;
+
+        const originVillage = (Array.isArray(worldVillages) ? worldVillages : []).find(v => v.coord === cmd.originCoords) || null;
+        const originPoints = safeNumber(originVillage && originVillage.points, 0);
+        score += Math.min(28, Math.round(originPoints / 700));
+
+        const targetVillage = Array.isArray(allVillages) ? allVillages.find(v => v.coords === cmd.targetCoords) || null : null;
+        const targetPriority = getDefenseTargetPriority(targetVillage, cmd.targetCoords);
+        score += Math.min(20, Math.round(targetPriority / 5));
+
+        const samePlayerWindow = samePlayerThreats.filter(t => {
+            if (!t || !t.readyAtMs || !cmd.readyAtMs) return false;
+            return Math.abs(Number(t.readyAtMs) - Number(cmd.readyAtMs)) <= 45 * 60 * 1000;
+        }).length;
+        score += Math.min(26, samePlayerWindow * 7);
+
+        const clusteredHeat = Math.min(20, playerCount * 3.5);
+        score += clusteredHeat;
+
+        const distance = cmd.originCoords && cmd.targetCoords ? calcDistance(cmd.originCoords, cmd.targetCoords) : 0;
+        score += Math.max(0, 18 - Math.min(18, distance * 0.8));
+
+        const targetFarm = safeNumber(targetVillage && targetVillage.farm && targetVillage.farm.used, 0);
+        if (targetFarm > 0) score += Math.min(14, Math.round(targetFarm / 7200));
+
+        const targetDefense = getDefenseDefensePotential(targetVillage);
+        if (targetDefense < 45) score += 8;
+
+        const automationScore = estimateDefenseAutomationScore(samePlayerThreats);
+        score += automationScore * 0.5;
+
+        const multiTargetPressure = samePlayerThreats.filter(t => {
+            const tTarget = t && t.targetCoords;
+            return tTarget && tTarget !== cmd.targetCoords;
+        }).length;
+        score += Math.min(22, multiTargetPressure * 6);
+
+        return Math.max(0, Math.min(100, Math.round(score)));
+    }
+
+    function getDefenseRecommendation(cmd, incomingThreats) {
+        const score = buildDefenseRiskScore(cmd, incomingThreats);
+        const playerName = getDefenseThreatPlayerName(cmd);
+        const samePlayerThreats = (Array.isArray(incomingThreats) ? incomingThreats : []).filter(c => c && c.isIncoming && !c.isSupport && getDefenseThreatPlayerName(c) === playerName);
+        const combo = samePlayerThreats.length > 1 ? samePlayerThreats.length : 0;
+        const automationScore = estimateDefenseAutomationScore(samePlayerThreats);
+        const targetVillage = Array.isArray(allVillages) ? allVillages.find(v => v.coords === cmd.targetCoords) || null : null;
+        const targetPriority = getDefenseTargetPriority(targetVillage, cmd.targetCoords);
+        const targetDefenseScore = getDefenseDefensePotential(targetVillage);
+
+        if (score >= 86) {
+            return {
+                level: 'CRÍTICO',
+                action: 'BUNKAR + DESVIAR + ALERTA TOTAL',
+                reason: `${playerName} está a pressionar em massa (${combo + 1} ataques relevantes) com padrão ${automationScore > 18 ? 'altamente automatizado' : 'agressivo'} e prioridade estratégica alta da aldeia alvo (${Math.round(targetPriority)}/100). A aldeia alvo tem defesa estimada ${targetDefenseScore}/100, por isso o melhor é reforçar a defesa ativa e deslocar tropas de aldeias vizinhas antes do impacto.`
+            };
+        }
+        if (score >= 68) {
+            return {
+                level: 'ALTO',
+                action: 'BUNKAR PARCIAL / DESVIAR DEFENSIVOS',
+                reason: `${playerName} já tem pressão suficiente para justificar reforço defensivo, especialmente se houver mais ataques na mesma janela. Mantém a defesa central e usa desvio seletivo para não expor a rede.`
+            };
+        }
+        if (score >= 46) {
+            return {
+                level: 'MÉDIO',
+                action: 'PREPARAR DESVIO E VIGILÂNCIA',
+                reason: `${playerName} parece estar a testar ou a criar pressão sem combo completo. Vale vigiar a janela e preparar posicionamento, sem gastar toda a defesa em resposta imediata.`
+            };
+        }
+        if (score >= 28) {
+            return {
+                level: 'BAIXO',
+                action: 'MONITORIZAR',
+                reason: `A ameaça é baixa para risco imediato. ${playerName} parece mais uma pressão leve ou mistificação; acompanha a janela sem puxar defensivos para fora de posição.`
+            };
+        }
+        return {
+            level: 'NULO',
+            action: 'NÃO ATUAR',
+            reason: `Risco mínimo. ${playerName} não tem peso ofensivo suficiente para justificar movimentação defensiva relevante em rede.`
+        };
+    }
+
+    function analyzeDefenseThreatContext(incomingThreats) {
+        const normalized = Array.isArray(incomingThreats) ? incomingThreats.filter(Boolean) : [];
+        const byPlayer = {};
+
+        normalized.forEach(cmd => {
+            const name = getDefenseThreatPlayerName(cmd);
+            if (!byPlayer[name]) byPlayer[name] = [];
+            byPlayer[name].push(cmd);
+        });
+
+        const threats = normalized.map(cmd => {
+            const playerName = getDefenseThreatPlayerName(cmd);
+            const playerThreats = byPlayer[playerName] || [];
+            const sameWindow = playerThreats.filter(t => {
+                if (!t || !t.readyAtMs || !cmd.readyAtMs) return false;
+                return Math.abs(Number(t.readyAtMs) - Number(cmd.readyAtMs)) <= 45 * 60 * 1000;
+            });
+            const automationScore = estimateDefenseAutomationScore(playerThreats);
+            const targetVillage = Array.isArray(allVillages) ? allVillages.find(v => v.coords === cmd.targetCoords) || null : null;
+            const priority = getDefenseTargetPriority(targetVillage, cmd.targetCoords);
+            const risk = buildDefenseRiskScore(cmd, normalized);
+            const recommendation = getDefenseRecommendation(cmd, normalized);
+            const travelMinutes = cmd.readyAtMs && cmd.landTime ? Math.max(1, Math.round((cmd.landTime.getTime() - cmd.readyAtMs) / 60000)) : 0;
+            return {
+                ...cmd,
+                playerName,
+                playerThreats: playerThreats.length,
+                sameWindow: sameWindow.length,
+                automationScore,
+                targetPriority: priority,
+                risk,
+                recommendation,
+                travelMinutes,
+                originVillage: (Array.isArray(worldVillages) ? worldVillages : []).find(v => v.coord === cmd.originCoords) || null,
+                targetVillage
+            };
+        }).sort((a, b) => b.risk - a.risk);
+
+        const playerPressure = Object.keys(byPlayer).map(name => {
+            const events = byPlayer[name];
+            const aggregatedRisk = Math.min(100, Math.round(events.reduce((sum, c) => sum + buildDefenseRiskScore(c, normalized), 0) / Math.max(1, events.length)));
+            const totalTargets = new Set(events.map(c => c.targetCoords).filter(Boolean)).size;
+            return {
+                playerName: name,
+                count: events.length,
+                totalTargets,
+                risk: aggregatedRisk,
+                automation: estimateDefenseAutomationScore(events)
+            };
+        }).sort((a, b) => b.risk - a.risk);
+
+        return {
+            threats,
+            playerPressure,
+            totalThreats: normalized.length,
+            totalHighRisk: threats.filter(t => t.risk >= 68).length
+        };
+    }
+
+    function getDefenseCommandTimeMs(cmd) {
+        if (!cmd) return 0;
+        if (cmd.readyAtMs) return safeNumber(cmd.readyAtMs, 0);
+        if (cmd.landTime instanceof Date) return cmd.landTime.getTime();
+        return safeNumber(cmd.landTime, 0);
+    }
+
+    function collectDefenseThreats() {
+        return (Array.isArray(allParsedCommands) ? allParsedCommands : [])
+            .filter(c => c && c.isIncoming && !c.isSupport && !/fake|falsa|mascar|simul/gi.test(String(c.type || '')));
+    }
+
+    function estimateDefenseAutomationConfidence(playerThreats) {
+        const events = (Array.isArray(playerThreats) ? playerThreats : []).filter(Boolean);
+        if (events.length < 3) return { score: 0, confidence: 0, reasons: [] };
+
+        const times = events
+            .map(t => getDefenseCommandTimeMs(t) || Date.now())
+            .sort((a, b) => a - b);
+
+        const gaps = [];
+        for (let i = 1; i < times.length; i++) gaps.push(times[i] - times[i - 1]);
+        const avgGap = gaps.reduce((s, g) => s + g, 0) / Math.max(1, gaps.length);
+        const variance = gaps.reduce((s, g) => s + Math.pow(g - avgGap, 2), 0) / Math.max(1, gaps.length);
+        const stdev = Math.sqrt(variance);
+        const cv = avgGap > 0 ? stdev / avgGap : 1;
+
+        let score = 0;
+        const reasons = [];
+
+        if (cv < 0.05 && gaps.length >= 2) { score += 34; reasons.push('intervalos quase idênticos'); }
+        else if (cv < 0.15) { score += 22; reasons.push('intervalos muito regulares'); }
+        else if (cv < 0.30) { score += 10; reasons.push('intervalos relativamente regulares'); }
+
+        const seconds = times.map(t => new Date(t).getSeconds());
+        if (seconds.length >= 3 && seconds.every(s => Math.abs(s - seconds[0]) <= 2)) {
+            score += 18; reasons.push('segundos de impacto uniformes');
+        }
+
+        const targets = new Set(events.map(e => e && e.targetCoords).filter(Boolean));
+        if (targets.size <= 2 && events.length >= 4) { score += 12; reasons.push('concentração em poucos alvos'); }
+
+        const origins = new Set(events.map(e => e && e.originCoords).filter(Boolean));
+        if (origins.size >= 4 && events.length >= 6) { score += 13; reasons.push('muitas origens em bloco'); }
+
+        const hours = new Set(times.map(t => new Date(t).getHours()));
+        if (hours.size <= 2 && times.length >= 4) { score += 10; reasons.push('janela horária estreita'); }
+
+        const minuteSame = times.map(t => new Date(t).getMinutes());
+        const minuteSpread = Math.max(...minuteSame) - Math.min(...minuteSame);
+        if (minuteSpread <= 3 && times.length >= 3) { score += 14; reasons.push('minutos sincronizados'); }
+
+        score = Math.max(0, Math.min(100, score));
+        const confidence = Math.max(0, Math.min(96, 28 + events.length * 7 + (cv < 0.15 ? 20 : 0) + (cv < 0.05 ? 12 : 0)));
+        return { score: Math.round(score), confidence: Math.round(confidence), reasons };
+    }
+
+    function groupDefenseArrivalClusters(incomingThreats, windowMs = 20 * 60 * 1000) {
+        const events = (Array.isArray(incomingThreats) ? incomingThreats : []).filter(Boolean);
+        const timed = events
+            .map(c => ({ cmd: c, ms: getDefenseCommandTimeMs(c) }))
+            .filter(x => x.ms > 0)
+            .sort((a, b) => a.ms - b.ms);
+
+        const clusters = [];
+        let current = null;
+        timed.forEach(x => {
+            if (!current || (x.ms - current.endMs) > windowMs) {
+                current = { startMs: x.ms, endMs: x.ms, commands: [] };
+                clusters.push(current);
+            }
+            current.commands.push(x.cmd);
+            current.endMs = x.ms;
+        });
+
+        return clusters.map(cl => {
+            const players = Array.from(new Set(cl.commands.map(c => getDefenseThreatPlayerName(c))));
+            const targets = Array.from(new Set(cl.commands.map(c => c && c.targetCoords).filter(Boolean)));
+            const origins = Array.from(new Set(cl.commands.map(c => c && c.originCoords).filter(Boolean)));
+            const hasNoble = cl.commands.some(c => c && (c.hasSnob || /nobre|snob|\bnt\b|nobre/i.test(`${c.type || ''} ${c.info || ''}`)));
+            const maxRisk = cl.commands.reduce((m, c) => Math.max(m, buildDefenseRiskScore(c, events)), 0);
+            return {
+                startMs: cl.startMs,
+                endMs: cl.endMs,
+                spanMinutes: Math.max(0, Math.round((cl.endMs - cl.startMs) / 60000)),
+                count: cl.commands.length,
+                commands: cl.commands,
+                players,
+                targets,
+                origins,
+                hasNoble,
+                risk: Math.round(maxRisk)
+            };
+        }).sort((a, b) => b.count - a.count || a.startMs - b.startMs);
+    }
+
+    function detectDefenseComboAlerts(clusters) {
+        return (Array.isArray(clusters) ? clusters : [])
+            .filter(cl => cl && cl.count >= 3)
+            .map(cl => {
+                const severity = (cl.count >= 8 || (cl.hasNoble && cl.targets.length >= 3)) ? 'CRÍTICO'
+                    : cl.count >= 5 ? 'ALTO'
+                    : 'MÉDIO';
+                return {
+                    ...cl,
+                    severity,
+                    label: cl.hasNoble ? 'Combo com nobres' : 'Combo de limpeza / pressão',
+                    hint: cl.players.length === 1
+                        ? `Jogador ${cl.players[0]} a atacar ${cl.targets.length} alvo(s) em bloco`
+                        : `${cl.players.length} jogadores coordenados em ${cl.targets.length} alvo(s)`
+                };
+            });
+    }
+
+    function buildDefenseVillageRiskMap(threats) {
+        const list = Array.isArray(threats) ? threats : [];
+        const map = {};
+
+        list.forEach(t => {
+            const key = t.targetCoords || 'unknown';
+            if (!map[key]) {
+                map[key] = {
+                    coords: key,
+                    name: t.targetVillage ? t.targetVillage.name : (t.targetName || key),
+                    village: t.targetVillage || null,
+                    threats: [],
+                    players: new Set(),
+                    attackCount: 0,
+                    hasNoble: false,
+                    maxRisk: 0,
+                    avgRisk: 0,
+                    earliestMs: Infinity,
+                    defensePotential: t.targetVillage ? getDefenseDefensePotential(t.targetVillage) : 0,
+                    priority: t.targetVillage ? getDefenseTargetPriority(t.targetVillage, key) : 0
+                };
+            }
+            const entry = map[key];
+            entry.threats.push(t);
+            entry.players.add(t.playerName);
+            entry.attackCount++;
+            if (t.hasSnob || /nobre|snob|\bnt\b/i.test(`${t.type || ''} ${t.info || ''}`)) entry.hasNoble = true;
+            entry.maxRisk = Math.max(entry.maxRisk, safeNumber(t.risk, 0));
+            const tMs = getDefenseCommandTimeMs(t);
+            if (tMs > 0) entry.earliestMs = Math.min(entry.earliestMs, tMs);
+        });
+
+        return Object.values(map).map(entry => {
+            entry.avgRisk = Math.round(entry.threats.reduce((s, t) => s + safeNumber(t.risk, 0), 0) / Math.max(1, entry.threats.length));
+            entry.players = Array.from(entry.players);
+            entry.earliestMs = Number.isFinite(entry.earliestMs) ? entry.earliestMs : 0;
+            entry.exposure = Math.max(0, Math.min(100, Math.round(
+                entry.maxRisk * 0.55 +
+                Math.min(25, entry.attackCount * 6) +
+                (entry.hasNoble ? 15 : 0) +
+                Math.min(15, entry.priority / 6) -
+                Math.min(22, entry.defensePotential / 5)
+            )));
+            return entry;
+        }).sort((a, b) => b.exposure - a.exposure);
+    }
+
+    function buildDefenseMovementPlan(villageRiskMap) {
+        const map = Array.isArray(villageRiskMap) ? villageRiskMap : [];
+        const threatened = new Set(map.filter(m => m.exposure >= 40).map(m => m.coords));
+        const ownVillages = Array.isArray(allVillages) ? allVillages : [];
+
+        return map.filter(entry => entry.exposure >= 46).map(entry => {
+            if (!entry.village) return null;
+            const needed = Math.max(0, 100 - entry.defensePotential);
+
+            const donors = ownVillages
+                .filter(v => v && v.coords && v.coords !== entry.coords && !threatened.has(v.coords))
+                .map(v => {
+                    const potential = getDefenseDefensePotential(v);
+                    const defTroops = safeNumber(v.homeTroopsDict && v.homeTroopsDict.spear, 0) +
+                        safeNumber(v.homeTroopsDict && v.homeTroopsDict.sword, 0) +
+                        safeNumber(v.homeTroopsDict && v.homeTroopsDict.archer, 0) +
+                        safeNumber(v.homeTroopsDict && v.homeTroopsDict.heavy, 0) +
+                        safeNumber(v.homeTroopsDict && v.homeTroopsDict.knight, 0);
+                    const dist = (v.coords && entry.coords) ? calcDistance(v.coords, entry.coords) : 999;
+                    return { village: v, potential, defTroops, dist };
+                })
+                .filter(c => c.potential >= 30 && c.defTroops > 0)
+                .sort((a, b) => (b.potential / Math.max(1, b.dist)) - (a.potential / Math.max(1, a.dist)))
+                .slice(0, 3);
+
+            return {
+                entry,
+                needed: Math.round(needed),
+                donors,
+                action: entry.exposure >= 80 ? 'BUNKAR FORTE' : entry.exposure >= 62 ? 'BUNKAR' : 'REFORÇO LIGEIRO',
+                note: donors.length
+                    ? `Apoio de ${donors.map(d => `${d.village.name} (${d.dist.toFixed(1)}c)`).join(' + ')}`
+                    : 'Sem aldeias seguras com defesa disponível — ponderar desvio interno ou wall.'
+            };
+        }).filter(Boolean);
+    }
+
+    function buildDefenseAdvisoryText(ctx, villageRiskMap, combos, movementPlan) {
+        const lines = [];
+        const s = ctx || {};
+        lines.push('⚡ TW Tactical • Aconselhamento de Defesa (IA)');
+        lines.push(`Gerado: ${new Date().toLocaleString('pt-PT')}`);
+        lines.push(`Ataques a chegar: ${s.totalThreats || 0} | Alto risco: ${s.totalHighRisk || 0}`);
+        lines.push('');
+
+        if ((combos || []).length) {
+            lines.push('🚨 ALERTAS DE COMBO');
+            combos.slice(0, 4).forEach(c => {
+                lines.push(`• [${c.severity}] ${c.label} — ${c.count} ataques em ${c.spanMinutes}m, ${c.targets.length} alvo(s). ${c.hint}`);
+            });
+            lines.push('');
+        }
+
+        if ((movementPlan || []).length) {
+            lines.push('🛡️ PLANO DE MOVIMENTO SUGERIDO');
+            movementPlan.slice(0, 8).forEach(m => {
+                const when = m.entry.earliestMs ? formatShortTime(m.entry.earliestMs) : '—';
+                lines.push(`• ${m.entry.name} (${m.entry.coords}) — exposição ${m.entry.exposure}/100, 1º impacto ${when}`);
+                lines.push(`   Ação: ${m.action} | Defesa em casa: ${m.entry.defensePotential}/100 (falta ~${m.needed})`);
+                lines.push(`   ${m.note}`);
+            });
+            lines.push('');
+        }
+
+        const topThreats = (s.threats || []).slice(0, 6);
+        if (topThreats.length) {
+            lines.push('🎯 AMEAÇAS PRIORITÁRIAS');
+            topThreats.forEach(t => {
+                const auto = estimateDefenseAutomationConfidence((s.threats || []).filter(x => x.playerName === t.playerName));
+                lines.push(`• ${t.playerName} → ${t.targetCoords || '—'} | risco ${t.risk}/100 | ${t.recommendation.level}`);
+                lines.push(`   ${t.recommendation.action}`);
+                if (auto.reasons.length) lines.push(`   Sinais de agendamento: ${auto.score}% (${auto.reasons.join(', ')})`);
+            });
+        }
+
+        lines.push('');
+        lines.push('Nota: aconselhamento heurístico — confirma sempre o estado das tropas antes de agir.');
+        return lines.join('\n');
+    }
+
+    // =========================================================================
+    // MOTOR DE SIMULAÇÃO DE COMBATE REAL (Tribal Wars)
+    // Fonte dos valores: wiki oficial Tribal Wars (Units / Wall / Paladin items)
+    // =========================================================================
+
+    // Estatísticas reais das unidades (mundos com arqueiros)
+    const TW_UNITS = {
+        spear:    { key: 'spear',    name: 'Lanceiro',         icon: '🗡️', pop: 1,  off: 10,  defGen: 15,  defCav: 45, defArch: 20,  speed: 18, kind: 'inf' },
+        sword:    { key: 'sword',    name: 'Espadachim',       icon: '⚔️', pop: 1,  off: 25,  defGen: 50,  defCav: 15, defArch: 40,  speed: 22, kind: 'inf' },
+        axe:      { key: 'axe',      name: 'Viking',           icon: '🪓', pop: 1,  off: 40,  defGen: 10,  defCav: 5,  defArch: 10,  speed: 18, kind: 'inf' },
+        archer:   { key: 'archer',   name: 'Arqueiro',         icon: '🏹', pop: 1,  off: 15,  defGen: 50,  defCav: 40, defArch: 5,   speed: 18, kind: 'arch' },
+        spy:      { key: 'spy',      name: 'Batedor',          icon: '👁️', pop: 2,  off: 0,   defGen: 2,   defCav: 1,  defArch: 2,   speed: 9,  kind: 'spy' },
+        light:    { key: 'light',    name: 'Cavalaria Leve',   icon: '🐎', pop: 4,  off: 130, defGen: 30,  defCav: 40, defArch: 30,  speed: 10, kind: 'cav' },
+        marcher:  { key: 'marcher',  name: 'CA Montada',       icon: '🐴', pop: 5,  off: 120, defGen: 40,  defCav: 30, defArch: 50,  speed: 10, kind: 'arch' },
+        heavy:    { key: 'heavy',    name: 'Cavalaria Pesada', icon: '🐴', pop: 6,  off: 150, defGen: 200, defCav: 80, defArch: 180, speed: 11, kind: 'cav' },
+        ram:      { key: 'ram',      name: 'Aríete',           icon: '🪵', pop: 5,  off: 2,   defGen: 20,  defCav: 50, defArch: 20,  speed: 30, kind: 'ram' },
+        catapult: { key: 'catapult', name: 'Catapulta',        icon: '🎯', pop: 8,  off: 100, defGen: 100, defCav: 50, defArch: 100, speed: 30, kind: 'cat' },
+        knight:   { key: 'knight',   name: 'Paladino',         icon: '🛡️', pop: 10, off: 150, defGen: 250, defCav: 400, defArch: 150, speed: 10, kind: 'cav' },
+        snob:     { key: 'snob',     name: 'Nobre',            icon: '👑', pop: 100, off: 30, defGen: 100, defCav: 50, defArch: 100, speed: 35, kind: 'snob' },
+        militia:  { key: 'militia',  name: 'Milícia',          icon: '🛡️', pop: 0,  off: 5,   defGen: 15,  defCav: 45, defArch: 25,  speed: 0,  kind: 'inf' }
+    };
+
+    // Bónus de defesa da muralha por nível (tabela oficial 0..20)
+    const TW_WALL_BONUS = [0, 0.04, 0.08, 0.12, 0.16, 0.20, 0.24, 0.29, 0.34, 0.39, 0.44, 0.49, 0.55, 0.60, 0.66, 0.72, 0.79, 0.85, 0.92, 0.99, 1.07];
+
+    // Armas do Paladino: bónus ofensivo/defensivo à unidade associada
+    const TW_PALADIN_WEAPONS = {
+        none:     { unit: null,       off: 0,    def: 0,    label: 'Sem arma' },
+        spear:    { unit: 'spear',    off: 0.30, def: 0.20, label: 'Alabarda de Guan Yu' },
+        sword:    { unit: 'sword',    off: 0.40, def: 0.30, label: 'Espada Longa de Paracelso' },
+        axe:      { unit: 'axe',      off: 0.40, def: 0.30, label: 'Machado de Guerra de Thorgard' },
+        archer:   { unit: 'archer',   off: 0.30, def: 0.20, label: 'Arco Longo de Nimrod' },
+        light:    { unit: 'light',    off: 0.30, def: 0.20, label: 'Lança de Mieszko' },
+        marcher:  { unit: 'marcher',  off: 0.30, def: 0.20, label: 'Arco Composto de Nimrod' },
+        heavy:    { unit: 'heavy',    off: 0.30, def: 0.20, label: 'Estandarte de Baptiste' },
+        ram:      { unit: 'ram',      off: 0,    def: 0,    label: 'Estrela da Manhã de Carol', ramBonus: 1.0 },
+        catapult: { unit: 'catapult', off: 0,    def: 0,    label: 'Fogueira de Aletheia', catBonus: 1.0 },
+        snob:     { unit: 'snob',     off: 0,    def: 0,    label: 'Cetro de Vasco' }
+    };
+
+    const TW_DEF_UNITS_ORDER = ['spear', 'sword', 'archer', 'heavy'];
+
+    function getTwWallFactor(wallLevel) {
+        const lvl = Math.max(0, Math.min(20, Math.round(safeNumber(wallLevel, 0))));
+        return 1 + TW_WALL_BONUS[lvl];
+    }
+
+    function getTwNightBonusMultiplier(impactMs) {
+        try {
+            if (typeof isNightTime === 'function' && isNightTime(impactMs, 0, 8)) return 1.0; // +100% defesa
+        } catch (_) {}
+        return 0;
+    }
+
+    function normalizeTwArmy(army) {
+        const out = {};
+        if (!army) return out;
+        Object.keys(army).forEach(k => {
+            const n = Math.round(safeNumber(army[k], 0));
+            if (n > 0 && TW_UNITS[k]) out[k] = n;
+        });
+        return out;
+    }
+
+    function twArmyPop(army) {
+        const a = normalizeTwArmy(army);
+        return Object.keys(a).reduce((sum, k) => sum + a[k] * TW_UNITS[k].pop, 0);
+    }
+
+    function twArmyLabel(army, opts) {
+        const a = normalizeTwArmy(army);
+        const o = opts || {};
+        const limit = safeNumber(o.limit, 4);
+        const parts = Object.keys(a)
+            .sort((x, y) => (a[y] * TW_UNITS[y].pop) - (a[x] * TW_UNITS[x].pop))
+            .slice(0, limit)
+            .map(k => `${a[k].toLocaleString('pt-PT')} ${TW_UNITS[k].name}`);
+        return parts.length ? parts.join(' + ') : '—';
+    }
+
+    // Divide o poder ofensivo por tipo de alvo (infantaria / cavalaria / arqueiros)
+    function computeTwOffenseSplit(attackerArmy, paladinWeaponKey) {
+        const army = normalizeTwArmy(attackerArmy);
+        const weapon = TW_PALADIN_WEAPONS[paladinWeaponKey] || TW_PALADIN_WEAPONS.none;
+        let inf = 0, cav = 0, arch = 0;
+
+        Object.keys(army).forEach(k => {
+            const u = TW_UNITS[k];
+            if (!u) return;
+            let power = u.off * army[k];
+            if (weapon.unit && weapon.unit === k && weapon.off) power *= (1 + weapon.off);
+            if (u.kind === 'cav') cav += power;
+            else if (u.kind === 'arch') arch += power;
+            else inf += power;
+        });
+
+        const total = inf + cav + arch;
+        return {
+            inf, cav, arch, total,
+            shareInf: total > 0 ? inf / total : 0,
+            shareCav: total > 0 ? cav / total : 0,
+            shareArch: total > 0 ? arch / total : 0
+        };
+    }
+
+    // Calcula o poder defensivo efetivo de um exército defensor
+    function computeTwDefensePower(defenderArmy, offSplit, wallFactor) {
+        const army = normalizeTwArmy(defenderArmy);
+        let gen = 0, cav = 0, arch = 0;
+
+        Object.keys(army).forEach(k => {
+            const u = TW_UNITS[k];
+            if (!u) return;
+            gen += u.defGen * army[k];
+            cav += u.defCav * army[k];
+            arch += u.defArch * army[k];
+        });
+
+        const wf = safeNumber(wallFactor, 1) || 1;
+        gen *= wf; cav *= wf; arch *= wf;
+
+        const totalOff = offSplit.total || 0;
+        const effective = totalOff > 0
+            ? (gen * offSplit.shareInf + cav * offSplit.shareCav + arch * offSplit.shareArch)
+            : (gen * 0.5 + cav * 0.3 + arch * 0.2);
+
+        return { gen, cav, arch, effective, wallFactor: wf };
+    }
+
+    // Estima a composição de um nuke inimigo a partir dos pontos da aldeia de origem
+    function estimateNukeComposition(originPoints, opts) {
+        const o = opts || {};
+        const points = safeNumber(originPoints, 0);
+
+        let militaryPop;
+        if (points >= 10000) militaryPop = 20000;
+        else if (points >= 9000) militaryPop = 18000;
+        else if (points >= 8000) militaryPop = 15500;
+        else if (points >= 6500) militaryPop = 12500;
+        else if (points >= 5000) militaryPop = 9500;
+        else if (points >= 3000) militaryPop = 6000;
+        else militaryPop = Math.max(1200, Math.round(points * 1.8));
+
+        militaryPop = Math.round(militaryPop * safeNumber(o.popFactor, 1));
+
+        const hasPaladin = o.hasPaladin !== false;
+        const paladinWeapon = hasPaladin ? (o.paladinWeapon || 'axe') : 'none';
+
+        const ramCount = Math.max(0, Math.round((militaryPop * 0.065) / TW_UNITS.ram.pop));
+        const paladinPop = hasPaladin ? TW_UNITS.knight.pop : 0;
+        const remaining = Math.max(0, militaryPop - (ramCount * TW_UNITS.ram.pop) - paladinPop);
+
+        const axeShare = safeNumber(o.axeShare, 0.36);
+        const axeCount = Math.max(0, Math.round(remaining * axeShare));
+        const lightCount = Math.max(0, Math.round((remaining - axeCount) / TW_UNITS.light.pop));
+
+        const army = {};
+        if (axeCount > 0) army.axe = axeCount;
+        if (lightCount > 0) army.light = lightCount;
+        if (ramCount > 0) army.ram = ramCount;
+        if (hasPaladin) army.knight = 1;
+        if (o.hasSnob) army.snob = Math.max(1, safeNumber(o.snobCount, 1));
+
+        return {
+            army,
+            militaryPop,
+            paladinWeapon: hasPaladin ? paladinWeapon : 'none',
+            paladinLabel: TW_PALADIN_WEAPONS[paladinWeapon] ? TW_PALADIN_WEAPONS[paladinWeapon].label : 'Sem arma'
+        };
+    }
+
+    // Simula a batalha e devolve baixas + resultado
+    function simulateTwBattle(attackerArmy, defenderArmy, wallLevel, opts) {
+        const o = opts || {};
+        const nightBonus = safeNumber(o.nightBonus, 0);
+        const wallFactor = getTwWallFactor(wallLevel) * (1 + nightBonus);
+        const offSplit = computeTwOffenseSplit(attackerArmy, o.paladinWeapon);
+        const defPower = computeTwDefensePower(defenderArmy, offSplit, wallFactor);
+
+        const atk = offSplit.total;
+        const def = defPower.effective;
+        const attackerWins = atk > def;
+
+        let attackerLossPct = 0;
+        let defenderLossPct = 0;
+
+        if (atk > 0 && def > 0) {
+            if (attackerWins) {
+                attackerLossPct = Math.max(0, Math.min(1, def / atk));
+                defenderLossPct = 1;
+            } else {
+                attackerLossPct = 1;
+                defenderLossPct = Math.max(0, Math.min(1, atk / def));
+            }
+        } else if (atk > 0 && def <= 0) {
+            attackerLossPct = 0;
+            defenderLossPct = 1;
+        }
+
+        const attackerSurvivors = {};
+        const defenderSurvivors = {};
+        const atkArmy = normalizeTwArmy(attackerArmy);
+        const defArmy = normalizeTwArmy(defenderArmy);
+
+        Object.keys(atkArmy).forEach(k => {
+            const left = Math.floor(atkArmy[k] * (1 - attackerLossPct));
+            if (left > 0) attackerSurvivors[k] = left;
+        });
+        Object.keys(defArmy).forEach(k => {
+            const left = Math.floor(defArmy[k] * (1 - defenderLossPct));
+            if (left > 0) defenderSurvivors[k] = left;
+        });
+
+        return {
+            attackerWins,
+            offenseTotal: Math.round(atk),
+            defenseTotal: Math.round(def),
+            wallFactor,
+            wallLevel: Math.max(0, Math.min(20, Math.round(safeNumber(wallLevel, 0)))),
+            nightBonus,
+            attackerLossPct,
+            defenderLossPct,
+            attackerSurvivors,
+            defenderSurvivors,
+            ratio: def > 0 ? atk / def : Infinity,
+            offSplit,
+            defPower
+        };
+    }
+
+    // Descobre a defesa MÍNIMA (por tipo de unidade) para sobreviver ao ataque
+    function findMinDefenseToSurvive(attackerArmy, wallLevel, opts) {
+        const o = opts || {};
+        const nightBonus = safeNumber(o.nightBonus, 0);
+        const wallFactor = getTwWallFactor(wallLevel) * (1 + nightBonus);
+        const offSplit = computeTwOffenseSplit(attackerArmy, o.paladinWeapon);
+        if (offSplit.total <= 0) return null;
+
+        const perUnitOptions = TW_DEF_UNITS_ORDER.map(key => {
+            const u = TW_UNITS[key];
+            const weighted = (
+                (u.defGen * offSplit.shareInf) +
+                (u.defCav * offSplit.shareCav) +
+                (u.defArch * offSplit.shareArch)
+            ) * wallFactor;
+            if (weighted <= 0) return null;
+            const needed = Math.ceil(offSplit.total / weighted);
+            return {
+                key,
+                name: u.name,
+                icon: u.icon,
+                unit: u,
+                unitPower: weighted,
+                needed,
+                pop: needed * u.pop
+            };
+        }).filter(Boolean).sort((a, b) => a.pop - b.pop);
+
+        // Melhor mistura prática (40% lanceiros / 40% espadachins / 20% arqueiros)
+        const mix = o.mix || { spear: 0.40, sword: 0.40, archer: 0.20 };
+        const mixDefPowerPerSet =
+            (TW_UNITS.spear.defGen * mix.spear + TW_UNITS.sword.defGen * mix.sword + TW_UNITS.archer.defGen * mix.archer) * offSplit.shareInf * wallFactor +
+            (TW_UNITS.spear.defCav * mix.spear + TW_UNITS.sword.defCav * mix.sword + TW_UNITS.archer.defCav * mix.archer) * offSplit.shareCav * wallFactor +
+            (TW_UNITS.spear.defArch * mix.spear + TW_UNITS.sword.defArch * mix.sword + TW_UNITS.archer.defArch * mix.archer) * offSplit.shareArch * wallFactor;
+
+        let mixedNeeded = null;
+        if (mixDefPowerPerSet > 0) {
+            const sets = Math.ceil(offSplit.total / mixDefPowerPerSet);
+            mixedNeeded = {
+                spear: Math.ceil(sets * mix.spear),
+                sword: Math.ceil(sets * mix.sword),
+                archer: Math.ceil(sets * mix.archer),
+                pop: sets
+            };
+        }
+
+        return {
+            wallLevel: Math.max(0, Math.min(20, Math.round(safeNumber(wallLevel, 0)))),
+            wallFactor,
+            offenseTotal: Math.round(offSplit.total),
+            best: perUnitOptions[0] || null,
+            perUnitOptions,
+            mixed: mixedNeeded
+        };
+    }
+
+    // Recomendação de tropas a enviar: quanto falta e de onde
+    function analyzeVillageDefenseGap(village, attackerArmy, opts) {
+        const o = opts || {};
+        if (!village) return null;
+
+        const wall = safeNumber(village.wall, 0) || safeNumber(o.fallbackWall, 20);
+        const current = {
+            spear: safeNumber(village.homeTroopsDict && village.homeTroopsDict.spear, 0),
+            sword: safeNumber(village.homeTroopsDict && village.homeTroopsDict.sword, 0),
+            archer: safeNumber(village.homeTroopsDict && village.homeTroopsDict.archer, 0),
+            heavy: safeNumber(village.homeTroopsDict && village.homeTroopsDict.heavy, 0),
+            knight: safeNumber(village.homeTroopsDict && village.homeTroopsDict.knight, 0)
+        };
+
+        const need = findMinDefenseToSurvive(attackerArmy, wall, { paladinWeapon: o.paladinWeapon, nightBonus: o.nightBonus });
+        const withoutWall = findMinDefenseToSurvive(attackerArmy, 0, { paladinWeapon: o.paladinWeapon, nightBonus: o.nightBonus });
+        const simNow = simulateTwBattle(attackerArmy, current, wall, { paladinWeapon: o.paladinWeapon, nightBonus: o.nightBonus });
+
+        const required = need && need.mixed ? need.mixed : null;
+        const gap = { spear: 0, sword: 0, archer: 0 };
+        if (required) {
+            gap.spear = Math.max(0, required.spear - current.spear);
+            gap.sword = Math.max(0, required.sword - current.sword);
+            gap.archer = Math.max(0, required.archer - current.archer);
+        }
+
+        const gapPop = gap.spear + gap.sword + gap.archer;
+        const currentPop = twArmyPop(current);
+
+        return {
+            village,
+            wall,
+            current,
+            currentPop,
+            required,
+            withoutWall: withoutWall && withoutWall.mixed ? withoutWall.mixed : null,
+            bestUnit: need ? need.best : null,
+            gap,
+            gapPop,
+            simNow,
+            holds: !simNow.attackerWins,
+            coveragePct: simNow.offenseTotal > 0
+                ? Math.round(Math.min(100, (simNow.defenseTotal / simNow.offenseTotal) * 100))
+                : 100
+        };
+    }
+
+    // Plano de distribuição multi-bunker com as tropas reais disponíveis
+    function buildMultiBunkerAllocation(gaps, opts) {
+        const o = opts || {};
+        const available = normalizeTwArmy(o.available || {});
+        const list = (Array.isArray(gaps) ? gaps : []).filter(Boolean).filter(g => g.gapPop > 0);
+        if (!list.length) {
+            return { plan: [], totalNeeded: 0, totalAvailable: twArmyPop(available), covered: 0 };
+        }
+
+        const availablePop = twArmyPop(available);
+        const totalNeeded = list.reduce((s, g) => s + g.gapPop, 0);
+
+        const sorted = [...list].sort((a, b) => (b.coveragePct - a.coveragePct === 0
+            ? b.gapPop - a.gapPop
+            : a.coveragePct - b.coveragePct)).reverse();
+
+        const ratio = totalNeeded > 0 ? Math.min(1, availablePop / totalNeeded) : 1;
+        const pool = { ...available };
+
+        const plan = sorted.map(g => {
+            const send = { spear: 0, sword: 0, archer: 0, heavy: 0 };
+            const want = { spear: g.gap.spear, sword: g.gap.sword, archer: g.gap.archer };
+
+            const wantPop = want.spear + want.sword + want.archer;
+            const scaled = ratio < 1 ? ratio : 1;
+
+            Object.keys(send).forEach(k => {
+                if (!want[k] && k !== 'heavy') return;
+                const desired = k === 'heavy' ? 0 : Math.round(want[k] * scaled);
+                const take = Math.min(desired, pool[k] || 0);
+                send[k] = take;
+                pool[k] = (pool[k] || 0) - take;
+            });
+
+            const sendPop = send.spear + send.sword + send.archer + send.heavy * TW_UNITS.heavy.pop;
+            const remaining = Math.max(0, wantPop - sendPop);
+            const projectedCoverage = g.simNow.offenseTotal > 0
+                ? Math.round(Math.min(100, ((g.simNow.defenseTotal + sendPop * 1.0) / g.simNow.offenseTotal) * 100))
+                : 100;
+
+            return {
+                gap: g,
+                send,
+                sendPop,
+                missing: remaining,
+                status: remaining === 0 ? 'COMPLETO' : (sendPop > 0 ? 'PARCIAL' : 'CRÍTICO'),
+                projectedCoverage
+            };
+        });
+
+        return {
+            plan,
+            totalNeeded,
+            totalAvailable: availablePop,
+            covered: Math.round(ratio * 100)
+        };
+    }
+
+    // Reúne as tropas disponíveis para enviar (aldeias fora de perigo)
+    function collectDefenseReserves(threatenedCoords) {
+        const threatened = threatenedCoords instanceof Set ? threatenedCoords : new Set(threatenedCoords || []);
+        const pool = { spear: 0, sword: 0, archer: 0, heavy: 0 };
+        const sources = [];
+
+        (Array.isArray(allVillages) ? allVillages : []).forEach(v => {
+            if (!v || !v.coords) return;
+            if (threatened.has(v.coords)) return;
+            const t = v.homeTroopsDict || {};
+            const spear = safeNumber(t.spear, 0);
+            const sword = safeNumber(t.sword, 0);
+            const archer = safeNumber(t.archer, 0);
+            const heavy = safeNumber(t.heavy, 0);
+            if (spear + sword + archer + heavy <= 0) return;
+
+            // Preserva uma reserva mínima de 20% em cada aldeia de origem
+            const keep = 0.20;
+            const give = {
+                spear: Math.floor(spear * (1 - keep)),
+                sword: Math.floor(sword * (1 - keep)),
+                archer: Math.floor(archer * (1 - keep)),
+                heavy: Math.floor(heavy * (1 - keep))
+            };
+            pool.spear += give.spear;
+            pool.sword += give.sword;
+            pool.archer += give.archer;
+            pool.heavy += give.heavy;
+            sources.push({ village: v, give });
+        });
+
+        return { pool, sources };
+    }
+
+    // =========================================================================
+    // PLANO DE MOVIMENTAÇÃO DEFENSIVA (horários exatos + BBCode + Plano Russo)
+    // =========================================================================
+
+    function getTwUnitSpeedMinutes(unitKey) {
+        if (typeof unitSpeedMinutes !== 'undefined' && unitSpeedMinutes && unitSpeedMinutes[unitKey]) {
+            return unitSpeedMinutes[unitKey];
+        }
+        const u = TW_UNITS[unitKey];
+        return u ? u.speed : 0;
+    }
+
+    // Tempo de viagem (segundos) — o exército viaja à velocidade da unidade mais lenta
+    function computeTwTravelSeconds(fromCoords, toCoords, army) {
+        if (!fromCoords || !toCoords) return 0;
+        const dist = calcDistance(fromCoords, toCoords);
+        if (!Number.isFinite(dist) || dist <= 0) return 0;
+        const a = normalizeTwArmy(army);
+        const keys = Object.keys(a);
+        if (!keys.length) return 0;
+        let slowest = 0;
+        keys.forEach(k => {
+            const sp = getTwUnitSpeedMinutes(k);
+            if (sp > slowest) slowest = sp;
+        });
+        if (slowest <= 0) return 0;
+        return Math.round(dist * slowest * 60);
+    }
+
+    // DD.MM.YYYY HH:MM:SS (formato usado no jogo)
+    function formatTwPlanDate(ms) {
+        const n = safeNumber(ms, 0);
+        if (!n) return '--';
+        const d = new Date(n);
+        const dd = String(d.getDate()).padStart(2, '0');
+        const mm = String(d.getMonth() + 1).padStart(2, '0');
+        const hh = String(d.getHours()).padStart(2, '0');
+        const mi = String(d.getMinutes()).padStart(2, '0');
+        const ss = String(d.getSeconds()).padStart(2, '0');
+        return `${dd}.${mm}.${d.getFullYear()} ${hh}:${mi}:${ss}`;
+    }
+
+    function formatTwPlanDuration(sec) {
+        const s = Math.max(0, Math.round(safeNumber(sec, 0)));
+        return `${String(Math.floor(s / 3600)).padStart(2, '0')}:${String(Math.floor((s % 3600) / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+    }
+
+    // Defesa necessária para sobreviver a TODAS as waves (não só à primeira)
+    function computeRequiredDefenseForWaves(targetAnalysis) {
+        const t = targetAnalysis;
+        if (!t || !t.heaviest || !Array.isArray(t.waves) || !t.waves.length) return null;
+
+        // 1. Se a defesa ATUAL já aguenta (ex: graças ao bónus noturno),
+        //    não é preciso reforço nenhum — o gap tem de ser 0.
+        const currentArmy = normalizeTwArmy(t.current || {});
+        if (Object.keys(currentArmy).length) {
+            const alreadyHolds = simulateSequentialWaves(currentArmy, t.waves, t.wallLevel, {});
+            if (alreadyHolds.survived) {
+                return {
+                    army: currentArmy,
+                    pop: twArmyPop(currentArmy),
+                    scale: 0,
+                    sim: alreadyHolds,
+                    alreadyHolds: true
+                };
+            }
+        }
+
+        const base = findMinDefenseToSurvive(t.heaviest.attackerArmy, t.wallLevel, { paladinWeapon: t.heaviest.paladinWeapon });
+        if (!base || !base.mixed) return null;
+
+        const mix = base.mixed;
+        let scale = 1;
+        for (let i = 0; i < 7; i++) {
+            const cand = {
+                spear: Math.ceil(mix.spear * scale),
+                sword: Math.ceil(mix.sword * scale),
+                archer: Math.ceil(mix.archer * scale)
+            };
+            const sim = simulateSequentialWaves(cand, t.waves, t.wallLevel, {});
+            if (sim.survived) {
+                return { army: cand, pop: cand.spear + cand.sword + cand.archer, scale, sim, alreadyHolds: false };
+            }
+            scale *= 1.25;
+        }
+        return { army: null, pop: Infinity, scale, sim: null, alreadyHolds: false };
+    }
+
+    // Gera as ordens de movimento: apoio onde dá para segurar, desvio onde não dá
+    function planDefenseMovements(targetAnalyses, reserves, opts) {
+        const o = opts || {};
+        const now = Date.now();
+        const bufferSec = Math.max(0, safeNumber(o.bufferSec, 90));
+
+        const list = Array.isArray(targetAnalyses) ? targetAnalyses : [];
+        const threatened = new Set(list.map(t => t.coords));
+        const donors = (reserves && Array.isArray(reserves.sources) ? reserves.sources : [])
+            .filter(s => s && s.village && s.village.coords && !threatened.has(s.village.coords))
+            .map(s => ({
+                village: s.village,
+                avail: {
+                    spear: safeNumber(s.give && s.give.spear, 0),
+                    sword: safeNumber(s.give && s.give.sword, 0),
+                    archer: safeNumber(s.give && s.give.archer, 0),
+                    heavy: safeNumber(s.give && s.give.heavy, 0)
+                }
+            }));
+
+        // Aldeias que caem e chegam primeiro têm prioridade máxima
+        const sorted = [...list].sort((a, b) => {
+            if (a.sequential.survived !== b.sequential.survived) return a.sequential.survived ? 1 : -1;
+            const ai = a.waves[0] ? a.waves[0].impactMs : Infinity;
+            const bi = b.waves[0] ? b.waves[0].impactMs : Infinity;
+            return ai - bi;
+        });
+
+        const orders = [];
+        const summary = [];
+
+        sorted.forEach(t => {
+            const firstImpact = t.waves[0] ? t.waves[0].impactMs : 0;
+            const label = t.village ? `${t.village.name} (${t.coords})` : `${t.name} (${t.coords})`;
+
+            const allWavesReq = computeRequiredDefenseForWaves(t);
+            const singleWaveReq = (t && t.heaviest)
+                ? findMinDefenseToSurvive(t.heaviest.attackerArmy, t.wallLevel, { paladinWeapon: t.heaviest.paladinWeapon })
+                : null;
+            // Alvo de defesa: sobreviver a todas as waves; se for impossível,
+            // mira-se pelo menos a wave mais pesada (para depois desviar se falhar).
+            const targetArmy = (allWavesReq && allWavesReq.army)
+                ? allWavesReq.army
+                : (singleWaveReq && singleWaveReq.mixed ? singleWaveReq.mixed : null);
+            const targetPop = (allWavesReq && allWavesReq.army)
+                ? allWavesReq.pop
+                : (singleWaveReq && singleWaveReq.mixed ? singleWaveReq.mixed.pop : 0);
+
+            const need = targetArmy
+                ? {
+                    spear: Math.max(0, targetArmy.spear - safeNumber(t.current.spear, 0)),
+                    sword: Math.max(0, targetArmy.sword - safeNumber(t.current.sword, 0)),
+                    archer: Math.max(0, targetArmy.archer - safeNumber(t.current.archer, 0))
+                }
+                : { spear: 0, sword: 0, archer: 0 };
+            const requiredPop = targetPop;
+
+            // Já aguenta sem reforço?
+            if (t.sequential.survived || (need.spear + need.sword + need.archer) <= 0) {
+                summary.push({
+                    target: t, label, decision: 'HOLD', supportOrders: [], dodgeOrder: null,
+                    requiredPop: requiredPop === Infinity ? 0 : requiredPop,
+                    currentPop: safeNumber(t.currentPop, 0),
+                    missingAfter: 0,
+                    reason: 'Defesa atual aguenta todas as waves conhecidas. Não mover nada.'
+                });
+                return;
+            }
+
+            // Tentar cobrir com apoio que chegue a tempo
+            const used = [];
+            const remaining = { ...need };
+            let rejectedByTime = 0;
+
+            const candidates = donors
+                .map(d => {
+                    const availPop = d.avail.spear + d.avail.sword + d.avail.archer;
+                    const dist = (d.village.coords && t.coords) ? calcDistance(d.village.coords, t.coords) : 999;
+                    return { d, availPop, dist };
+                })
+                .filter(c => c.availPop > 0 && Number.isFinite(c.dist))
+                .sort((a, b) => a.dist - b.dist);
+
+            for (const c of candidates) {
+                const remPop = remaining.spear + remaining.sword + remaining.archer;
+                if (remPop <= 0) break;
+
+                const send = {
+                    spear: Math.min(remaining.spear, c.d.avail.spear),
+                    sword: Math.min(remaining.sword, c.d.avail.sword),
+                    archer: Math.min(remaining.archer, c.d.avail.archer)
+                };
+                const sendPop = send.spear + send.sword + send.archer;
+                if (sendPop <= 0) continue;
+
+                const travelSec = computeTwTravelSeconds(c.d.village.coords, t.coords, send);
+                const latestDepartMs = firstImpact - (travelSec * 1000) - (bufferSec * 1000);
+                if (!(latestDepartMs > now)) { rejectedByTime++; continue; } // não chega a tempo
+
+                used.push({ donor: c.d, send, travelSec, dist: c.dist, latestDepartMs });
+                c.d.avail.spear -= send.spear;
+                c.d.avail.sword -= send.sword;
+                c.d.avail.archer -= send.archer;
+                remaining.spear -= send.spear;
+                remaining.sword -= send.sword;
+                remaining.archer -= send.archer;
+            }
+
+            const boosted = {
+                spear: safeNumber(t.current.spear, 0) + used.reduce((s, u) => s + u.send.spear, 0),
+                sword: safeNumber(t.current.sword, 0) + used.reduce((s, u) => s + u.send.sword, 0),
+                archer: safeNumber(t.current.archer, 0) + used.reduce((s, u) => s + u.send.archer, 0),
+                heavy: safeNumber(t.current.heavy, 0),
+                knight: safeNumber(t.current.knight, 0)
+            };
+            const verified = simulateSequentialWaves(boosted, t.waves, t.wallLevel, {});
+
+            if (verified.survived) {
+                const supportOrders = used.map(u => ({
+                    type: 'support',
+                    fromName: u.donor.village.name, fromCoords: u.donor.village.coords,
+                    toName: t.name, toCoords: t.coords,
+                    army: u.send, pop: u.send.spear + u.send.sword + u.send.archer,
+                    distance: u.dist, travelSec: u.travelSec,
+                    departAtMs: u.latestDepartMs,
+                    arriveAtMs: u.latestDepartMs + u.travelSec * 1000,
+                    impactMs: firstImpact,
+                    bufferSec
+                }));
+                orders.push(...supportOrders);
+                summary.push({
+                    target: t, label, decision: 'HOLD', supportOrders, dodgeOrder: null,
+                    requiredPop: requiredPop === Infinity ? 0 : requiredPop,
+                    currentPop: safeNumber(t.currentPop, 0),
+                    missingAfter: 0,
+                    reason: 'Reforço verificado por simulação: a aldeia aguenta todas as waves.'
+                });
+                return;
+            }
+
+            // Não dá para segurar → devolver tropas ao pool e desviar
+            used.forEach(u => {
+                u.donor.avail.spear += u.send.spear;
+                u.donor.avail.sword += u.send.sword;
+                u.donor.avail.archer += u.send.archer;
+            });
+
+            let dodgeOrder = null;
+            const home = (t.village && t.village.homeTroopsDict) || {};
+            const ownTroops = normalizeTwArmy({
+                spear: home.spear, sword: home.sword, archer: home.archer,
+                heavy: home.heavy, knight: home.knight
+            });
+            const ownPop = twArmyPop(ownTroops);
+
+            if (ownPop > 0) {
+                const safeDests = (Array.isArray(allVillages) ? allVillages : [])
+                    .filter(v => v && v.coords && v.coords !== t.coords && !threatened.has(v.coords))
+                    .map(v => ({ v, dist: calcDistance(t.coords, v.coords) }))
+                    .filter(x => Number.isFinite(x.dist))
+                    .sort((a, b) => a.dist - b.dist);
+
+                if (safeDests.length) {
+                    const dest = safeDests[0];
+                    const travelSec = computeTwTravelSeconds(t.coords, dest.v.coords, ownTroops);
+                    const latestDepartMs = firstImpact - (travelSec * 1000) - (bufferSec * 1000);
+                    dodgeOrder = {
+                        type: 'dodge',
+                        fromName: t.name, fromCoords: t.coords,
+                        toName: dest.v.name, toCoords: dest.v.coords,
+                        army: ownTroops, pop: ownPop,
+                        distance: dest.dist, travelSec,
+                        departAtMs: latestDepartMs,
+                        arriveAtMs: latestDepartMs + travelSec * 1000,
+                        impactMs: firstImpact,
+                        feasible: latestDepartMs > now,
+                        bufferSec
+                    };
+                    orders.push(dodgeOrder);
+                }
+            }
+
+            const missingAfter = remaining.spear + remaining.sword + remaining.archer;
+            summary.push({
+                target: t, label, decision: 'DODGE', supportOrders: [], dodgeOrder,
+                requiredPop: requiredPop === Infinity ? 0 : requiredPop,
+                currentPop: safeNumber(t.currentPop, 0),
+                missingAfter,
+                rejectedByTime,
+                reason: rejectedByTime > 0 && !used.length
+                    ? `Nenhum reforço consegue chegar antes do impacto (${rejectedByTime} aldeia(s) longe demais). Desviar ${ownPop} pop para preservar a defesa.`
+                    : ownPop > 0
+                        ? `Impossível segurar. Desviar ${ownPop} pop antes do impacto para preservar a defesa.`
+                        : 'Impossível segurar e não há tropas em casa para desviar.'
+            });
+        });
+
+        return { orders, summary, bufferSec, generatedAt: now };
+    }
+
+    // Plano russo: lista cronológica com horários exatos
+    function buildDefenseRussianPlan(plan, targetAnalyses, ctx) {
+        const L = [];
+        const summary = (plan && plan.summary) || [];
+
+        L.push('================================================');
+        L.push(' PLANO DE DEFESA - MOVIMENTACOES NECESSARIAS');
+        L.push(' Gerado: ' + formatTwPlanDate(plan && plan.generatedAt ? plan.generatedAt : Date.now()));
+        L.push(' Ataques a chegar: ' + ((ctx && ctx.totalThreats) || 0) + ' | Aldeias alvo: ' + (targetAnalyses || []).length);
+        L.push('================================================');
+        L.push('');
+
+        const holds = summary.filter(s => s.decision === 'HOLD' && s.supportOrders.length > 0);
+        const pure = summary.filter(s => s.decision === 'HOLD' && s.supportOrders.length === 0);
+        const dodges = summary.filter(s => s.decision === 'DODGE');
+
+        if (pure.length) {
+            L.push('--- JA SEGURAM (NAO MOVER NADA) ---');
+            pure.forEach(s => L.push('  OK  ' + s.label + '  ->  ' + s.reason));
+            L.push('');
+        }
+
+        if (holds.length) {
+            L.push('--- REFORCOS A ENVIAR ---');
+            holds.forEach(s => {
+                L.push('');
+                L.push('>>> ALVO: ' + s.label);
+                L.push('    Impacto previsto: ' + formatTwPlanDate(s.target.waves[0] ? s.target.waves[0].impactMs : 0));
+                L.push('    Defesa atual: ' + s.currentPop + ' pop | Defesa ideal: ' + s.requiredPop + ' pop');
+                s.supportOrders.forEach((o, i) => {
+                    L.push('    [' + (i + 1) + '] APOIO  ' + o.fromName + ' (' + o.fromCoords + ')  ->  ' + o.toName + ' (' + o.toCoords + ')');
+                    L.push('        Tropas:     ' + twArmyLabel(o.army, { limit: 6 }) + '  = ' + o.pop + ' pop');
+                    L.push('        Distancia:  ' + o.distance.toFixed(1) + ' campos');
+                    L.push('        Viagem:     ' + formatTwPlanDuration(o.travelSec));
+                    L.push('        ENVIAR AS:  ' + formatTwPlanDate(o.departAtMs) + '  (ultimo momento seguro)');
+                    L.push('        CHEGADA:    ' + formatTwPlanDate(o.arriveAtMs));
+                    L.push('        IMPACTO:    ' + formatTwPlanDate(o.impactMs));
+                    L.push('        Margem:     ' + o.bufferSec + 's antes do impacto');
+                });
+            });
+            L.push('');
+        }
+
+        if (dodges.length) {
+            L.push('--- ALDEIAS QUE CAEM: DESVIAR TROPAS ---');
+            dodges.forEach(s => {
+                L.push('');
+                L.push('>>> ' + s.label + '  (IMPOSSIVEL SEGURAR)');
+                L.push('    ' + s.reason);
+                const d = s.dodgeOrder;
+                if (d) {
+                    L.push('    DESVIO  ' + d.fromName + ' (' + d.fromCoords + ')  ->  ' + d.toName + ' (' + d.toCoords + ')');
+                    L.push('        Tropas:     ' + twArmyLabel(d.army, { limit: 6 }) + '  = ' + d.pop + ' pop');
+                    L.push('        Distancia:  ' + d.distance.toFixed(1) + ' campos');
+                    L.push('        Viagem:     ' + formatTwPlanDuration(d.travelSec));
+                    L.push('        ENVIAR AS:  ' + formatTwPlanDate(d.departAtMs) + (d.feasible ? '  (viavel)' : '  <<< TARDE DEMAIS - ENVIAR JA'));
+                    L.push('        CHEGADA:    ' + formatTwPlanDate(d.arriveAtMs));
+                    L.push('        IMPACTO:    ' + formatTwPlanDate(d.impactMs));
+                } else {
+                    L.push('    Sem destino seguro proximo ou sem tropas em casa para desviar.');
+                }
+            });
+            L.push('');
+        }
+
+        if (!summary.length) {
+            L.push('Nenhuma movimentacao necessaria no momento.');
+            L.push('');
+        }
+
+        L.push('------------------------------------------------');
+        L.push(' NOTAS');
+        L.push(' - O horario indicado e o ULTIMO momento seguro de envio.');
+        L.push(' - Apoio que chegue depois do impacto e perdido sem efeito.');
+        L.push(' - Aldeias que caem: retirar tropas preserva a defesa para reconquista.');
+        L.push(' - Base: stats oficiais, muralha por nivel, buff de paladino, bonus noturno.');
+        L.push('------------------------------------------------');
+
+        return L.join('\n');
+    }
+
+    // BBCode para fórum / mensagens internas do Tribal Wars
+    function buildDefenseBbCode(plan, targetAnalyses, ctx) {
+        const summary = (plan && plan.summary) || [];
+        const B = [];
+
+        B.push('[b]PLANO DE DEFESA - MOVIMENTACOES NECESSARIAS[/b]');
+        B.push('Gerado: ' + formatTwPlanDate(plan && plan.generatedAt ? plan.generatedAt : Date.now()));
+        B.push('Ataques a chegar: [b]' + ((ctx && ctx.totalThreats) || 0) + '[/b] | Aldeias alvo: [b]' + (targetAnalyses || []).length + '[/b]');
+        B.push('');
+
+        const allSupport = [];
+        summary.forEach(s => (s.supportOrders || []).forEach(o => allSupport.push(o)));
+
+        if (allSupport.length) {
+            B.push('[b][color=#2ecc71]REFORCOS A ENVIAR[/color][/b]');
+            B.push('[table]');
+            B.push('[**][b]Alvo[/b][||][b]Origem[/b][||][b]Tropas[/b][||][b]Enviar as[/b][||][b]Chegada[/b][||][b]Impacto[/b]');
+            allSupport.forEach(o => {
+                B.push('[*]' + o.toName + ' (' + o.toCoords + ')'
+                    + '[|]' + o.fromName + ' (' + o.fromCoords + ')'
+                    + '[|]' + twArmyLabel(o.army, { limit: 3 })
+                    + '[|][b]' + formatTwPlanDate(o.departAtMs) + '[/b]'
+                    + '[|]' + formatTwPlanDate(o.arriveAtMs)
+                    + '[|]' + formatTwPlanDate(o.impactMs));
+            });
+            B.push('[/table]');
+            B.push('');
+        }
+
+        const dodges = summary.filter(s => s.decision === 'DODGE');
+        if (dodges.length) {
+            B.push('[b][color=#e67e22]ALDEIAS QUE CAEM - DESVIAR TROPAS[/color][/b]');
+            B.push('[table]');
+            B.push('[**][b]Aldeia[/b][||][b]Desviar para[/b][||][b]Tropas[/b][||][b]Enviar as[/b][||][b]Impacto[/b]');
+            dodges.forEach(s => {
+                const d = s.dodgeOrder;
+                const impactMs = s.target.waves[0] ? s.target.waves[0].impactMs : 0;
+                if (!d) {
+                    B.push('[*]' + s.label + '[|][i]sem destino disponivel[/i][|]-[|]-[|]' + formatTwPlanDate(impactMs));
+                    return;
+                }
+                B.push('[*]' + d.fromName + ' (' + d.fromCoords + ')'
+                    + '[|]' + d.toName + ' (' + d.toCoords + ')'
+                    + '[|]' + twArmyLabel(d.army, { limit: 3 })
+                    + '[|][b]' + formatTwPlanDate(d.departAtMs) + '[/b]'
+                    + '[|]' + formatTwPlanDate(d.impactMs));
+            });
+            B.push('[/table]');
+            B.push('');
+        }
+
+        const holds = summary.filter(s => s.decision === 'HOLD');
+        if (holds.length) {
+            B.push('[b][color=#3498db]ESTADO POR ALDEIA[/color][/b]');
+            B.push('[table]');
+            B.push('[**][b]Aldeia[/b][||][b]Decisao[/b][||][b]Defesa atual[/b][||][b]Defesa ideal[/b]');
+            holds.forEach(s => {
+                B.push('[*]' + s.label
+                    + '[|][color=#2ecc71][b]AGUENTA[/b][/color]'
+                    + '[|]' + s.currentPop + ' pop'
+                    + '[|]' + s.requiredPop + ' pop');
+            });
+            B.push('[/table]');
+            B.push('');
+        }
+
+        B.push('[i]Horarios no fuso do servidor. "Enviar as" e o ultimo momento seguro.[/i]');
+        return B.join('\n');
+    }
+
+    // =========================================================================
+    // RENDER: DEFESA IA COM SIMULAÇÃO DE COMBATE
+    // =========================================================================
+    // Estima um trem de nobres (muito menor que um nuke)
+    function estimateNobleTrainComposition(opts) {
+        const o = opts || {};
+        const nobles = Math.max(1, safeNumber(o.nobles, 4));
+        const army = {
+            snob: nobles,
+            axe: Math.max(0, safeNumber(o.escortAxe, 1200)),
+            light: Math.max(0, safeNumber(o.escortLight, 400))
+        };
+        return {
+            army,
+            militaryPop: twArmyPop(army),
+            paladinWeapon: 'none',
+            paladinLabel: '— (trem de nobres)'
+        };
+    }
+
+    // Simulação sequencial: cada wave consome a defesa que sobrou da anterior
+    function simulateSequentialWaves(defenderArmy, waves, wallLevel, opts) {
+        const o = opts || {};
+        let def = normalizeTwArmy(defenderArmy);
+        const steps = [];
+        const sorted = [...(Array.isArray(waves) ? waves : [])]
+            .sort((a, b) => safeNumber(a.impactMs, 0) - safeNumber(b.impactMs, 0));
+
+        for (let i = 0; i < sorted.length; i++) {
+            const w = sorted[i];
+            const before = { ...def };
+            const sim = simulateTwBattle(w.attackerArmy, before, wallLevel, {
+                paladinWeapon: w.paladinWeapon,
+                nightBonus: safeNumber(w.nightBonus, o.nightBonus || 0)
+            });
+            def = sim.defenderSurvivors;
+
+            const troopLoss = {};
+            Object.keys(before).forEach(k => {
+                const lost = before[k] - (def[k] || 0);
+                if (lost > 0) troopLoss[k] = lost;
+            });
+
+            steps.push({ wave: w, sim, defBefore: before, defAfter: def, troopLoss, holds: !sim.attackerWins });
+        }
+
+        return {
+            steps,
+            survived: steps.length > 0 && steps.every(s => s.holds),
+            finalDefense: def,
+            wavesCount: steps.length
+        };
+    }
+
+    // Constrói a lista de waves (ataques) que chegam a uma aldeia.
+    // Regra realista: o 1º ataque é o nuke (limpa a defesa); os nobres vêm depois.
+    // Um ataque com nobre que chega DEPOIS de um nuke é tratado como trem de nobres.
+    function buildWavesForTarget(threats) {
+        const list = (Array.isArray(threats) ? threats : [])
+            .slice()
+            .sort((a, b) => getDefenseCommandTimeMs(a) - getDefenseCommandTimeMs(b));
+
+        let nukeAssigned = false;
+
+        return list.map(t => {
+            const originPoints = (t.originVillage && t.originVillage.points) || 0;
+            const isTrain = !!t.hasSnob && nukeAssigned;
+            if (!isTrain) nukeAssigned = true;
+
+            const est = isTrain
+                ? estimateNobleTrainComposition({ nobles: 4 })
+                : estimateNukeComposition(originPoints, {
+                    hasSnob: !!t.hasSnob,
+                    hasPaladin: true,
+                    paladinWeapon: 'axe'
+                });
+
+            return {
+                impactMs: getDefenseCommandTimeMs(t),
+                attackerArmy: est.army,
+                paladinWeapon: est.paladinWeapon,
+                paladinLabel: est.paladinLabel,
+                estimatedPop: est.militaryPop,
+                isTrain,
+                hasSnob: !!t.hasSnob,
+                originPoints,
+                threat: t,
+                nightBonus: getTwNightBonusMultiplier(getDefenseCommandTimeMs(t))
+            };
+        });
+    }
+
+    function renderDefensePlanner() {
+        const incomingThreats = collectDefenseThreats();
+        const ctx = analyzeDefenseThreatContext(incomingThreats);
+        const threatRows = ctx.threats || [];
+        const clusters = groupDefenseArrivalClusters(threatRows);
+        const combos = detectDefenseComboAlerts(clusters);
+
+        // ---- Agrupar por aldeia alvo (o que importa para defesa) ----
+        const targetMap = new Map();
+        threatRows.forEach(t => {
+            const key = t.targetCoords || 'unknown';
+            if (!targetMap.has(key)) targetMap.set(key, { coords: key, village: t.targetVillage, threats: [] });
+            targetMap.get(key).threats.push(t);
+        });
+
+        const targetAnalyses = [];
+        targetMap.forEach(entry => {
+            const waves = buildWavesForTarget(entry.threats);
+            if (!waves.length) return;
+
+            const village = entry.village;
+            const wallLevel = village ? safeNumber(village.wall, 20) || 20 : 20;
+
+            const current = {
+                spear: safeNumber(village && village.homeTroopsDict && village.homeTroopsDict.spear, 0),
+                sword: safeNumber(village && village.homeTroopsDict && village.homeTroopsDict.sword, 0),
+                archer: safeNumber(village && village.homeTroopsDict && village.homeTroopsDict.archer, 0),
+                heavy: safeNumber(village && village.homeTroopsDict && village.homeTroopsDict.heavy, 0),
+                knight: safeNumber(village && village.homeTroopsDict && village.homeTroopsDict.knight, 0)
+            };
+
+            const sequential = simulateSequentialWaves(current, waves, wallLevel, {});
+
+            // Wave mais pesada = o pior combate individual
+            let heaviest = waves[0];
+            let heaviestOff = 0;
+            waves.forEach(w => {
+                const off = computeTwOffenseSplit(w.attackerArmy, w.paladinWeapon).total;
+                if (off > heaviestOff) { heaviestOff = off; heaviest = w; }
+            });
+
+            const needWall = findMinDefenseToSurvive(heaviest.attackerArmy, wallLevel, { paladinWeapon: heaviest.paladinWeapon });
+            const needNoWall = findMinDefenseToSurvive(heaviest.attackerArmy, 0, { paladinWeapon: heaviest.paladinWeapon });
+            const required = needWall && needWall.mixed ? needWall.mixed : null;
+            const allWavesNeed = computeRequiredDefenseForWaves({ heaviest, wallLevel, waves, current });
+
+            // Se aguentar TODAS as waves é impossível, usar o requisito da wave mais
+            // pesada como referência (nunca deixar o gap a 0 — isso diria "não mover").
+            const allWavesImpossible = !(allWavesNeed && allWavesNeed.army);
+            const baselineArmy = (allWavesNeed && allWavesNeed.army) ? allWavesNeed.army : required;
+            const baselinePop = (allWavesNeed && allWavesNeed.army)
+                ? allWavesNeed.pop
+                : (required ? required.pop : 0);
+            const allWavesGap = baselineArmy
+                ? {
+                    spear: Math.max(0, baselineArmy.spear - current.spear),
+                    sword: Math.max(0, baselineArmy.sword - current.sword),
+                    archer: Math.max(0, baselineArmy.archer - current.archer)
+                }
+                : { spear: 0, sword: 0, archer: 0 };
+            const allWavesGapPop = allWavesGap.spear + allWavesGap.sword + allWavesGap.archer;
+
+            const gap = { spear: 0, sword: 0, archer: 0 };
+            if (required) {
+                gap.spear = Math.max(0, required.spear - current.spear);
+                gap.sword = Math.max(0, required.sword - current.sword);
+                gap.archer = Math.max(0, required.archer - current.archer);
+            }
+
+            const currentOff = computeTwOffenseSplit(heaviest.attackerArmy, heaviest.paladinWeapon).total;
+            const currentPower = computeTwDefensePower(current, computeTwOffenseSplit(heaviest.attackerArmy, heaviest.paladinWeapon), getTwWallFactor(wallLevel)).effective;
+
+            targetAnalyses.push({
+                coords: entry.coords,
+                village,
+                name: village ? village.name : (entry.threats[0].targetName || entry.coords),
+                wallLevel,
+                waves,
+                heaviest,
+                heaviestOff: Math.round(heaviestOff),
+                current,
+                currentPop: twArmyPop(current),
+                currentPower: Math.round(currentPower),
+                sequential,
+                needWall,
+                needNoWall,
+                required,
+                withoutWallRequired: needNoWall && needNoWall.mixed ? needNoWall.mixed : null,
+                allWavesNeed,
+                allWavesImpossible,
+                allWavesGap,
+                allWavesGapPop,
+                bestUnit: needWall ? needWall.best : null,
+                gap,
+                gapPop: gap.spear + gap.sword + gap.archer,
+                coveragePct: heaviestOff > 0 ? Math.round(Math.min(100, (currentPower / heaviestOff) * 100)) : 100,
+                hasNoble: entry.threats.some(x => x.hasSnob),
+                playerName: entry.threats[0].playerName
+            });
+        });
+
+        targetAnalyses.sort((a, b) => (b.sequential.survived ? 0 : 1) - (a.sequential.survived ? 0 : 1) || a.coveragePct - b.coveragePct);
+
+        // ---- Reservas reais disponíveis (aldeias fora de perigo) ----
+        const threatenedCoords = new Set(targetAnalyses.map(t => t.coords));
+        const reserves = collectDefenseReserves(threatenedCoords);
+        const bunker = buildMultiBunkerAllocation(
+            targetAnalyses.map(t => ({
+                gap: t.allWavesGap || { spear: 0, sword: 0, archer: 0 },
+                gapPop: t.allWavesGapPop || 0,
+                coveragePct: t.coveragePct,
+                simNow: { offenseTotal: t.heaviestOff, defenseTotal: t.currentPower },
+                village: t.village
+            })),
+            { available: reserves.pool }
+        );
+        const movements = planDefenseMovements(targetAnalyses, reserves, {});
+
+        const atRisk = targetAnalyses.filter(t => !t.sequential.survived);
+        const holds = targetAnalyses.filter(t => t.sequential.survived);
+        const totalGapPop = targetAnalyses.reduce((s, t) => s + (t.allWavesGapPop || 0), 0);
+
+        // ===== BLOCOS DE UI =====
+        const comboBanner = combos.length ? `
+            <div style="padding:10px 12px; border:1px solid #ef4444; border-radius:8px; background:linear-gradient(90deg, rgba(239,68,68,0.18) 0%, rgba(15,23,42,0.9) 100%);">
+                <div style="display:flex; align-items:center; gap:8px; margin-bottom:6px;">
+                    <span style="font-size:14px;">🚨</span>
+                    <span style="font-weight:bold; color:#fca5a5; font-size:12px;">ALERTA DE COMBO</span>
+                    <span style="font-size:10px; color:#94a3b8;">${combos.length} janela(s) de pressão concentrada</span>
+                </div>
+                ${combos.slice(0, 3).map(c => `
+                    <div style="font-size:11px; color:#e2e8f0; padding:5px 0; border-top:1px dashed rgba(148,163,184,0.25);">
+                        <b style="color:${c.severity === 'CRÍTICO' ? '#fca5a5' : c.severity === 'ALTO' ? '#fbbf24' : '#7dd3fc'};">[${c.severity}]</b>
+                        ${escapeHtml(c.label)} — <b>${c.count}</b> ataques • ${c.targets.length} alvo(s)
+                        <div style="color:#94a3b8; font-size:10px; margin-top:2px;">${escapeHtml(c.hint)}</div>
+                    </div>
+                `).join('')}
+            </div>
+        ` : '';
+
+        const targetCards = targetAnalyses.length ? targetAnalyses.map(t => {
+            const wavesLabel = t.waves.map(w => twArmyLabel(w.attackerArmy, { limit: 4 })).join('  ➜  ');
+            const weapon = TW_PALADIN_WEAPONS[t.heaviest.paladinWeapon];
+            const buffText = (weapon && weapon.unit && weapon.off && TW_UNITS[weapon.unit])
+                ? ` (+${Math.round(weapon.off * 100)}% ${TW_UNITS[weapon.unit].name})`
+                : ' (sem buff de unidade)';
+            const totalAtkLabel = twArmyLabel(t.heaviest.attackerArmy);
+            const currentLabel = twArmyLabel(t.current, { limit: 4 });
+            const needLabel = t.required
+                ? `${t.required.spear.toLocaleString('pt-PT')} lanceiros + ${t.required.sword.toLocaleString('pt-PT')} espadachins + ${t.required.archer.toLocaleString('pt-PT')} arqueiros`
+                : '—';
+            const noWallLabel = t.withoutWallRequired
+                ? `${t.withoutWallRequired.spear.toLocaleString('pt-PT')} lanceiros + ${t.withoutWallRequired.sword.toLocaleString('pt-PT')} espadachins + ${t.withoutWallRequired.archer.toLocaleString('pt-PT')} arqueiros`
+                : '—';
+            const allWavesLabel = (t.allWavesNeed && t.allWavesNeed.army)
+                ? `${t.allWavesNeed.army.spear.toLocaleString('pt-PT')} lanceiros + ${t.allWavesNeed.army.sword.toLocaleString('pt-PT')} espadachins + ${t.allWavesNeed.army.archer.toLocaleString('pt-PT')} arqueiros = ${t.allWavesNeed.pop.toLocaleString('pt-PT')} pop`
+                : 'impossível de segurar (nem com toda a defesa disponível)';
+            const gapLabel = t.gapPop > 0
+                ? `${t.gap.spear.toLocaleString('pt-PT')} lanceiros + ${t.gap.sword.toLocaleString('pt-PT')} espadachins + ${t.gap.archer.toLocaleString('pt-PT')} arqueiros`
+                : 'nada — já aguenta';
+
+            const verdict = t.sequential.survived ? 'AGUENTA' : 'CAI';
+            const verdictColor = t.sequential.survived ? '#34d399' : '#fca5a5';
+            const verdictBg = t.sequential.survived ? 'rgba(16,185,129,0.12)' : 'rgba(239,68,68,0.15)';
+
+            const waveRows = t.waves.map((w, i) => {
+                const step = t.sequential.steps[i];
+                if (!step) return '';
+                const off = computeTwOffenseSplit(w.attackerArmy, w.paladinWeapon).total;
+                const holdsTxt = step.holds ? '✅ sobrevives' : '❌ perdes a aldeia';
+                const kindTxt = w.isTrain ? '👑 trem de nobres' : '💥 nuke';
+                return `
+                    <div style="display:flex; justify-content:space-between; gap:8px; padding:4px 0; border-top:1px solid rgba(148,163,184,0.15); font-size:10px;">
+                        <span style="color:#94a3b8;">Wave ${i + 1} • ${w.impactMs ? formatShortTime(w.impactMs) : '—'} • ${kindTxt}${w.nightBonus ? ' 🌙' : ''}</span>
+                        <span style="color:#cbd5e1;">ofensiva <b style="color:#fca5a5;">${Math.round(off).toLocaleString('pt-PT')}</b> vs defesa <b style="color:#7dd3fc;">${Math.round(step.sim.defenseTotal).toLocaleString('pt-PT')}</b></span>
+                        <span style="color:${step.holds ? '#34d399' : '#fca5a5'}; font-weight:bold;">${holdsTxt}</span>
+                    </div>
+                `;
+            }).join('');
+
+            const lossLabel = (() => {
+                const last = t.sequential.steps[t.sequential.steps.length - 1];
+                if (!last) return '—';
+                const lost = Object.keys(t.sequential.steps.reduce((acc, s) => { Object.keys(s.troopLoss).forEach(k => acc[k] = true); return acc; }, {}))
+                    .map(k => `${TW_UNITS[k] ? TW_UNITS[k].name : k}: ${t.sequential.steps.reduce((s2, s) => s2 + (s.troopLoss[k] || 0), 0).toLocaleString('pt-PT')}`);
+                return lost.length ? lost.join(' • ') : 'sem perdas';
+            })();
+
+            return `
+                <div style="padding:11px 13px; border:1px solid ${t.sequential.survived ? 'rgba(16,185,129,0.35)' : 'rgba(239,68,68,0.45)'}; border-radius:9px; background:rgba(9,14,26,0.95); margin-bottom:9px;">
+                    <div style="display:flex; justify-content:space-between; gap:10px; align-items:flex-start; flex-wrap:wrap; margin-bottom:7px;">
+                        <div>
+                            <div style="font-weight:bold; color:#f8fafc; font-size:13.5px;">${escapeHtml(t.name)} <span style="color:#64748b; font-weight:400; font-size:11px;">(${escapeHtml(t.coords)})</span></div>
+                            <div style="font-size:10.5px; color:#94a3b8; margin-top:2px;">
+                                ${t.waves.length} ataque(s) • muralha <b style="color:#fbbf24;">nível ${t.wallLevel}</b>${t.hasNoble ? ' • <b style="color:#c084fc;">👑 nobres</b>' : ''} • atacante ${escapeHtml(t.playerName)}
+                            </div>
+                        </div>
+                        <div style="display:flex; align-items:center; gap:7px;">
+                            <span style="padding:3px 10px; border-radius:999px; font-size:10.5px; font-weight:bold; background:${verdictBg}; color:${verdictColor}; border:1px solid ${verdictColor};">${verdict}</span>
+                            <span style="padding:3px 9px; border-radius:999px; font-size:10.5px; font-weight:bold; background:rgba(56,189,248,0.12); color:#7dd3fc; border:1px solid rgba(56,189,248,0.3);">${t.coveragePct}%</span>
+                        </div>
+                    </div>
+
+                    <div style="background:rgba(2,6,23,0.7); border-radius:6px; padding:8px 10px; margin-bottom:7px;">
+                        <div style="font-size:10px; color:#fca5a5; font-weight:700; text-transform:uppercase; letter-spacing:0.04em; margin-bottom:4px;">⚔️ Nuke inimigo estimado (por wave)</div>
+                        <div style="font-size:11px; color:#e2e8f0; line-height:1.6;">${escapeHtml(wavesLabel)}</div>
+                        <div style="font-size:10px; color:#94a3b8; margin-top:4px;">
+                            Poder ofensivo da wave mais pesada: <b style="color:#fca5a5;">${t.heaviestOff.toLocaleString('pt-PT')}</b>
+                            • composição: ${escapeHtml(totalAtkLabel)}
+                        </div>
+                        <div style="font-size:10px; color:#c084fc; margin-top:3px;">
+                            ⚔️ Buff estimado: ${escapeHtml(t.heaviest.paladinLabel)}${escapeHtml(buffText)}
+                        </div>
+                    </div>
+
+                    <div style="background:rgba(2,6,23,0.7); border-radius:6px; padding:8px 10px; margin-bottom:7px;">
+                        <div style="font-size:10px; color:#7dd3fc; font-weight:700; text-transform:uppercase; letter-spacing:0.04em; margin-bottom:4px;">🛡️ A tua defesa agora</div>
+                        <div style="font-size:11px; color:#e2e8f0;">${escapeHtml(currentLabel)}</div>
+                        <div style="font-size:10px; color:#94a3b8; margin-top:4px;">Poder defensivo efetivo: <b style="color:#7dd3fc;">${t.currentPower.toLocaleString('pt-PT')}</b> (muralha ${t.wallLevel} aplicada)</div>
+                        <div style="font-size:10px; color:#fbbf24; margin-top:3px;">Baixas previstas nas ${t.waves.length} wave(s): ${escapeHtml(lossLabel)}</div>
+                    </div>
+
+                    <div style="background:rgba(2,6,23,0.7); border-radius:6px; padding:8px 10px; margin-bottom:7px;">
+                        <div style="font-size:10px; color:#34d399; font-weight:700; text-transform:uppercase; letter-spacing:0.04em; margin-bottom:4px;">🎯 Defesa ideal para aguentar</div>
+                        <div style="font-size:11px; color:#e2e8f0; line-height:1.6;">
+                            <b>Muralha ${t.wallLevel} intacta:</b> ${escapeHtml(needLabel)}<br>
+                            <span style="color:#94a3b8;"><b>Se os aríetes derrubarem a muralha:</b> ${escapeHtml(noWallLabel)}</span><br>
+                            <b style="color:#c084fc;">Para aguentar TODAS as ${t.waves.length} waves:</b> ${escapeHtml(allWavesLabel)}
+                        </div>
+                        <div style="font-size:11px; margin-top:6px; color:${t.gapPop > 0 ? '#fca5a5' : '#34d399'}; font-weight:bold;">
+                            ${t.gapPop > 0 ? `➜ FALTAM: ${escapeHtml(gapLabel)}` : '➜ Defesa suficiente. Não precisas de mover tropas.'}
+                        </div>
+                        ${t.bestUnit ? `<div style="font-size:10px; color:#94a3b8; margin-top:4px;">Unidade mais eficiente contra esta composição: <b style="color:#a5f3fc;">${escapeHtml(t.bestUnit.name)}</b> (${t.bestUnit.unitPower.toFixed(1)} def/pop)</div>` : ''}
+                    </div>
+
+                    <div style="background:rgba(2,6,23,0.55); border-radius:6px; padding:6px 10px;">
+                        <div style="font-size:10px; color:#94a3b8; font-weight:700; text-transform:uppercase; letter-spacing:0.04em; margin-bottom:2px;">Simulação wave a wave</div>
+                        ${waveRows}
+                    </div>
+                </div>
+            `;
+        }).join('') : `<div style="padding:30px; text-align:center; color:#94a3b8;">Nenhum ataque inimigo a chegar. Sem simulação para fazer.</div>`;
+
+        const movementRows = (movements.summary || []).length ? movements.summary.map(s => {
+            if (s.decision === 'HOLD' && s.supportOrders.length === 0) {
+                return `
+                    <div style="padding:7px 10px; border-left:3px solid #34d399; border-radius:5px; background:rgba(15,23,42,0.8); margin-bottom:5px;">
+                        <div style="display:flex; justify-content:space-between; gap:6px; align-items:center; flex-wrap:wrap;">
+                            <span style="font-size:11px; color:#f8fafc; font-weight:700;">${escapeHtml(s.label)}</span>
+                            <span style="font-size:9.5px; font-weight:bold; padding:2px 8px; border-radius:999px; background:rgba(2,6,23,0.8); color:#34d399; border:1px solid #34d399;">NÃO MOVER</span>
+                        </div>
+                        <div style="font-size:9.5px; color:#94a3b8; margin-top:3px;">${escapeHtml(s.reason)}</div>
+                    </div>
+                `;
+            }
+
+            if (s.decision === 'DODGE') {
+                const d = s.dodgeOrder;
+                return `
+                    <div style="padding:8px 10px; border-left:3px solid #fb923c; border-radius:5px; background:rgba(30,15,10,0.7); margin-bottom:6px;">
+                        <div style="display:flex; justify-content:space-between; gap:6px; align-items:center; flex-wrap:wrap;">
+                            <span style="font-size:11px; color:#f8fafc; font-weight:700;">${escapeHtml(s.label)}</span>
+                            <span style="font-size:9.5px; font-weight:bold; padding:2px 8px; border-radius:999px; background:rgba(2,6,23,0.8); color:#fb923c; border:1px solid #fb923c;">DESVIAR</span>
+                        </div>
+                        <div style="font-size:9.5px; color:#fdba74; margin-top:3px;">${escapeHtml(s.reason)}</div>
+                        ${d ? `
+                            <div style="font-size:10px; color:#cbd5e1; margin-top:5px; line-height:1.6;">
+                                <div>📤 <b>${escapeHtml(d.toName)}</b> (${escapeHtml(d.toCoords)}) • ${d.distance.toFixed(1)}c • viagem ${formatTwPlanDuration(d.travelSec)}</div>
+                                <div style="color:#e2e8f0;">${escapeHtml(twArmyLabel(d.army, { limit: 4 }))} = ${d.pop.toLocaleString('pt-PT')} pop</div>
+                                <div style="color:${d.feasible ? '#fbbf24' : '#fca5a5'}; font-weight:bold; margin-top:3px;">
+                                    ENVIAR AS ${formatTwPlanDate(d.departAtMs)} ${d.feasible ? '' : '⬅ JÁ TARDE'}
+                                </div>
+                                <div style="color:#64748b;">Impacto: ${formatTwPlanDate(d.impactMs)}</div>
+                            </div>
+                        ` : '<div style="font-size:9.5px; color:#fca5a5; margin-top:3px;">Sem destino seguro disponível.</div>'}
+                    </div>
+                `;
+            }
+
+            const orders = s.supportOrders.map((o, i) => `
+                <div style="margin-top:5px; padding-top:5px; border-top:1px dashed rgba(148,163,184,0.2);">
+                    <div style="font-size:10px; color:#cbd5e1; line-height:1.6;">
+                        <div>📤 <b>${escapeHtml(o.fromName)}</b> (${escapeHtml(o.fromCoords)}) • ${o.distance.toFixed(1)}c • viagem ${formatTwPlanDuration(o.travelSec)}</div>
+                        <div style="color:#e2e8f0;">${escapeHtml(twArmyLabel(o.army, { limit: 4 }))} = ${o.pop.toLocaleString('pt-PT')} pop</div>
+                        <div style="color:#38bdf8; font-weight:bold; margin-top:3px;">ENVIAR AS ${formatTwPlanDate(o.departAtMs)}</div>
+                        <div style="color:#64748b;">Chega ${formatTwPlanDate(o.arriveAtMs)} • Impacto ${formatTwPlanDate(o.impactMs)}</div>
+                    </div>
+                </div>
+            `).join('');
+
+            return `
+                <div style="padding:8px 10px; border-left:3px solid #38bdf8; border-radius:5px; background:rgba(15,23,42,0.85); margin-bottom:6px;">
+                    <div style="display:flex; justify-content:space-between; gap:6px; align-items:center; flex-wrap:wrap;">
+                        <span style="font-size:11px; color:#f8fafc; font-weight:700;">${escapeHtml(s.label)}</span>
+                        <span style="font-size:9.5px; font-weight:bold; padding:2px 8px; border-radius:999px; background:rgba(2,6,23,0.8); color:#38bdf8; border:1px solid #38bdf8;">REFORÇAR (${s.supportOrders.length})</span>
+                    </div>
+                    <div style="font-size:9.5px; color:#94a3b8; margin-top:3px;">Defesa atual ${s.currentPop.toLocaleString('pt-PT')} pop → ideal ${s.requiredPop.toLocaleString('pt-PT')} pop</div>
+                    ${orders}
+                </div>
+            `;
+        }).join('') : '<div style="padding:16px; color:#64748b; text-align:center;">Sem movimentações necessárias — nenhuma aldeia em risco.</div>';
+
+        const bunkerRows = bunker.plan.length ? bunker.plan.map(p => {
+            const g = p.gap;
+            const statusColor = p.status === 'COMPLETO' ? '#34d399' : p.status === 'PARCIAL' ? '#fbbf24' : '#fca5a5';
+            return `
+                <div style="padding:6px 9px; border-left:3px solid ${statusColor}; border-radius:4px; background:rgba(15,23,42,0.7); margin-bottom:4px;">
+                    <div style="display:flex; justify-content:space-between; gap:8px; align-items:center; flex-wrap:wrap;">
+                        <span style="font-size:10.5px; color:#e2e8f0; font-weight:600;">${escapeHtml(g.village ? g.village.name : g.coords)}</span>
+                        <span style="font-size:9px; font-weight:bold; padding:1px 7px; border-radius:999px; background:rgba(2,6,23,0.8); color:${statusColor}; border:1px solid ${statusColor};">${p.status}</span>
+                    </div>
+                    <div style="font-size:9.5px; color:#94a3b8; margin-top:2px;">
+                        ${p.sendPop > 0 ? `${p.send.spear.toLocaleString('pt-PT')} lanceiros + ${p.send.sword.toLocaleString('pt-PT')} espadachins + ${p.send.archer.toLocaleString('pt-PT')} arqueiros` : 'sem tropas disponíveis'}
+                        ${p.missing > 0 ? ` • <span style="color:#fca5a5;">faltam ${p.missing.toLocaleString('pt-PT')} pop</span>` : ''}
+                    </div>
+                </div>
+            `;
+        }).join('') : '<div style="padding:12px; color:#64748b; text-align:center; font-size:10px;">Todas as aldeias aguentam.</div>';
+
+        const reserveSourcesLabel = reserves.sources.length
+            ? reserves.sources
+                .sort((a, b) => (b.give.spear + b.give.sword + b.give.archer + b.give.heavy * 6) - (a.give.spear + a.give.sword + a.give.archer + a.give.heavy * 6))
+                .slice(0, 5)
+                .map(s => `${escapeHtml(s.village.name)} (${s.give.spear + s.give.sword + s.give.archer + s.give.heavy * 6} pop)`)
+                .join(' • ')
+            : 'nenhuma';
+
+        document.getElementById('tw-main-body').innerHTML = `
+            <div class="tw-pane active" style="padding:8px; gap:9px; display:flex; flex-direction:column; min-height:0;">
+                <div class="tw-kpi-grid" style="grid-template-columns: repeat(6, 1fr);">
+                    <div class="tw-kpi-card tw-kpi-red">
+                        <div class="tw-kpi-label"><span>⚔️ ATAQUES</span><span>ATIVOS</span></div>
+                        <div class="tw-kpi-value" style="color:#fca5a5;">${ctx.totalThreats || 0}</div>
+                        <div class="tw-kpi-sub">Comandos inimigos</div>
+                    </div>
+                    <div class="tw-kpi-card tw-kpi-orange">
+                        <div class="tw-kpi-label"><span>🏰 ALDEIAS</span><span>ALVO</span></div>
+                        <div class="tw-kpi-value" style="color:#fbbf24;">${targetAnalyses.length}</div>
+                        <div class="tw-kpi-sub">Sob ataque</div>
+                    </div>
+                    <div class="tw-kpi-card tw-kpi-red">
+                        <div class="tw-kpi-label"><span>💥 NUKES EST.</span><span>POP</span></div>
+                        <div class="tw-kpi-value" style="color:#fca5a5;">${targetAnalyses.reduce((s, t) => s + t.waves.reduce((s2, w) => s2 + w.estimatedPop, 0), 0).toLocaleString('pt-PT')}</div>
+                        <div class="tw-kpi-sub">Pop ofensiva estimada</div>
+                    </div>
+                    <div class="tw-kpi-card tw-kpi-red">
+                        <div class="tw-kpi-label"><span>🚨 CAEM</span><span>PERIGO</span></div>
+                        <div class="tw-kpi-value" style="color:#fca5a5;">${atRisk.length}</div>
+                        <div class="tw-kpi-sub">Aldeias em risco</div>
+                    </div>
+                    <div class="tw-kpi-card tw-kpi-green">
+                        <div class="tw-kpi-label"><span>✅ AGUENTAM</span><span>OK</span></div>
+                        <div class="tw-kpi-value" style="color:#34d399;">${holds.length}</div>
+                        <div class="tw-kpi-sub">Defesa suficiente</div>
+                    </div>
+                    <div class="tw-kpi-card tw-kpi-blue">
+                        <div class="tw-kpi-label"><span>🛡️ FALTA</span><span>POP DEF</span></div>
+                        <div class="tw-kpi-value" style="color:#7dd3fc;">${totalGapPop.toLocaleString('pt-PT')}</div>
+                        <div class="tw-kpi-sub">Reforço total necessário</div>
+                    </div>
+                </div>
+
+                <div style="display:flex; justify-content:space-between; gap:10px; align-items:center; flex-wrap:wrap; background:rgba(15,23,42,0.85); border:1px solid #1e293b; border-radius:8px; padding:8px 12px;">
+                    <div style="flex:1; min-width:240px;">
+                        <div style="font-size:11px; color:#38bdf8; font-weight:700; margin-bottom:2px;">🧠 SIMULADOR DE COMBATE REAL</div>
+                        <div style="font-size:10px; color:#94a3b8; line-height:1.5;">
+                            Stats oficiais das unidades • bónus de muralha por nível (tabela oficial 4%→107%) • buff de paladino (+40% viking / +30% CL) • bónus noturno (+100% defesa) • simulação sequencial wave a wave com consumo de defesa.
+                        </div>
+                    </div>
+                    <div style="display:flex; gap:6px; flex-wrap:wrap;">
+                        <button class="tw-btn tw-btn-blue" id="tw-def-copy-advisory" style="padding:7px 12px; font-size:11px; font-weight:bold; white-space:nowrap;">📋 Texto</button>
+                        <button class="tw-btn tw-btn-blue" id="tw-def-copy-bbcode" style="padding:7px 12px; font-size:11px; font-weight:bold; white-space:nowrap;">🔗 BBCode</button>
+                        <button class="tw-btn tw-btn-blue" id="tw-def-copy-russo" style="padding:7px 12px; font-size:11px; font-weight:bold; white-space:nowrap;">📅 Plano Russo</button>
+                    </div>
+                </div>
+
+                ${comboBanner}
+
+                <div style="display:grid; grid-template-columns: 1.45fr 1fr; gap:9px; min-height:0; flex:1;">
+                    <div class="tw-panel" style="padding:10px; overflow-y:auto; min-height:260px;">
+                        <div style="font-size:10px; color:#94a3b8; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:8px;">🔬 Simulação por aldeia atacada</div>
+                        ${targetCards}
+                    </div>
+                    <div style="display:flex; flex-direction:column; gap:9px; min-height:0;">
+                        <div class="tw-panel" style="padding:10px; overflow-y:auto; flex:1;">
+                            <div style="font-size:10px; color:#94a3b8; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:8px;">🛡️ Movimentações necessárias (com horas)</div>
+                            <div style="font-size:10px; color:#64748b; margin-bottom:8px; line-height:1.5;">
+                                Reservas: <b style="color:#7dd3fc;">${bunker.totalAvailable.toLocaleString('pt-PT')} pop</b> (${reserveSourcesLabel})<br>
+                                Necessário: <b style="color:#fca5a5;">${bunker.totalNeeded.toLocaleString('pt-PT')} pop</b> • cobertura <b style="color:${bunker.covered >= 100 ? '#34d399' : '#fbbf24'};">${bunker.covered}%</b>
+                                <div style="margin-top:4px; color:#475569;">Margem de segurança: ${movements.bufferSec}s • reserva de 20% mantida em cada dadora.</div>
+                            </div>
+                            ${movementRows}
+                        </div>
+                        <div class="tw-panel" style="padding:10px; overflow-y:auto; max-height:190px;">
+                            <div style="font-size:10px; color:#94a3b8; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:8px;">📦 Distribuição multi-bunker</div>
+                            ${bunkerRows}
+                        </div>
+                        <div class="tw-panel" style="padding:10px; overflow-y:auto; max-height:190px;">
+                            <div style="font-size:10px; color:#94a3b8; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:8px;">👤 Pressão por jogador</div>
+                            ${(ctx.playerPressure || []).slice(0, 5).map(p => {
+                                const auto = estimateDefenseAutomationConfidence(threatRows.filter(t => t.playerName === p.playerName));
+                                const autoColor = auto.score >= 55 ? '#fca5a5' : auto.score >= 30 ? '#fbbf24' : '#7dd3fc';
+                                return `
+                                    <div style="padding:7px 9px; border-left:3px solid ${p.risk >= 68 ? '#ef4444' : '#38bdf8'}; border-radius:5px; background:rgba(15,23,42,0.8); margin-bottom:5px;">
+                                        <div style="display:flex; justify-content:space-between; gap:6px;">
+                                            <span style="font-size:11px; color:#f8fafc; font-weight:700;">${escapeHtml(p.playerName)}</span>
+                                            <span style="font-size:10px; color:#fbbf24; font-weight:bold;">${p.count} ataques</span>
+                                        </div>
+                                        <div style="font-size:9.5px; color:#cbd5e1; margin-top:3px;">${p.totalTargets} alvos • risco ${p.risk}/100</div>
+                                        <div style="font-size:9.5px; color:${autoColor}; margin-top:2px;">🤖 Agendamento automático: ${auto.score}% (confiança ${auto.confidence}%)</div>
+                                        ${auto.reasons.length ? `<div style="font-size:9px; color:#64748b; margin-top:2px;">${escapeHtml(auto.reasons.slice(0, 3).join(' • '))}</div>` : ''}
+                                    </div>
+                                `;
+                            }).join('') || '<div style="padding:14px; color:#64748b; text-align:center;">Sem pressão relevante.</div>'}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        const copyBtn = document.getElementById('tw-def-copy-advisory');
+        if (copyBtn) {
+            copyBtn.onclick = () => {
+                const text = buildDefenseCombatAdvisoryText(ctx, targetAnalyses, bunker, combos, reserves);
+                safeCopyText(text);
+                showToast('📋 Plano de defesa copiado!');
+            };
+        }
+
+        const bbBtn = document.getElementById('tw-def-copy-bbcode');
+        if (bbBtn) {
+            bbBtn.onclick = () => {
+                const text = buildDefenseBbCode(movements, targetAnalyses, ctx);
+                safeCopyText(text);
+                showToast('🔗 BBCode copiado — cola no fórum ou mensagem!');
+            };
+        }
+
+        const russoBtn = document.getElementById('tw-def-copy-russo');
+        if (russoBtn) {
+            russoBtn.onclick = () => {
+                const text = buildDefenseRussianPlan(movements, targetAnalyses, ctx);
+                safeCopyText(text);
+                showToast('📅 Plano Russo copiado com horários exatos!');
+            };
+        }
+    }
+
+    function buildDefenseCombatAdvisoryText(ctx, targetAnalyses, bunker, combos, reserves) {
+        const L = [];
+        L.push('⚡ TW Tactical • PLANO DE DEFESA SIMULADO');
+        L.push(`Gerado: ${new Date().toLocaleString('pt-PT')}`);
+        L.push(`Ataques: ${(ctx && ctx.totalThreats) || 0} | Aldeias alvo: ${(targetAnalyses || []).length}`);
+        L.push('');
+
+        if ((combos || []).length) {
+            L.push('🚨 COMBOS DETETADOS');
+            combos.slice(0, 4).forEach(c => L.push(`• [${c.severity}] ${c.count} ataques em ${c.spanMinutes}m • ${c.targets.length} alvos • ${c.hint}`));
+            L.push('');
+        }
+
+        (targetAnalyses || []).forEach(t => {
+            L.push(`${t.sequential.survived ? '✅' : '❌'} ${t.name} (${t.coords}) — muralha ${t.wallLevel} — ${t.waves.length} wave(s)`);
+            L.push(`   Nuke estimado: ${twArmyLabel(t.heaviest.attackerArmy)}`);
+            L.push(`   Buff paladino: ${t.heaviest.paladinLabel}`);
+            L.push(`   Poder ofensivo (wave mais pesada): ${t.heaviestOff.toLocaleString('pt-PT')}`);
+            L.push(`   Defesa atual: ${twArmyLabel(t.current)} = ${t.currentPower.toLocaleString('pt-PT')} (${t.coveragePct}% de cobertura)`);
+            if (t.required) L.push(`   Defesa ideal (muralha intacta): ${t.required.spear} lanceiros + ${t.required.sword} espadachins + ${t.required.archer} arqueiros`);
+            if (t.withoutWallRequired) L.push(`   Defesa ideal (sem muralha): ${t.withoutWallRequired.spear} lanceiros + ${t.withoutWallRequired.sword} espadachins + ${t.withoutWallRequired.archer} arqueiros`);
+            if (t.gapPop > 0) L.push(`   ➜ FALTAM: ${t.gap.spear} lanceiros + ${t.gap.sword} espadachins + ${t.gap.archer} arqueiros`);
+            t.sequential.steps.forEach((s, i) => {
+                L.push(`     Wave ${i + 1} ${s.wave.impactMs ? formatShortTime(s.wave.impactMs) : ''}: ofensiva ${Math.round(s.sim.offenseTotal).toLocaleString('pt-PT')} vs defesa ${Math.round(s.sim.defenseTotal).toLocaleString('pt-PT')} → ${s.holds ? 'aguenta' : 'cai'}`);
+            });
+            L.push('');
+        });
+
+        if (bunker && bunker.plan.length) {
+            L.push('🛡️ DISTRIBUIÇÃO MULTI-BUNKER');
+            L.push(`Reservas disponíveis: ${bunker.totalAvailable} pop | Necessário: ${bunker.totalNeeded} pop | Cobertura: ${bunker.covered}%`);
+            bunker.plan.forEach(p => {
+                L.push(`• ${p.gap.village ? p.gap.village.name : p.gap.coords} (${p.gap.coords}) [${p.status}]`);
+                L.push(`   Enviar: ${p.send.spear} lanceiros + ${p.send.sword} espadachins + ${p.send.archer} arqueiros`);
+                if (p.missing > 0) L.push(`   Ainda faltam ${p.missing} pop`);
+            });
+            L.push('');
+        }
+
+        if (reserves && reserves.sources && reserves.sources.length) {
+            L.push('📤 ORIGENS SUGERIDAS');
+            reserves.sources
+                .sort((a, b) => (b.give.spear + b.give.sword + b.give.archer) - (a.give.spear + a.give.sword + a.give.archer))
+                .slice(0, 8)
+                .forEach(s => {
+                    L.push(`• ${s.village.name} (${s.village.coords}): ${s.give.spear} lanceiros + ${s.give.sword} espadachins + ${s.give.archer} arqueiros`);
+                });
+            L.push('');
+        }
+
+        L.push('Base: stats oficiais Tribal Wars, bónus de muralha por nível, buff de paladino e bónus noturno.');
+        return L.join('\n');
+    }
+
+    if (typeof window !== 'undefined') {
+        window.__tw_debugDefenseAI = function () {
+            const debugThreats = collectDefenseThreats();
+            const ctx = analyzeDefenseThreatContext(debugThreats);
+            const clusters = groupDefenseArrivalClusters(ctx.threats || []);
+            const combos = detectDefenseComboAlerts(clusters);
+            const villageRiskMap = buildDefenseVillageRiskMap(ctx.threats || []);
+            const movementPlan = buildDefenseMovementPlan(villageRiskMap);
+            const result = { ctx, clusters, combos, villageRiskMap, movementPlan };
+            console.log('[TW Defense AI] Debug context:', result);
+            return result;
+        };
+        window.__tw_defenseAdvisory = function () {
+            const debugThreats = collectDefenseThreats();
+            const ctx = analyzeDefenseThreatContext(debugThreats);
+            const clusters = groupDefenseArrivalClusters(ctx.threats || []);
+            const combos = detectDefenseComboAlerts(clusters);
+            const villageRiskMap = buildDefenseVillageRiskMap(ctx.threats || []);
+            const movementPlan = buildDefenseMovementPlan(villageRiskMap);
+            const text = buildDefenseAdvisoryText(ctx, villageRiskMap, combos, movementPlan);
+            console.log(text);
+            return text;
+        };
     }
 
     // ==========================================
