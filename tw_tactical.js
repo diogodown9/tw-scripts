@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW Tactical Command Suite
 // @namespace    https://tribalwars.com.pt/
-// @version      3.6.1
+// @version      3.9.0
 // @description  Suite militar avançada para Tribal Wars PT: Módulo Tático de Comandos com Radar Inimigo & Intel de Jogador (Pesquisa de Jogador com Autocomplete Instantâneo sem lag, Varredura Assíncrona com Rate-Limiting Seguro, Classificação Automática de Ameaças: 👑 Nobres, ⚔️ Nukes/Grande Escala, 🗡️ Fakes, 👁️ Espionagens e 🛡️ Apoios, Painéis Retráteis por Aldeia de Destino, Relógio Decrescente ao Vivo e Exportação BBCode), Deteção Inteligente de Ataques Inimigos a Chegar com Identificação Real do Jogador Atacante e Aldeia de Origem, Ataques & Retornos com filtros, agrupamento por alvos, ordenação interativa por clique nos cabeçalhos de coluna, exclusão opcional de micro-saques Modo Turbo para velocidade máxima, purga automática de comandos expirados e timers sincronizados com o servidor), Exclusão de Horário Noturno (Bónus Noturno) no Impacto e no Envio com horas configuráveis, Calculador Automático de Horário Mínimo de Impacto com Folga de Envio Configurável (1º Impacto e Cobertura Total de Alvos com ajuste instantâneo a 1 clique), identificação visual de Hoje/Amanhã na tabela, balanceamento round-robin de alvos, escalonamento sem colisão em repetições e Fakes Inteligentes 1% Dinâmico por Pontos (_60, _90, _115, _135), Escoltas Anti-Snipe de Precisão Cirúrgica a 40ms antes de cada Nobre (janela anti-snipe personalizável), Bate e Volta com folga configurável de regresso (padrão seguro de 10s para PSEvolution e bots), Rastreio em Tempo Real de Nobres a Caminho & em Retorno de Comandos + Treino na Academia, Deteção Rigorosa de 0 Nobres em Casa por Isolamento de Linhas HTML & Cruzamento de Comandos Ativos, Deduplicação Rigorosa de Nobres & Teto Físico de Tropas Fora, Sincronização Server-Live sem Cache, Validação Precisa de Envio & Horário Mínimo de Ataque à Prova de Falhas (⚡ com 5m folga, cálculo inteligente de nobres a regressar e seleção do Nuke Full mais perto), Suporte Automático a Modelos NT (NobreFull para NT Simples com Nuke no 1º Nobre, NT 33% para 3 nobres, NT 25% para 4 nobres), Bunkers Desligados por Default, Alvo Cats do Nuke Muralha por Default, Arsenal Tático de Fakes, UI de Limpezas/Nobres/Demolição, e Planeador Tático.
 // @author       Diogo & Antigravity
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -12,7 +12,7 @@
 // ==/UserScript==
 
 (async function () {
-    const SCRIPT_VERSION = '3.6.1';
+    const SCRIPT_VERSION = '3.9.0';
 
     // Auto-selecionar alvo de catapulta na confirmação de ataque na Praça de Reunião se especificado no URL
     try {
@@ -7249,20 +7249,112 @@
     // Bónus de defesa da muralha por nível (tabela oficial 0..20)
     const TW_WALL_BONUS = [0, 0.04, 0.08, 0.12, 0.16, 0.20, 0.24, 0.29, 0.34, 0.39, 0.44, 0.49, 0.55, 0.60, 0.66, 0.72, 0.79, 0.85, 0.92, 0.99, 1.07];
 
-    // Armas do Paladino: bónus ofensivo/defensivo à unidade associada
+    // Armas do Paladino: mapeamento arma -> unidade afectada
     const TW_PALADIN_WEAPONS = {
-        none:     { unit: null,       off: 0,    def: 0,    label: 'Sem arma' },
-        spear:    { unit: 'spear',    off: 0.30, def: 0.20, label: 'Alabarda de Guan Yu' },
-        sword:    { unit: 'sword',    off: 0.40, def: 0.30, label: 'Espada Longa de Paracelso' },
-        axe:      { unit: 'axe',      off: 0.40, def: 0.30, label: 'Machado de Guerra de Thorgard' },
-        archer:   { unit: 'archer',   off: 0.30, def: 0.20, label: 'Arco Longo de Nimrod' },
-        light:    { unit: 'light',    off: 0.30, def: 0.20, label: 'Lança de Mieszko' },
-        marcher:  { unit: 'marcher',  off: 0.30, def: 0.20, label: 'Arco Composto de Nimrod' },
-        heavy:    { unit: 'heavy',    off: 0.30, def: 0.20, label: 'Estandarte de Baptiste' },
-        ram:      { unit: 'ram',      off: 0,    def: 0,    label: 'Estrela da Manhã de Carol', ramBonus: 1.0 },
-        catapult: { unit: 'catapult', off: 0,    def: 0,    label: 'Fogueira de Aletheia', catBonus: 1.0 },
-        snob:     { unit: 'snob',     off: 0,    def: 0,    label: 'Cetro de Vasco' }
+        none:     { unit: null,       label: 'Sem arma' },
+        spear:    { unit: 'spear',    label: 'Alabarda de Guan Yu' },
+        sword:    { unit: 'sword',    label: 'Espada Longa de Paracelso' },
+        axe:      { unit: 'axe',      label: 'Machado de Guerra de Thorgard' },
+        archer:   { unit: 'archer',   label: 'Arco Longo de Nimrod' },
+        light:    { unit: 'light',    label: 'Lança de Mieszko' },
+        marcher:  { unit: 'marcher',  label: 'Arco Composto de Nimrod' },
+        heavy:    { unit: 'heavy',    label: 'Estandarte de Baptiste' },
+        ram:      { unit: 'ram',      label: 'Estrela da Manhã de Carol', ramBonus: 1.0 },
+        catapult: { unit: 'catapult', label: 'Fogueira de Aletheia', catBonus: 1.0 },
+        snob:     { unit: 'snob',     label: 'Cetro de Vasco' }
     };
+
+    // Estilos de armas do Paladino — valores OFICIAIS da wiki Tribal Wars.
+    // Estilo ANTIGO: todas as armas +30% ataque / +20% defesa  (o caso dos mundos PT)
+    // Estilo NOVO:   espada e viking +40% / +30%; as restantes +30% / +20%
+    const TW_PALADIN_STYLES = {
+        none: {
+            key: 'none',
+            label: 'Sem paladino / sem armas',
+            short: 'sem buff',
+            off: {},
+            def: {}
+        },
+        old: {
+            key: 'old',
+            label: 'Estilo antigo (+30% ataque / +20% defesa)',
+            short: '+30%/+20%',
+            off: { spear: 0.30, sword: 0.30, axe: 0.30, archer: 0.30, light: 0.30, marcher: 0.30, heavy: 0.30 },
+            def: { spear: 0.20, sword: 0.20, axe: 0.20, archer: 0.20, light: 0.20, marcher: 0.20, heavy: 0.20 }
+        },
+        new: {
+            key: 'new',
+            label: 'Estilo novo (espada/viking +40% ataque, +30% defesa)',
+            short: '+40%/+30%',
+            off: { spear: 0.30, sword: 0.40, axe: 0.40, archer: 0.30, light: 0.30, marcher: 0.30, heavy: 0.30 },
+            def: { spear: 0.20, sword: 0.30, axe: 0.30, archer: 0.20, light: 0.20, marcher: 0.20, heavy: 0.20 }
+        }
+    };
+
+    // Preferências do paladino (persistidas) — por defeito estilo ANTIGO e arma viking
+    let defPaladinStyle = (function () {
+        try {
+            const v = localStorage.getItem('tw_def_paladin_style');
+            if (v && TW_PALADIN_STYLES[v]) return v;
+        } catch (_) {}
+        return 'old';
+    })();
+    let defPaladinWeapon = (function () {
+        try {
+            const v = localStorage.getItem('tw_def_paladin_weapon');
+            if (v && TW_PALADIN_WEAPONS[v]) return v;
+        } catch (_) {}
+        return 'axe';
+    })();
+
+    function setDefPaladinSettings(styleKey, weaponKey) {
+        if (TW_PALADIN_STYLES[styleKey]) {
+            defPaladinStyle = styleKey;
+            try { localStorage.setItem('tw_def_paladin_style', styleKey); } catch (_) {}
+        }
+        if (TW_PALADIN_WEAPONS[weaponKey]) {
+            defPaladinWeapon = weaponKey;
+            try { localStorage.setItem('tw_def_paladin_weapon', weaponKey); } catch (_) {}
+        }
+    }
+
+    // Resolve o bónus efectivo de uma arma num dado estilo
+    function getTwPaladinBonus(weaponKey, styleKey) {
+        const style = TW_PALADIN_STYLES[styleKey || defPaladinStyle] || TW_PALADIN_STYLES.old;
+        const weapon = TW_PALADIN_WEAPONS[weaponKey || 'none'] || TW_PALADIN_WEAPONS.none;
+        if (!style || !weapon || !weapon.unit) {
+            return { unit: null, off: 0, def: 0, label: 'Sem arma', styleKey: style ? style.key : 'none', styleShort: style ? style.short : '—' };
+        }
+        const off = (style.off && style.off[weapon.unit]) || 0;
+        const def = (style.def && style.def[weapon.unit]) || 0;
+        // Se o estilo não dá bónus a esta unidade (ex: sem paladino, aríete, catapulta),
+        // devolver unit null para que nenhum multiplicador seja aplicado.
+        if (off <= 0 && def <= 0) {
+            return {
+                unit: null, off: 0, def: 0,
+                label: weapon.label,
+                styleKey: style.key,
+                styleShort: style.short
+            };
+        }
+        return {
+            unit: weapon.unit,
+            off, def,
+            label: weapon.label,
+            styleKey: style.key,
+            styleShort: style.short
+        };
+    }
+
+    // Texto legível: "Machado de Guerra de Thorgard (+30% Viking)"
+    function getTwPaladinLabel(weaponKey, styleKey) {
+        const b = getTwPaladinBonus(weaponKey, styleKey);
+        if (!b.unit) return TW_PALADIN_STYLES[styleKey || defPaladinStyle]
+            ? (TW_PALADIN_STYLES[styleKey || defPaladinStyle].key === 'none' ? 'Sem paladino' : 'Sem arma')
+            : 'Sem arma';
+        const unitName = TW_UNITS[b.unit] ? TW_UNITS[b.unit].name : b.unit;
+        return b.off > 0 ? `${b.label} (+${Math.round(b.off * 100)}% ${unitName})` : b.label;
+    }
 
     const TW_DEF_UNITS_ORDER = ['spear', 'sword', 'archer', 'heavy'];
 
@@ -7305,16 +7397,17 @@
     }
 
     // Divide o poder ofensivo por tipo de alvo (infantaria / cavalaria / arqueiros)
-    function computeTwOffenseSplit(attackerArmy, paladinWeaponKey) {
+    // O bónus do paladino é resolvido pelo estilo activo (antigo/novo/sem).
+    function computeTwOffenseSplit(attackerArmy, paladinWeaponKey, paladinStyleKey) {
         const army = normalizeTwArmy(attackerArmy);
-        const weapon = TW_PALADIN_WEAPONS[paladinWeaponKey] || TW_PALADIN_WEAPONS.none;
+        const bonus = getTwPaladinBonus(paladinWeaponKey, paladinStyleKey);
         let inf = 0, cav = 0, arch = 0;
 
         Object.keys(army).forEach(k => {
             const u = TW_UNITS[k];
             if (!u) return;
             let power = u.off * army[k];
-            if (weapon.unit && weapon.unit === k && weapon.off) power *= (1 + weapon.off);
+            if (bonus.unit && bonus.unit === k && bonus.off) power *= (1 + bonus.off);
             if (u.kind === 'cav') cav += power;
             else if (u.kind === 'arch') arch += power;
             else inf += power;
@@ -7325,21 +7418,29 @@
             inf, cav, arch, total,
             shareInf: total > 0 ? inf / total : 0,
             shareCav: total > 0 ? cav / total : 0,
-            shareArch: total > 0 ? arch / total : 0
+            shareArch: total > 0 ? arch / total : 0,
+            paladinBonus: bonus
         };
     }
 
     // Calcula o poder defensivo efetivo de um exército defensor
-    function computeTwDefensePower(defenderArmy, offSplit, wallFactor) {
+    // opts.paladinWeapon / opts.paladinStyle permitem aplicar a arma defensiva do defensor
+    function computeTwDefensePower(defenderArmy, offSplit, wallFactor, opts) {
+        const o = opts || {};
+        const defBonus = o.defenderPaladinWeapon
+            ? getTwPaladinBonus(o.defenderPaladinWeapon, o.defenderPaladinStyle)
+            : { unit: null, def: 0 };
         const army = normalizeTwArmy(defenderArmy);
         let gen = 0, cav = 0, arch = 0;
 
         Object.keys(army).forEach(k => {
             const u = TW_UNITS[k];
             if (!u) return;
-            gen += u.defGen * army[k];
-            cav += u.defCav * army[k];
-            arch += u.defArch * army[k];
+            let mult = 1;
+            if (defBonus.unit && defBonus.unit === k && defBonus.def > 0) mult = 1 + defBonus.def;
+            gen += u.defGen * army[k] * mult;
+            cav += u.defCav * army[k] * mult;
+            arch += u.defArch * army[k] * mult;
         });
 
         const wf = safeNumber(wallFactor, 1) || 1;
@@ -7351,6 +7452,22 @@
             : (gen * 0.5 + cav * 0.3 + arch * 0.2);
 
         return { gen, cav, arch, effective, wallFactor: wf };
+    }
+
+    // Melhor defesa possível POR POP contra uma dada composição de ataque.
+    // Usa a mistura prática 40% lanceiros / 40% espadachins / 20% arqueiros.
+    function computeBestDefensePerPop(wallLevel, offSplit) {
+        const wf = getTwWallFactor(wallLevel);
+        const split = offSplit || { shareInf: 0.5, shareCav: 0.5, shareArch: 0 };
+        const mix = { spear: 0.40, sword: 0.40, archer: 0.20 };
+        let gen = 0, cav = 0, arch = 0;
+        Object.keys(mix).forEach(k => {
+            const u = TW_UNITS[k];
+            gen += u.defGen * mix[k];
+            cav += u.defCav * mix[k];
+            arch += u.defArch * mix[k];
+        });
+        return (gen * split.shareInf + cav * split.shareCav + arch * split.shareArch) * wf;
     }
 
     // Estima a composição de um nuke inimigo a partir dos pontos da aldeia de origem
@@ -7370,7 +7487,7 @@
         militaryPop = Math.round(militaryPop * safeNumber(o.popFactor, 1));
 
         const hasPaladin = o.hasPaladin !== false;
-        const paladinWeapon = hasPaladin ? (o.paladinWeapon || 'axe') : 'none';
+        const paladinWeapon = hasPaladin ? (o.paladinWeapon || defPaladinWeapon) : 'none';
 
         const ramCount = Math.max(0, Math.round((militaryPop * 0.065) / TW_UNITS.ram.pop));
         const paladinPop = hasPaladin ? TW_UNITS.knight.pop : 0;
@@ -7391,7 +7508,7 @@
             army,
             militaryPop,
             paladinWeapon: hasPaladin ? paladinWeapon : 'none',
-            paladinLabel: TW_PALADIN_WEAPONS[paladinWeapon] ? TW_PALADIN_WEAPONS[paladinWeapon].label : 'Sem arma'
+            paladinLabel: hasPaladin ? getTwPaladinLabel(paladinWeapon) : 'Sem paladino'
         };
     }
 
@@ -7400,8 +7517,8 @@
         const o = opts || {};
         const nightBonus = safeNumber(o.nightBonus, 0);
         const wallFactor = getTwWallFactor(wallLevel) * (1 + nightBonus);
-        const offSplit = computeTwOffenseSplit(attackerArmy, o.paladinWeapon);
-        const defPower = computeTwDefensePower(defenderArmy, offSplit, wallFactor);
+        const offSplit = computeTwOffenseSplit(attackerArmy, o.paladinWeapon, o.paladinStyle);
+        const defPower = computeTwDefensePower(defenderArmy, offSplit, wallFactor, o);
 
         const atk = offSplit.total;
         const def = defPower.effective;
@@ -7459,7 +7576,7 @@
         const o = opts || {};
         const nightBonus = safeNumber(o.nightBonus, 0);
         const wallFactor = getTwWallFactor(wallLevel) * (1 + nightBonus);
-        const offSplit = computeTwOffenseSplit(attackerArmy, o.paladinWeapon);
+        const offSplit = computeTwOffenseSplit(attackerArmy, o.paladinWeapon, o.paladinStyle);
         if (offSplit.total <= 0) return null;
 
         const perUnitOptions = TW_DEF_UNITS_ORDER.map(key => {
@@ -7737,6 +7854,84 @@
         return { army: null, pop: Infinity, scale, sim: null, alreadyHolds: false };
     }
 
+    // =========================================================================
+    // VEREDICTO TÁTICO: dá para segurar? bunkar? desviar? reconquistar?
+    // =========================================================================
+    // Numa defesa sequencial a defesa desce aproximadamente o valor da ofensiva
+    // de cada wave. Para aguentar TODAS as waves, a defesa inicial tem de ser
+    // >= à ofensiva ACUMULADA. Se essa soma for maior do que a defesa máxima que
+    // a aldeia consegue fisicamente ter (limite da fazenda), é IMPOSSÍVEL segurar
+    // e não vale a pena queimar tropas a bunkar.
+    function buildDefenseVerdict(targetAnalysis) {
+        const t = targetAnalysis;
+        if (!t || !Array.isArray(t.waves) || !t.waves.length) return null;
+
+        let totalOffense = 0;
+        t.waves.forEach(w => {
+            totalOffense += computeTwOffenseSplit(w.attackerArmy, w.paladinWeapon).total;
+        });
+
+        const balanceSplit = { shareInf: 0.5, shareCav: 0.5, shareArch: 0 };
+        const perPop = computeBestDefensePerPop(t.wallLevel, balanceSplit);
+
+        const farmMax = safeNumber(t.village && t.village.farm && t.village.farm.max, 24000) || 24000;
+        const buildingPop = Math.min(Math.round(farmMax * 0.28), 6000);
+        const maxTroopPop = Math.max(0, farmMax - buildingPop);
+        const maxDefensePower = maxTroopPop * perPop;
+
+        const ratio = maxDefensePower > 0 ? totalOffense / maxDefensePower : Infinity;
+
+        return {
+            totalOffense: Math.round(totalOffense),
+            maxDefensePower: Math.round(maxDefensePower),
+            maxTroopPop,
+            perPop,
+            ratio,
+            // impossfvel = nem com a aldeia cheia de defesa lá caberia
+            impossible: ratio > 1,
+            wavesCount: t.waves.length
+        };
+    }
+
+    // Constrói uma ordem de desvio (tirar as tropas antes do impacto)
+    function buildDodgeOrder(t, firstImpact, bufferSec, now, threatened) {
+        const home = (t.village && t.village.homeTroopsDict) || {};
+        const ownTroops = normalizeTwArmy({
+            spear: home.spear, sword: home.sword, archer: home.archer,
+            heavy: home.heavy, knight: home.knight
+        });
+        const ownPop = twArmyPop(ownTroops);
+        if (ownPop <= 0) return { order: null, ownPop: 0 };
+
+        const safeDests = (Array.isArray(allVillages) ? allVillages : [])
+            .filter(v => v && v.coords && v.coords !== t.coords && !threatened.has(v.coords))
+            .map(v => ({ v, dist: calcDistance(t.coords, v.coords) }))
+            .filter(x => Number.isFinite(x.dist))
+            .sort((a, b) => a.dist - b.dist);
+
+        if (!safeDests.length) return { order: null, ownPop };
+
+        const dest = safeDests[0];
+        const travelSec = computeTwTravelSeconds(t.coords, dest.v.coords, ownTroops);
+        const latestDepartMs = firstImpact - (travelSec * 1000) - (bufferSec * 1000);
+
+        return {
+            ownPop,
+            order: {
+                type: 'dodge',
+                fromName: t.name, fromCoords: t.coords,
+                toName: dest.v.name, toCoords: dest.v.coords,
+                army: ownTroops, pop: ownPop,
+                distance: dest.dist, travelSec,
+                departAtMs: latestDepartMs,
+                arriveAtMs: latestDepartMs + travelSec * 1000,
+                impactMs: firstImpact,
+                feasible: latestDepartMs > now,
+                bufferSec
+            }
+        };
+    }
+
     // Gera as ordens de movimento: apoio onde dá para segurar, desvio onde não dá
     function planDefenseMovements(targetAnalyses, reserves, opts) {
         const o = opts || {};
@@ -7771,6 +7966,29 @@
         sorted.forEach(t => {
             const firstImpact = t.waves[0] ? t.waves[0].impactMs : 0;
             const label = t.village ? `${t.village.name} (${t.coords})` : `${t.name} (${t.coords})`;
+
+            // ---- Caso extremo: fisicamente impossível segurar (ex: 17 fulls + NT) ----
+            // Se nem a aldeia cheia de defesa aguentava, enviar apoio é queimar tropas
+            // sem efeito. O correcto é tirar as tropas e preparar RECONQUISTA.
+            const verdict = buildDefenseVerdict(t);
+            if (verdict && verdict.impossible && !t.sequential.survived) {
+                const dodge = buildDodgeOrder(t, firstImpact, bufferSec, now, threatened);
+                if (dodge.order) orders.push(dodge.order);
+                summary.push({
+                    target: t, label, decision: 'RECONQUER',
+                    supportOrders: [], dodgeOrder: dodge.order,
+                    requiredPop: 0,
+                    currentPop: safeNumber(t.currentPop, 0),
+                    missingAfter: 0,
+                    verdict,
+                    reason: `Impossível segurar: ${verdict.wavesCount} ataques somam ${verdict.totalOffense.toLocaleString('pt-PT')} de ofensiva. ` +
+                        `A aldeia, mesmo cheia de defesa, aguenta no máximo ${verdict.maxDefensePower.toLocaleString('pt-PT')} ` +
+                        `(${verdict.maxTroopPop.toLocaleString('pt-PT')} pop de tropas, muralha ${t.wallLevel}). ` +
+                        `É ${verdict.ratio.toFixed(1)}× mais do que consegues defender — bunkar seria perder tudo. ` +
+                        `Desviar ${dodge.ownPop.toLocaleString('pt-PT')} pop para preservar o exército e reconquistar depois.`
+                });
+                return;
+            }
 
             const allWavesReq = computeRequiredDefenseForWaves(t);
             const singleWaveReq = (t && t.heaviest)
@@ -7884,40 +8102,10 @@
                 u.donor.avail.archer += u.send.archer;
             });
 
-            let dodgeOrder = null;
-            const home = (t.village && t.village.homeTroopsDict) || {};
-            const ownTroops = normalizeTwArmy({
-                spear: home.spear, sword: home.sword, archer: home.archer,
-                heavy: home.heavy, knight: home.knight
-            });
-            const ownPop = twArmyPop(ownTroops);
-
-            if (ownPop > 0) {
-                const safeDests = (Array.isArray(allVillages) ? allVillages : [])
-                    .filter(v => v && v.coords && v.coords !== t.coords && !threatened.has(v.coords))
-                    .map(v => ({ v, dist: calcDistance(t.coords, v.coords) }))
-                    .filter(x => Number.isFinite(x.dist))
-                    .sort((a, b) => a.dist - b.dist);
-
-                if (safeDests.length) {
-                    const dest = safeDests[0];
-                    const travelSec = computeTwTravelSeconds(t.coords, dest.v.coords, ownTroops);
-                    const latestDepartMs = firstImpact - (travelSec * 1000) - (bufferSec * 1000);
-                    dodgeOrder = {
-                        type: 'dodge',
-                        fromName: t.name, fromCoords: t.coords,
-                        toName: dest.v.name, toCoords: dest.v.coords,
-                        army: ownTroops, pop: ownPop,
-                        distance: dest.dist, travelSec,
-                        departAtMs: latestDepartMs,
-                        arriveAtMs: latestDepartMs + travelSec * 1000,
-                        impactMs: firstImpact,
-                        feasible: latestDepartMs > now,
-                        bufferSec
-                    };
-                    orders.push(dodgeOrder);
-                }
-            }
+            const dodge = buildDodgeOrder(t, firstImpact, bufferSec, now, threatened);
+            const dodgeOrder = dodge.order;
+            const ownPop = dodge.ownPop;
+            if (dodgeOrder) orders.push(dodgeOrder);
 
             const missingAfter = remaining.spear + remaining.sword + remaining.archer;
             summary.push({
@@ -8161,8 +8349,8 @@
                 ? estimateNobleTrainComposition({ nobles: 4 })
                 : estimateNukeComposition(originPoints, {
                     hasSnob: !!t.hasSnob,
-                    hasPaladin: true,
-                    paladinWeapon: 'axe'
+                    hasPaladin: defPaladinStyle !== 'none',
+                    paladinWeapon: defPaladinWeapon
                 });
 
             return {
@@ -8177,6 +8365,73 @@
                 threat: t,
                 nightBonus: getTwNightBonusMultiplier(getDefenseCommandTimeMs(t))
             };
+        });
+    }
+
+    // Nomes no plural, em linguagem simples, para as listas de tropas
+    const TW_UNIT_PLURAL = {
+        spear: 'lanceiros', sword: 'espadachins', axe: 'vikings', archer: 'arqueiros',
+        spy: 'batedores', light: 'cavalarias leves', marcher: 'CA montadas',
+        heavy: 'cavalarias pesadas', ram: 'aríetes', catapult: 'catapultas',
+        knight: 'paladinos', snob: 'nobres', militia: 'milícias'
+    };
+    const TW_UNIT_SINGULAR = {
+        spear: 'lanceiro', sword: 'espadachim', axe: 'viking', archer: 'arqueiro',
+        spy: 'batedor', light: 'cavalaria leve', marcher: 'CA montada',
+        heavy: 'cavalaria pesada', ram: 'aríete', catapult: 'catapulta',
+        knight: 'paladino', snob: 'nobre', militia: 'milícia'
+    };
+
+    // Lista de tropas em linguagem simples: "2.480 lanceiros + 1 paladino"
+    function formatTroopListPlain(army) {
+        const a = normalizeTwArmy(army);
+        const order = ['spear', 'sword', 'archer', 'heavy', 'knight', 'snob', 'axe', 'light', 'marcher', 'ram', 'catapult', 'spy'];
+        const parts = order
+            .filter(k => a[k] > 0)
+            .map(k => {
+                const name = (a[k] === 1)
+                    ? (TW_UNIT_SINGULAR[k] || TW_UNITS[k].name.toLowerCase())
+                    : (TW_UNIT_PLURAL[k] || TW_UNITS[k].name.toLowerCase());
+                return `${a[k].toLocaleString('pt-PT')} ${name}`;
+            });
+        return parts.length ? parts.join(' + ') : '—';
+    }
+
+    // Constrói a lista de AÇÕES concretas que o jogador tem de executar
+    function buildDefenseActionItems(targetAnalyses, movements) {
+        const byCoords = {};
+        ((movements && movements.summary) || []).forEach(s => {
+            if (s && s.target && s.target.coords) byCoords[s.target.coords] = s;
+        });
+
+        return (Array.isArray(targetAnalyses) ? targetAnalyses : []).map(t => {
+            const s = byCoords[t.coords];
+            const support = (s && s.supportOrders) || [];
+            const dodge = (s && s.dodgeOrder) || null;
+            const impactMs = t.waves[0] ? t.waves[0].impactMs : 0;
+
+            return {
+                coords: t.coords,
+                name: t.name,
+                impactMs,
+                attacks: t.waves.length,
+                hasNoble: !!t.hasNoble,
+                survived: !!(t.sequential && t.sequential.survived),
+                decision: s ? s.decision : (t.sequential && t.sequential.survived ? 'HOLD' : 'DODGE'),
+                support,
+                dodge,
+                verdict: (s && s.verdict) ? s.verdict : buildDefenseVerdict(t),
+                reason: s ? s.reason : '',
+                currentPop: safeNumber(t.currentPop, 0),
+                requiredPop: (t.allWavesNeed && t.allWavesNeed.army)
+                    ? safeNumber(t.allWavesNeed.pop, 0)
+                    : (t.required ? safeNumber(t.required.pop, 0) : 0),
+                missingPop: safeNumber(t.allWavesGapPop, 0),
+                noAction: !!(t.sequential && t.sequential.survived) && support.length === 0 && !dodge
+            };
+        }).sort((a, b) => {
+            if (a.noAction !== b.noAction) return a.noAction ? 1 : -1;
+            return (a.impactMs || Infinity) - (b.impactMs || Infinity);
         });
     }
 
@@ -8302,6 +8557,126 @@
         const holds = targetAnalyses.filter(t => t.sequential.survived);
         const totalGapPop = targetAnalyses.reduce((s, t) => s + (t.allWavesGapPop || 0), 0);
 
+        // ===== AÇÕES CONCRETAS (o que fazer, em linguagem simples) =====
+        const actionItems = buildDefenseActionItems(targetAnalyses, movements);
+        const needsHelp = actionItems.filter(a => !a.noAction);
+        const summaryBar = actionItems.length ? `
+            <div style="display:flex; align-items:center; gap:14px; flex-wrap:wrap; background:linear-gradient(90deg, rgba(239,68,68,0.14) 0%, rgba(15,23,42,0.9) 100%); border:1px solid #334155; border-radius:9px; padding:10px 14px;">
+                <div style="font-size:15px; font-weight:800; color:#f8fafc;">
+                    ${needsHelp.length === 0
+                        ? '✅ Nada a fazer — todas as tuas aldeias aguentam'
+                        : `⚠️ ${needsHelp.length} aldeia${needsHelp.length > 1 ? 's' : ''} precisa${needsHelp.length > 1 ? 'm' : ''} de ação`}
+                </div>
+                <div style="font-size:12px; color:#94a3b8;">
+                    ${targetAnalyses.length} sob ataque • ${atRisk.length} vão cair • ${holds.length} seguram
+                </div>
+            </div>
+        ` : '';
+
+        const actionCards = actionItems.length ? actionItems.map(a => {
+            const when = a.impactMs ? formatShortTime(a.impactMs) : '—';
+            const hoursLeft = a.impactMs ? Math.max(1, Math.round((a.impactMs - Date.now()) / 3600000)) : 0;
+
+            if (a.noAction) {
+                return `
+                    <div style="border-left:4px solid #34d399; border-radius:9px; padding:11px 14px; background:rgba(16,185,129,0.07); margin-bottom:9px;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap;">
+                            <div style="font-size:14px; font-weight:800; color:#34d399;">✅ ${escapeHtml(a.name)} (${escapeHtml(a.coords)}) — SEGURA</div>
+                            <div style="font-size:11.5px; color:#94a3b8;">ataque às ${when}</div>
+                        </div>
+                        <div style="font-size:12.5px; color:#cbd5e1; margin-top:6px;">
+                            Tens defesa suficiente para este ataque. <b>Não faças nada.</b>
+                        </div>
+                    </div>
+                `;
+            }
+
+            const isReconquer = a.decision === 'RECONQUER';
+            const isDodge = a.decision === 'DODGE' || isReconquer;
+            const accent = isReconquer ? '#f43f5e' : isDodge ? '#fb923c' : '#ef4444';
+            const title = isReconquer
+                ? '🚨 IMPOSSÍVEL SEGURAR — PREPARA A RECONQUISTA'
+                : isDodge
+                    ? '⚠️ VAI CAIR — TIRA AS TROPAS DE LÁ'
+                    : '🔴 PRECISA DE REFORÇO';
+            let steps = '';
+
+            if (isDodge && a.dodge) {
+                const d = a.dodge;
+                steps = `
+                    <div style="background:rgba(2,6,23,0.92); border-radius:8px; padding:12px; margin-top:10px;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:8px;">
+                            <div style="font-size:13px; color:#f8fafc; font-weight:700;">
+                                Manda tudo de <b style="color:#fbbf24;">${escapeHtml(a.name)}</b>
+                                para <b style="color:#38bdf8;">${escapeHtml(d.toName)}</b> (${escapeHtml(d.toCoords)})
+                            </div>
+                            <button class="tw-btn tw-btn-blue tw-def-copy-coord" data-coord="${escapeHtml(d.toCoords)}" style="padding:5px 10px; font-size:11px;">📋 Copiar destino</button>
+                        </div>
+                        <div style="font-size:13.5px; color:#e2e8f0; line-height:1.7;">${escapeHtml(formatTroopListPlain(d.army))}</div>
+                        <div style="margin-top:9px; font-size:13px; font-weight:bold; color:${d.feasible ? '#fbbf24' : '#fca5a5'};">
+                            ⏰ ${d.feasible ? 'Envia ANTES das ' + formatTwPlanDate(d.departAtMs) : 'JÁ É TARDE — ENVIA JÁ'}
+                        </div>
+                        <div style="font-size:11.5px; color:#94a3b8; margin-top:4px;">Viagem: ${formatTwPlanDuration(d.travelSec)} • o ataque chega às ${when}</div>
+                    </div>
+                `;
+            } else if (a.support.length) {
+                steps = a.support.map((o, i) => `
+                    <div style="background:rgba(2,6,23,0.92); border-radius:8px; padding:12px; margin-top:10px;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:8px;">
+                            <div style="font-size:13px; color:#f8fafc; font-weight:700;">
+                                Passo ${i + 1} — envia de <b style="color:#38bdf8;">${escapeHtml(o.fromName)}</b> (${escapeHtml(o.fromCoords)})
+                                para <b style="color:#fbbf24;">${escapeHtml(a.name)}</b> (${escapeHtml(a.coords)})
+                            </div>
+                            <button class="tw-btn tw-btn-blue tw-def-copy-coord" data-coord="${escapeHtml(a.coords)}" style="padding:5px 10px; font-size:11px;">📋 Copiar destino</button>
+                        </div>
+                        <div style="font-size:13.5px; color:#e2e8f0; line-height:1.7;">${escapeHtml(formatTroopListPlain(o.army))}</div>
+                        <div style="margin-top:9px; font-size:13px; font-weight:bold; color:#fbbf24;">⏰ Envia ANTES das ${formatTwPlanDate(o.departAtMs)}</div>
+                        <div style="font-size:11.5px; color:#94a3b8; margin-top:4px;">Chega às ${formatTwPlanDate(o.arriveAtMs)} • o ataque chega às ${when}</div>
+                    </div>
+                `).join('');
+            } else {
+                steps = '<div style="font-size:12.5px; color:#fca5a5; margin-top:8px;">Nenhuma tropa tua consegue chegar a tempo. Não há nada a fazer por esta aldeia — só reconstruir depois.</div>';
+            }
+
+            return `
+                <div style="border-left:4px solid ${accent}; border-radius:9px; padding:12px 14px; background:rgba(15,23,42,0.85); margin-bottom:10px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap;">
+                        <div style="font-size:14.5px; font-weight:800; color:${accent};">${title} · ${escapeHtml(a.name)} (${escapeHtml(a.coords)})</div>
+                        <div style="font-size:11.5px; color:#94a3b8;">
+                            ${a.attacks} ataque(s)${a.hasNoble ? ' 👑 com nobres' : ''} • chega ${when}${hoursLeft ? ` (daqui a ${hoursLeft}h)` : ''}
+                        </div>
+                    </div>
+                    <div style="font-size:12.5px; color:#cbd5e1; margin-top:7px; line-height:1.7;">
+                        ${isReconquer && a.verdict
+                            ? `<b style="color:#fca5a5;">${a.attacks} ataques</b> somam <b style="color:#fca5a5;">${a.verdict.totalOffense.toLocaleString('pt-PT')}</b> de ofensiva.<br>
+                               Mesmo com a aldeia cheia de defesa só aguentarias <b>${a.verdict.maxDefensePower.toLocaleString('pt-PT')}</b> — é <b style="color:#fca5a5;">${a.verdict.ratio.toFixed(1)}× mais</b> do que consegues defender.<br>
+                               <b>Bunkar seria perder tudo. O caminho é desviar e reconquistar.</b>`
+                            : isDodge
+                                ? `Não há defesa que chegue para <b>${a.attacks}</b> ataque${a.attacks > 1 ? 's' : ''} seguidos. O melhor é <b style="color:#fb923c;">tirar as tuas tropas de lá</b> antes que as percas.`
+                                : `Tens <b>${a.currentPop.toLocaleString('pt-PT')}</b> de defesa em casa, precisas de <b style="color:#fbbf24;">${a.requiredPop.toLocaleString('pt-PT')}</b>.${a.missingPop > 0 ? ` Faltam <b style="color:#fca5a5;">${a.missingPop.toLocaleString('pt-PT')}</b>.` : ''}`}
+                    </div>
+                    ${steps}
+                    ${isReconquer ? `
+                        <div style="margin-top:10px; padding:10px 12px; border-radius:7px; background:rgba(244,63,94,0.08); border:1px dashed rgba(244,63,94,0.45);">
+                            <div style="font-size:11px; color:#fda4af; font-weight:700; text-transform:uppercase; letter-spacing:0.04em; margin-bottom:6px;">Plano depois de cair — reconquista</div>
+                            <div style="font-size:12.5px; color:#e2e8f0; line-height:1.8;">
+                                1. <b>Não envies defesa</b> para lá — ias perdê-la toda sem efeito nenhum.<br>
+                                2. <b>Guarda o exército</b> com o desvio acima — vais precisar dele.<br>
+                                3. <b>Prepara o trem de nobres</b> para retomar logo que a ocupem.<br>
+                                4. Depois do ataque a aldeia fica com <b>defesa mínima</b> — é aí que reconquistas.
+                            </div>
+                        </div>
+                    ` : ''}
+                </div>
+            `;
+        }).join('') : `
+            <div style="padding:40px 20px; text-align:center;">
+                <div style="font-size:32px; margin-bottom:10px;">🌙</div>
+                <div style="font-size:15px; color:#34d399; font-weight:700;">Sem ataques a chegar</div>
+                <div style="font-size:12.5px; color:#64748b; margin-top:6px;">Quando houver ataques inimigos, aparecem aqui as instruções exatas.</div>
+            </div>
+        `;
+
         // ===== BLOCOS DE UI =====
         const comboBanner = combos.length ? `
             <div style="padding:10px 12px; border:1px solid #ef4444; border-radius:8px; background:linear-gradient(90deg, rgba(239,68,68,0.18) 0%, rgba(15,23,42,0.9) 100%);">
@@ -8322,10 +8697,6 @@
 
         const targetCards = targetAnalyses.length ? targetAnalyses.map(t => {
             const wavesLabel = t.waves.map(w => twArmyLabel(w.attackerArmy, { limit: 4 })).join('  ➜  ');
-            const weapon = TW_PALADIN_WEAPONS[t.heaviest.paladinWeapon];
-            const buffText = (weapon && weapon.unit && weapon.off && TW_UNITS[weapon.unit])
-                ? ` (+${Math.round(weapon.off * 100)}% ${TW_UNITS[weapon.unit].name})`
-                : ' (sem buff de unidade)';
             const totalAtkLabel = twArmyLabel(t.heaviest.attackerArmy);
             const currentLabel = twArmyLabel(t.current, { limit: 4 });
             const needLabel = t.required
@@ -8391,7 +8762,7 @@
                             • composição: ${escapeHtml(totalAtkLabel)}
                         </div>
                         <div style="font-size:10px; color:#c084fc; margin-top:3px;">
-                            ⚔️ Buff estimado: ${escapeHtml(t.heaviest.paladinLabel)}${escapeHtml(buffText)}
+                            ⚔️ Buff estimado: ${escapeHtml(t.heaviest.paladinLabel)}
                         </div>
                     </div>
 
@@ -8509,6 +8880,14 @@
 
         document.getElementById('tw-main-body').innerHTML = `
             <div class="tw-pane active" style="padding:8px; gap:9px; display:flex; flex-direction:column; min-height:0;">
+                ${summaryBar}
+                <div style="padding:12px; overflow-y:auto; flex:1; min-height:170px; background:rgba(2,6,23,0.55); border:1px solid #1e293b; border-radius:9px;">
+                    ${actionCards}
+                </div>
+
+                <details style="border:1px solid #1e293b; border-radius:8px; background:rgba(15,23,42,0.5); padding:6px 10px;">
+                    <summary style="cursor:pointer; font-size:11px; color:#94a3b8; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; padding:5px 0;">🔬 Detalhes técnicos — simulação, paladino e estatísticas</summary>
+                    <div style="display:flex; flex-direction:column; gap:9px; padding-top:9px;">
                 <div class="tw-kpi-grid" style="grid-template-columns: repeat(6, 1fr);">
                     <div class="tw-kpi-card tw-kpi-red">
                         <div class="tw-kpi-label"><span>⚔️ ATAQUES</span><span>ATIVOS</span></div>
@@ -8543,10 +8922,26 @@
                 </div>
 
                 <div style="display:flex; justify-content:space-between; gap:10px; align-items:center; flex-wrap:wrap; background:rgba(15,23,42,0.85); border:1px solid #1e293b; border-radius:8px; padding:8px 12px;">
-                    <div style="flex:1; min-width:240px;">
+                    <div style="flex:1; min-width:220px;">
                         <div style="font-size:11px; color:#38bdf8; font-weight:700; margin-bottom:2px;">🧠 SIMULADOR DE COMBATE REAL</div>
                         <div style="font-size:10px; color:#94a3b8; line-height:1.5;">
-                            Stats oficiais das unidades • bónus de muralha por nível (tabela oficial 4%→107%) • buff de paladino (+40% viking / +30% CL) • bónus noturno (+100% defesa) • simulação sequencial wave a wave com consumo de defesa.
+                            Stats oficiais das unidades • muralha por nível (4%→107%) • arma do paladino por estilo oficial • bónus noturno (+100% defesa) • simulação sequencial wave a wave.
+                            <br><span style="color:#c084fc;">A usar agora: <b>${escapeHtml(getTwPaladinLabel(defPaladinWeapon))}</b> • estilo ${escapeHtml(TW_PALADIN_STYLES[defPaladinStyle].label)}</span>
+                        </div>
+                    </div>
+                    <div style="display:flex; gap:8px; align-items:flex-end; flex-wrap:wrap;">
+                        <div style="display:flex; flex-direction:column; gap:2px;">
+                            <span style="font-size:9px; color:#94a3b8; text-transform:uppercase; letter-spacing:0.04em;">Arma do paladino</span>
+                            <select id="tw-def-pal-weapon" class="tw-select" style="font-size:10.5px; padding:4px 6px; min-width:170px;">
+                                ${['axe', 'light', 'sword', 'marcher', 'heavy', 'archer', 'spear'].map(k => `<option value="${k}" ${defPaladinWeapon === k ? 'selected' : ''}>${escapeHtml(TW_PALADIN_WEAPONS[k].label)}</option>`).join('')}
+                                <option value="none" ${defPaladinWeapon === 'none' ? 'selected' : ''}>Sem arma</option>
+                            </select>
+                        </div>
+                        <div style="display:flex; flex-direction:column; gap:2px;">
+                            <span style="font-size:9px; color:#94a3b8; text-transform:uppercase; letter-spacing:0.04em;">Estilo do mundo</span>
+                            <select id="tw-def-pal-style" class="tw-select" style="font-size:10.5px; padding:4px 6px; min-width:230px;">
+                                ${['old', 'new', 'none'].map(k => `<option value="${k}" ${defPaladinStyle === k ? 'selected' : ''}>${escapeHtml(TW_PALADIN_STYLES[k].label)}</option>`).join('')}
+                            </select>
                         </div>
                     </div>
                     <div style="display:flex; gap:6px; flex-wrap:wrap;">
@@ -8597,8 +8992,36 @@
                         </div>
                     </div>
                 </div>
+                    </div>
+                </details>
             </div>
         `;
+
+        document.querySelectorAll('#tw-main-body .tw-def-copy-coord').forEach(btn => {
+            btn.onclick = () => {
+                const c = btn.getAttribute('data-coord');
+                if (c) {
+                    safeCopyText(c);
+                    showToast('📋 Coordenadas ' + c + ' copiadas!');
+                }
+            };
+        });
+
+        const palWeaponSel = document.getElementById('tw-def-pal-weapon');
+        if (palWeaponSel) {
+            palWeaponSel.onchange = (e) => {
+                setDefPaladinSettings(defPaladinStyle, e.target.value);
+                renderDefensePlanner();
+            };
+        }
+
+        const palStyleSel = document.getElementById('tw-def-pal-style');
+        if (palStyleSel) {
+            palStyleSel.onchange = (e) => {
+                setDefPaladinSettings(e.target.value, defPaladinWeapon);
+                renderDefensePlanner();
+            };
+        }
 
         const copyBtn = document.getElementById('tw-def-copy-advisory');
         if (copyBtn) {
