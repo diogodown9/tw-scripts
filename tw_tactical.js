@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TW Tactical Command Suite
 // @namespace    https://tribalwars.com.pt/
-// @version      3.10.0
-// @description  Suite militar avançada para Tribal Wars PT: Módulo Tático de Comandos com Radar Inimigo & Intel de Jogador (Pesquisa de Jogador com Autocomplete Instantâneo sem lag, Varredura Assíncrona com Rate-Limiting Seguro, Classificação Automática de Ameaças: 👑 Nobres, ⚔️ Nukes/Grande Escala, 🗡️ Fakes, 👁️ Espionagens e 🛡️ Apoios, Painéis Retráteis por Aldeia de Destino, Relógio Decrescente ao Vivo e Exportação BBCode), Deteção Inteligente de Ataques Inimigos a Chegar com Identificação Real do Jogador Atacante e Aldeia de Origem, Ataques & Retornos com filtros, agrupamento por alvos, ordenação interativa por clique nos cabeçalhos de coluna, exclusão opcional de micro-saques Modo Turbo para velocidade máxima, purga automática de comandos expirados e timers sincronizados com o servidor), Exclusão de Horário Noturno (Bónus Noturno) no Impacto e no Envio com horas configuráveis, Calculador Automático de Horário Mínimo de Impacto com Folga de Envio Configurável (1º Impacto e Cobertura Total de Alvos com ajuste instantâneo a 1 clique), identificação visual de Hoje/Amanhã na tabela, balanceamento round-robin de alvos, escalonamento sem colisão em repetições e Fakes Inteligentes 1% Dinâmico por Pontos (_60, _90, _115, _135), Escoltas Anti-Snipe de Precisão Cirúrgica a 40ms antes de cada Nobre (janela anti-snipe personalizável), Bate e Volta com folga configurável de regresso (padrão seguro de 10s para PSEvolution e bots), Rastreio em Tempo Real de Nobres a Caminho & em Retorno de Comandos + Treino na Academia, Deteção Rigorosa de 0 Nobres em Casa por Isolamento de Linhas HTML & Cruzamento de Comandos Ativos, Deduplicação Rigorosa de Nobres & Teto Físico de Tropas Fora, Sincronização Server-Live sem Cache, Validação Precisa de Envio & Horário Mínimo de Ataque à Prova de Falhas (⚡ com 5m folga, cálculo inteligente de nobres a regressar e seleção do Nuke Full mais perto), Suporte Automático a Modelos NT (NobreFull para NT Simples com Nuke no 1º Nobre, NT 33% para 3 nobres, NT 25% para 4 nobres), Bunkers Desligados por Default, Alvo Cats do Nuke Muralha por Default, Arsenal Tático de Fakes, UI de Limpezas/Nobres/Demolição, e Planeador Tático.
+// @version      3.15.1
+// @description  Suite militar avançada para Tribal Wars PT: Módulo Tático de Comandos com Radar Inimigo & Intel de Jogador (Pesquisa de Jogador com Autocomplete Instantâneo sem lag, Varredura Assíncrona com Rate-Limiting Seguro, Classificação Automática de Ameaças: 👑 Nobres, ⚔️ Nukes/Grande Escala, 🗡️ Fakes, 👁️ Espionagens e 🛡️ Apoios, Painéis Retráteis por Aldeia de Destino, Relógio Decrescente ao Vivo e Exportação BBCode), Deteção Inteligente de Ataques Inimigos a Chegar com Identificação Real do Jogador Atacante e Aldeia de Origem, Ataques & Retornos com filtros, agrupamento por alvos, ordenação interativa por clique nos cabeçalhos de coluna, exclusão opcional de micro-saques Modo Turbo para velocidade máxima, purga automática de comandos expirados e timers sincronizados com o servidor), Exclusão de Horário Noturno (Bónus Noturno) no Impacto e no Envio com horas configuráveis, Calculador Automático de Horário Mínimo de Impacto com Folga de Envio Configurável (1º Impacto e Cobertura Total de Alvos com ajuste instantâneo a 1 clique), identificação visual de Hoje/Amanhã na tabela, balanceamento round-robin de alvos, escalonamento sem colisão em repetições e Fakes Inteligentes 1% Dinâmico por Pontos (_60, _90, _115, _135), Escoltas Anti-Snipe de Precisão Cirúrgica a 40ms antes de cada Nobre (janela anti-snipe personalizável), Bate e Volta com folga configurável de regresso (padrão seguro de 10s para PSEvolution e bots), Rastreio em Tempo Real de Nobres a Caminho & em Retorno de Comandos + Treino na Academia, Deteção Rigorosa de 0 Nobres em Casa por Isolamento de Linhas HTML & Cruzamento de Comandos Ativos, Deduplicação Rigorosa de Nobres & Teto Físico de Tropas Fora, Sincronização Server-Live sem Cache, Validação Precisa de Envio & Horário Mínimo de Ataque à Prova de Falhas (⚡ com 5m folga, cálculo inteligente de nobres a regressar e seleção do Nuke Full mais perto), Suporte Automático a Modelos NT (NobreFull para NT Simples com Nuke no 1º Nobre, NT 33% para 3 nobres, NT 25% para 4 nobres), Bunkers Desligados por Default, Alvo Cats do Nuke Muralha por Default, Arsenal Tático de Fakes, UI de Limpezas/Nobres/Demolição, e Planeador Tático. + Defesa IA: simulação de combate real (stats oficiais, muralha lida do jogo, paladino, bónus noturno), margem de segurança configurável, e agendamentos já no formato do Apoio Inteligente do PSEvolution (coordenada - quantidades por coluna).
 // @author       Diogo & Antigravity
 // @match        https://*.tribalwars.com.pt/game.php*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=tribalwars.com.pt
@@ -12,7 +12,7 @@
 // ==/UserScript==
 
 (async function () {
-    const SCRIPT_VERSION = '3.10.0';
+    const SCRIPT_VERSION = '3.15.1';
 
     // Auto-selecionar alvo de catapulta na confirmação de ataque na Praça de Reunião se especificado no URL
     try {
@@ -2696,6 +2696,14 @@
                 } catch (_) {}
             }
 
+            // Nivel da muralha por aldeia — critico para a IA de defesa
+            let wallLevelsByVillage = parseWallLevelsFromBuildings(parser, rBuildings);
+            if (!Object.keys(wallLevelsByVillage).length) {
+                const rWall = (await safeFetch(makeUrl('overview_villages&mode=buildings&type=wall&page=-1')))
+                    || (await safeFetch(makeUrl('overview_villages&mode=buildings&type=wall')));
+                wallLevelsByVillage = parseWallLevelsFromBuildings(parser, rWall, { floorOnLast: true });
+            }
+
             const prodThs = Array.from(dP.querySelectorAll('#production_table thead th'));
             const ptsHeaderIndex = prodThs.findIndex(th => /ponto|point|punkt/i.test(th.textContent.trim()));
 
@@ -2935,6 +2943,8 @@
                     const vObj = {
                         id: vId, name: vName, coords, points: vPoints, troops: vTroops, troopsDict: dict, homeTroopsDict: homeDict,
                         movingTroopsDict: movingDict, awayTroopsDict: awayDict,
+                        wall: (wallLevelsByVillage[vId] !== undefined) ? wallLevelsByVillage[vId] : null,
+                        wallKnown: (wallLevelsByVillage[vId] !== undefined),
                         knightAvailable, rowClass, isDef, isOff, roleTag,
                         farm: farmInfo,
                         snobsAvailable: snobsHome,
@@ -4750,7 +4760,7 @@
                 <td><b style="color:#f43f5e;">${cmd.model}</b>${smartBadge}</td>
             </tr>`;
 
-            let u = `https://${location.host}/game.php?village=${cmd.originId}&screen=place&target_coord=${cmd.targetCoords}`;
+            let u = buildPlaceScreenUrl(cmd.originId, cmd.targetCoords, null);
             output += `[*]${i+1}. ${formatRussianDateTime(cmd.launchTime)} --- ${cmd.model}[|]${formatRussianDateTime(cmd.landTime)}[|] ${cmd.originCoords} --> ${cmd.targetCoords} [|][url=${u}]Link[/url]\n`;
         });
 
@@ -6750,6 +6760,51 @@
         return Number.isFinite(n) ? n : fallback;
     }
 
+    // =========================================================================
+    // MURALHA REAL DE CADA ALDEIA
+    // =========================================================================
+    // A muralha e o MAIOR multiplicador da defesa (nivel 0 = +0%, nivel 20 = +107%).
+    // Assumir um valor errado estraga todas as contas: dava aldeias "seguras" que
+    // na verdade caiam. Isto le o nivel real de cada aldeia a partir da visao geral
+    // de edificios (mode=buildings ou mode=buildings&type=wall).
+    function parseWallLevelsFromBuildings(parser, html, opts) {
+        const o = opts || {};
+        const out = {};
+        if (!html || !parser) return out;
+        try {
+            const doc = parser.parseFromString(html, 'text/html');
+            const table = doc.querySelector('#buildings_table, #buildings, table.overview_table, table.vis');
+            if (!table) return out;
+
+            const headRow = table.querySelector('thead tr') || table.querySelector('tr');
+            const ths = headRow ? Array.from(headRow.querySelectorAll('th, td')) : [];
+            let idx = ths.findIndex(th => /muralha|\bwall\b/i.test((th.textContent || '') + ' ' + (th.innerHTML || '')));
+            // Página filtrada por muralha (type=wall): a última coluna é o nível.
+            // Só se aceita se o cabeçalho for mesmo um nível (evita ler a coluna errada).
+            if (idx < 0 && o.floorOnLast && ths.length > 1) {
+                const lastTh = ths[ths.length - 1];
+                if (/n[íi]vel|level|lvl/i.test((lastTh && lastTh.textContent) || '')) idx = ths.length - 1;
+            }
+            if (idx < 0) return out;
+
+            const bodyRows = table.querySelectorAll('tbody tr').length
+                ? Array.from(table.querySelectorAll('tbody tr'))
+                : Array.from(table.querySelectorAll('tr'));
+
+            bodyRows.forEach(tr => {
+                const a = tr.querySelector('a[href*="village="]');
+                if (!a) return;
+                const m = a.href.match(/village=(\d+)/);
+                if (!m) return;
+                const cells = Array.from(tr.children);
+                if (!cells[idx]) return;
+                const val = parseInt((cells[idx].textContent || '').trim(), 10);
+                if (!isNaN(val) && val >= 0 && val <= 20) out[m[1]] = val;
+            });
+        } catch (_) {}
+        return out;
+    }
+
     function getDefenseThreatPlayerName(cmd) {
         if (!cmd) return 'Player';
         if (cmd.attackerPlayerName && String(cmd.attackerPlayerName).trim()) return String(cmd.attackerPlayerName).trim();
@@ -7454,6 +7509,22 @@
         return { gen, cav, arch, effective, wallFactor: wf };
     }
 
+    // Quantos "pop da mistura ideal" vale a defesa que já tens lá dentro?
+    // Isto é o que corrige o erro de olhar só para a POPULAÇÃO: 5.000 cavaleiros
+    // pesados (def 120 vs cavalaria) não valem o mesmo que 5.000 lanceiros (def 75
+    // vs cavalaria), apesar de gastarem a mesma população. O gap tem de ser medido
+    // em PODER defensivo, não em pop.
+    function computeDefenseEquivalentPop(army, offSplit, wallLevel, opts) {
+        const a = normalizeTwArmy(army);
+        if (!Object.keys(a).length) return 0;
+        const split = offSplit || { total: 0, shareInf: 0.5, shareCav: 0.5, shareArch: 0 };
+        const wallFactor = getTwWallFactor(wallLevel);
+        const power = computeTwDefensePower(a, split, wallFactor, opts).effective;
+        const perPop = computeBestDefensePerPop(wallLevel, split);
+        if (!(perPop > 0)) return 0;
+        return power / perPop;
+    }
+
     // Melhor defesa possível POR POP contra uma dada composição de ataque.
     // Usa a mistura prática 40% lanceiros / 40% espadachins / 20% arqueiros.
     function computeBestDefensePerPop(wallLevel, offSplit) {
@@ -7823,11 +7894,37 @@
     //   defesa = 1.5× o mínimo  -> perdes ~67% e ficas com guarnição
     //   defesa = 2.0× o mínimo  -> perdes ~50% e ficas forte para a wave seguinte
     // Ou seja: enviar mais NÃO aumenta as baixas absolutas, só te deixa melhor.
+    // Muralha a usar quando nao e possivel le-la do jogo (0-20)
+    const DEF_FALLBACK_WALL_KEY = 'tw_def_fallback_wall';
+    let defFallbackWall = (function () {
+        try {
+            const v = parseInt(localStorage.getItem(DEF_FALLBACK_WALL_KEY), 10);
+            if (!isNaN(v) && v >= 0 && v <= 20) return v;
+        } catch (_) {}
+        return 20;
+    })();
+    function getDefFallbackWall() { return defFallbackWall; }
+    function setDefFallbackWall(v) {
+        const n = Math.max(0, Math.min(20, Math.round(safeNumber(v, 20))));
+        defFallbackWall = n;
+        try { localStorage.setItem(DEF_FALLBACK_WALL_KEY, String(n)); } catch (_) {}
+    }
+
     const TW_DEFENSE_PRESETS = {
         min: { key: 'min', label: 'Mínimo — só para segurar (perdes quase tudo)', short: 'mínimo', factor: 1.0 },
         safe: { key: 'safe', label: 'Seguro — +50% de margem (recomendado)', short: 'seguro', factor: 1.5 },
-        strong: { key: 'strong', label: 'Forte — +100% de margem (menos baixas)', short: 'forte', factor: 2.0 }
+        strong: { key: 'strong', label: 'Forte — +100% de margem (menos baixas)', short: 'forte', factor: 2.0 },
+        max: { key: 'max', label: 'Encher — o máximo que a aldeia aguenta (só com tropas a mais)', short: 'enchido', factor: 3.0 }
     };
+
+    // Quantas tropas é que a aldeia aguenta fisicamente (limite da fazenda, descontando
+    // os edifícios). Serve para NUNCA recomendar mais do que aquilo que cabe lá dentro —
+    // mandar mais do que o limite é desperdiçar tropas que fazem falta noutro lado.
+    function getDefVillageTroopCapacity(village) {
+        const farmMax = safeNumber(village && village.farm && village.farm.max, 24000) || 24000;
+        const buildingPop = Math.min(Math.round(farmMax * 0.28), 6000);
+        return Math.max(0, farmMax - buildingPop);
+    }
 
     let defSafetyPreset = (function () {
         try {
@@ -7872,56 +7969,28 @@
         const t = targetAnalysis;
         if (!t || !t.heaviest || !Array.isArray(t.waves) || !t.waves.length) return null;
 
-        // 1. Se a defesa ATUAL já aguenta (ex: graças ao bónus noturno),
-        //    não é preciso reforço nenhum — o gap tem de ser 0.
+        // A defesa atual é comparada em VALOR (pop equivalente), não em população.
+        const factor = getDefSafetyFactor();
+        const offSplit = computeTwOffenseSplit(t.heaviest.attackerArmy, t.heaviest.paladinWeapon);
         const currentArmy = normalizeTwArmy(t.current || {});
-        if (Object.keys(currentArmy).length) {
-            const alreadyHolds = simulateSequentialWaves(currentArmy, t.waves, t.wallLevel, {});
-            if (alreadyHolds.survived) {
-                const outcome = computeDefenseOutcome(currentArmy, t.waves, t.wallLevel);
-                const curPop = twArmyPop(currentArmy);
-                const factor = getDefSafetyFactor();
+        const curPop = twArmyPop(currentArmy);
+        const currentSim = simulateSequentialWaves(currentArmy, t.waves, t.wallLevel, {});
+        const currentOutcome = computeDefenseOutcome(currentArmy, t.waves, t.wallLevel);
+        const currentEquivPop = computeDefenseEquivalentPop(currentArmy, offSplit, t.wallLevel);
+        const baseInfo = { currentEquivPop, currentPop: curPop, currentSim, currentOutcome, currentArmy };
 
-                // Aguenta mas perde quase tudo? Vale a pena reforçar: as baixas
-                // ABSOLUTAS são as mesmas, mas com margem a aldeia fica com guarnição.
-                if (outcome.lossPct >= 75 && factor > 1 && curPop > 0) {
-                    const boosted = {
-                        spear: Math.ceil(currentArmy.spear * factor) || 0,
-                        sword: Math.ceil(currentArmy.sword * factor) || 0,
-                        archer: Math.ceil(currentArmy.archer * factor) || 0
-                    };
-                    const boostedPop = boosted.spear + boosted.sword + boosted.archer;
-                    if (boostedPop > curPop) {
-                        return {
-                            army: boosted,
-                            pop: boostedPop,
-                            scale: factor, minScale: 1, factor,
-                            minArmy: currentArmy, minPop: curPop,
-                            minSim: alreadyHolds,
-                            sim: simulateSequentialWaves(boosted, t.waves, t.wallLevel, {}),
-                            alreadyHolds: false,
-                            topUpOnly: true,
-                            currentLossPct: outcome.lossPct
-                        };
-                    }
-                }
-
-                return {
-                    army: currentArmy,
-                    pop: curPop,
-                    scale: 0, minScale: 0, factor: 1,
-                    sim: alreadyHolds,
-                    alreadyHolds: true,
-                    minArmy: currentArmy,
-                    minPop: curPop,
-                    currentLossPct: outcome.lossPct,
-                    currentOutcome: outcome
-                };
-            }
-        }
-
+        // O MÍNIMO e o RECOMENDADO são sempre calculados de raiz (independentes do
+        // que já lá está). Depois é que se compara: quanto FALTA, em poder?
         const base = findMinDefenseToSurvive(t.heaviest.attackerArmy, t.wallLevel, { paladinWeapon: t.heaviest.paladinWeapon });
-        if (!base || !base.mixed) return null;
+        if (!base || !base.mixed) {
+            return {
+                army: null, pop: Infinity, scale: 0, minScale: null, factor, sim: null,
+                minArmy: null, minPop: Infinity,
+                alreadyHolds: currentSim.survived,
+                gapPop: Infinity, minGapPop: Infinity,
+                ...baseInfo
+            };
+        }
         const mix = base.mixed;
 
         // 2. Escala MÍNIMA que sobrevive a todas as waves
@@ -7939,7 +8008,13 @@
             scale *= 1.25;
         }
         if (minScale === null) {
-            return { army: null, pop: Infinity, scale, minScale: null, factor: 1, sim: null, alreadyHolds: false };
+            return {
+                army: null, pop: Infinity, scale, minScale: null, factor, sim: null,
+                minArmy: null, minPop: Infinity,
+                alreadyHolds: currentSim.survived,
+                gapPop: Infinity, minGapPop: Infinity,
+                ...baseInfo
+            };
         }
 
         const minArmy = {
@@ -7950,14 +8025,27 @@
         const minPop = minArmy.spear + minArmy.sword + minArmy.archer;
 
         // 3. Aplicar a margem de segurança escolhida
-        const factor = getDefSafetyFactor();
         const finalScale = minScale * factor;
-        const army = {
+        let army = {
             spear: Math.ceil(mix.spear * finalScale),
             sword: Math.ceil(mix.sword * finalScale),
             archer: Math.ceil(mix.archer * finalScale)
         };
-        const pop = army.spear + army.sword + army.archer;
+        let pop = army.spear + army.sword + army.archer;
+
+        // Nunca recomendar mais do que a aldeia aguenta (limite da fazenda): acima disso
+        // as tropas não ficam lá e fazem falta noutro lado. Com a margem "Encher" é este
+        // limite que manda — é por isso que a aldeia não fica mais protegida do que isto.
+        const capacity = getDefVillageTroopCapacity(t.village);
+        if (capacity > 0 && pop > capacity) {
+            const k = capacity / pop;
+            army = {
+                spear: Math.floor(army.spear * k),
+                sword: Math.floor(army.sword * k),
+                archer: Math.floor(army.archer * k)
+            };
+            pop = army.spear + army.sword + army.archer;
+        }
         const sim = simulateSequentialWaves(army, t.waves, t.wallLevel, {});
 
         return {
@@ -7970,7 +8058,17 @@
             minPop,
             minSim,
             sim,
-            alreadyHolds: false
+            // Já chega para VENCER? (não quer dizer que não valha a pena reforçar)
+            alreadyHolds: currentSim.survived,
+            // Quanto FALTA, medido em pop da mistura ideal. Respeita a qualidade real
+            // das tropas: cavalaria pesada vale por mais do que lanceiros, por isso
+            // o gap é menor do que seria se só contasse a população.
+            gapPop: Math.max(0, pop - currentEquivPop),
+            minGapPop: Math.max(0, minPop - currentEquivPop),
+            // Aguenta, mas está abaixo do alvo recomendado → vale a pena engrossar
+            topUpOnly: currentSim.survived,
+            currentLossPct: currentOutcome.lossPct,
+            ...baseInfo
         };
     }
 
@@ -7994,9 +8092,7 @@
         const balanceSplit = { shareInf: 0.5, shareCav: 0.5, shareArch: 0 };
         const perPop = computeBestDefensePerPop(t.wallLevel, balanceSplit);
 
-        const farmMax = safeNumber(t.village && t.village.farm && t.village.farm.max, 24000) || 24000;
-        const buildingPop = Math.min(Math.round(farmMax * 0.28), 6000);
-        const maxTroopPop = Math.max(0, farmMax - buildingPop);
+        const maxTroopPop = getDefVillageTroopCapacity(t.village);
         const maxDefensePower = maxTroopPop * perPop;
 
         const ratio = maxDefensePower > 0 ? totalOffense / maxDefensePower : Infinity;
@@ -8040,7 +8136,9 @@
             order: {
                 type: 'dodge',
                 fromName: t.name, fromCoords: t.coords,
+                fromId: (t.village && t.village.id) || null,
                 toName: dest.v.name, toCoords: dest.v.coords,
+                toId: dest.v.id || null,
                 army: ownTroops, pop: ownPop,
                 distance: dest.dist, travelSec,
                 departAtMs: latestDepartMs,
@@ -8123,26 +8221,48 @@
                 ? allWavesReq.pop
                 : (singleWaveReq && singleWaveReq.mixed ? singleWaveReq.mixed.pop : 0);
 
-            const need = targetArmy
-                ? {
-                    spear: Math.max(0, targetArmy.spear - safeNumber(t.current.spear, 0)),
-                    sword: Math.max(0, targetArmy.sword - safeNumber(t.current.sword, 0)),
-                    archer: Math.max(0, targetArmy.archer - safeNumber(t.current.archer, 0))
-                }
-                : { spear: 0, sword: 0, archer: 0 };
+            // O que falta enviar vem do gap em PODER já calculado na análise: já
+            // desconta o valor real das tropas que lá estão (cavalaria pesada,
+            // espadachins...) em vez de contar só a população.
+            let need = { spear: 0, sword: 0, archer: 0 };
+            if (t.allWavesGap) {
+                need = {
+                    spear: safeNumber(t.allWavesGap.spear, 0),
+                    sword: safeNumber(t.allWavesGap.sword, 0),
+                    archer: safeNumber(t.allWavesGap.archer, 0)
+                };
+            } else if (targetArmy && targetPop > 0) {
+                // Alvo construído à mão (sem o gap pré-calculado): mede-se aqui,
+                // sempre em poder e nunca unidade-a-unidade.
+                const equivNow = computeDefenseEquivalentPop(
+                    t.current,
+                    computeTwOffenseSplit(t.heaviest.attackerArmy, t.heaviest.paladinWeapon),
+                    t.wallLevel
+                );
+                const ratio = Math.max(0, (targetPop - equivNow) / targetPop);
+                need = {
+                    spear: Math.round(targetArmy.spear * ratio),
+                    sword: Math.round(targetArmy.sword * ratio),
+                    archer: Math.round(targetArmy.archer * ratio)
+                };
+            }
             const requiredPop = targetPop;
-
-            // Já aguenta sem reforço? (a menos que só valha a pena "engrossar" a defesa)
-            const needPopTotal = need.spear + need.sword + need.archer;
             const isTopUp = !!(allWavesReq && allWavesReq.topUpOnly);
-            if (!isTopUp && (t.sequential.survived || needPopTotal <= 0)) {
+
+            // Só não se mexe nada quando o valor da defesa atual já chega ao alvo.
+            // (antes bastava "aguentar" para dizer "não mover nada", mesmo com dezenas
+            //  de aldeias de defesa paradas prontas a reduzir as baixas)
+            const needPopTotal = need.spear + need.sword + need.archer;
+            if (needPopTotal <= 0) {
                 summary.push({
                     target: t, label, decision: 'HOLD', supportOrders: [], dodgeOrder: null,
                     requiredPop: requiredPop === Infinity ? 0 : requiredPop,
                     currentPop: safeNumber(t.currentPop, 0),
+                    currentEquivPop: (allWavesReq && safeNumber(allWavesReq.currentEquivPop, 0)) || 0,
                     missingAfter: 0,
                     required: allWavesReq,
-                    reason: 'Defesa atual aguenta todas as waves conhecidas. Não mover nada.'
+                    topUp: false,
+                    reason: 'Defesa atual já vale mais do que o alvo recomendado. Não mover nada.'
                 });
                 return;
             }
@@ -8199,7 +8319,9 @@
                 const supportOrders = used.map(u => ({
                     type: 'support',
                     fromName: u.donor.village.name, fromCoords: u.donor.village.coords,
+                    fromId: u.donor.village.id || null,
                     toName: t.name, toCoords: t.coords,
+                    toId: (t.village && t.village.id) || null,
                     army: u.send, pop: u.send.spear + u.send.sword + u.send.archer,
                     distance: u.dist, travelSec: u.travelSec,
                     departAtMs: u.latestDepartMs,
@@ -8212,8 +8334,12 @@
                     target: t, label, decision: 'HOLD', supportOrders, dodgeOrder: null,
                     requiredPop: requiredPop === Infinity ? 0 : requiredPop,
                     currentPop: safeNumber(t.currentPop, 0),
+                    currentEquivPop: (allWavesReq && safeNumber(allWavesReq.currentEquivPop, 0)) || 0,
                     missingAfter: 0,
-                    reason: 'Reforço verificado por simulação: a aldeia aguenta todas as waves.'
+                    topUp: isTopUp,
+                    reason: isTopUp
+                        ? `Aguentava, mas a defesa atual só vale ${Math.round(safeNumber(allWavesReq && allWavesReq.currentEquivPop, 0)).toLocaleString('pt-PT')} pop em qualidade. Engrossar até ${requiredPop === Infinity ? '—' : requiredPop.toLocaleString('pt-PT')} pop não aumenta as baixas absolutas e deixa guarnição.`
+                        : 'Reforço verificado por simulação: a aldeia aguenta todas as waves.'
                 });
                 return;
             }
@@ -8400,6 +8526,465 @@
     }
 
     // =========================================================================
+    // COMANDOS PARA O PS EVOLUTION + EXPLICAÇÃO DA LÓGICA
+    // =========================================================================
+    // Data/hora no formato do plano russo usado pelo PS Evolution: HH:MM:SS:mmm DD.MM.YYYY
+    function formatDefenseRussianStamp(ms) {
+        const d = new Date(safeNumber(ms, 0));
+        const p = (n, l) => String(n).padStart(l || 2, '0');
+        return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}:${p(d.getMilliseconds(), 3)} ${p(d.getDate())}.${p(d.getMonth() + 1)}.${d.getFullYear()}`;
+    }
+
+    // Todos os movimentos (apoios + desvios) ordenados pela hora de ENVIO
+    function collectDefenseMoveRows(plan) {
+        const rows = [];
+        ((plan && plan.summary) || []).forEach(s => {
+            (s.supportOrders || []).forEach(o => rows.push({ kind: 'APOIO', summary: s, order: o }));
+            if (s.dodgeOrder) rows.push({ kind: 'DESVIO', summary: s, order: s.dodgeOrder });
+        });
+        return rows.sort((a, b) => safeNumber(a.order && a.order.departAtMs, 0) - safeNumber(b.order && b.order.departAtMs, 0));
+    }
+
+    function getDefenseGameHost() {
+        try {
+            if (typeof window !== 'undefined' && window.__tw_forceHost) return String(window.__tw_forceHost);
+        } catch (_) {}
+        try {
+            if (typeof location !== 'undefined' && location.host) return location.host;
+        } catch (_) {}
+        return '';
+    }
+
+    // Tropas no formato do jogo: spear=1000&sword=500&archer=200
+    // A Praca de Reunioes le estes parametros e PRE-SELECIONA as tropas no
+    // formulario, evitando ter de as escrever a mao em cada apoio.
+    function buildDefenseTroopParams(army) {
+        const a = normalizeTwArmy(army);
+        const order = ['spear', 'sword', 'axe', 'archer', 'spy', 'light', 'marcher', 'heavy', 'ram', 'catapult', 'knight', 'snob'];
+        return order.filter(k => safeNumber(a[k], 0) > 0).map(k => `${k}=${a[k]}`).join('&');
+    }
+
+    // Modelo (preset de tropas) configurado no PS Evolution. Vazio = tropas explicitas.
+    const DEF_PSE_MODEL_KEY = 'tw_def_pse_model';
+    let defPseModel = (function () {
+        try { return localStorage.getItem(DEF_PSE_MODEL_KEY) || ''; } catch (_) { return ''; }
+    })();
+    function getDefPseModel() { return defPseModel; }
+    function setDefPseModel(v) {
+        defPseModel = String(v === null || v === undefined ? '' : v).trim();
+        try { localStorage.setItem(DEF_PSE_MODEL_KEY, defPseModel); } catch (_) {}
+    }
+
+    // =========================================================================
+    // APOIO INTELIGENTE DO PS EVOLUTION — o formato que o agendador lê de verdade
+    // =========================================================================
+    // O campo "Coordenadas dos Alvos" do Apoio Inteligente aceita UMA linha por
+    // alvo: a coordenada + os totais na ORDEM DAS COLUNAS configuradas no PSE.
+    //   1 Lanceiro | 2 Espadachim | 3 Cav. Pesada | 4 Arqueiro | ...
+    // Exemplo do próprio PSE: 320|433 - 5000/18600/4000
+    //
+    // O agendador NÃO sabe ler "spear=..&sword=.." (era isso que fazia os apoios
+    // serem criados VAZIOS, sem tropas). Por isso a defesa calculada pelo módulo
+    // é convertida para as unidades dessas colunas antes de ser exportada.
+    const DEF_PSE_AI_MIX_KEY = 'tw_def_pse_ai_mix';
+    const DEF_PSE_AI_MODE_KEY = 'tw_def_pse_ai_mode';
+    // ATENÇÃO — DUAS REGRAS DURAS, confirmadas em jogo:
+    // 1) ORDEM DAS COLUNAS é a que está configurada no Apoio Inteligente do PSE.
+    //    No caso do utilizador é: 1 Lanceiro · 2 Espadachim · 3 ARQUEIRO · 4 Cav. Pesada
+    //    (a legenda do mural do PSE diz "3 Cav. Pesada" e induz em erro — vale a ordem
+    //    real configurada no agendador).
+    // 2) NENHUMA coluna pode sair a zero: o PSEvolution descarta os zeros e desloca as
+    //    colunas para a esquerda (era o que punha os arqueiros na cavalaria pesada).
+    //    O último tipo de tropa leva sempre um valor mínimo ("token").
+    const TW_DEF_PSE_MIXES = {
+        leca: {
+            key: 'leca',
+            label: '1 Lanceiro · 2 Espadachim · 3 Arqueiro · 4 Cav. Pesada',
+            short: 'L/Esp/Arq/CP',
+            columns: ['spear', 'sword', 'archer', 'heavy'],
+            // Mistura da casa (arqueiros a fazer o trabalho) + token de CP na última
+            // coluna. Fica a ~0,5% do "Precisas de X" do painel e degrada bem se o PSE
+            // só tiver 3 colunas (o token da CP cai fora e sobram L/E/Arq = a mistura ideal).
+            shares: { spear: 0.39, sword: 0.39, archer: 0.20, heavy: 0.02 }
+        },
+        lea: {
+            key: 'lea',
+            label: '1 Lanceiro · 2 Espadachim · 3 Arqueiro',
+            short: 'L/Esp/Arq',
+            columns: ['spear', 'sword', 'archer'],
+            // A mistura ideal do módulo, tal e qual: bate certo ao pop com o painel.
+            shares: { spear: 0.40, sword: 0.40, archer: 0.20 }
+        },
+        lec: {
+            key: 'lec',
+            label: '1 Lanceiro · 2 Espadachim · 3 Cav. Pesada (ordem do mural do PSE)',
+            short: 'L/Esp/CP',
+            columns: ['spear', 'sword', 'heavy'],
+            // Só para quem tem mesmo a CP na 3.ª coluna (como diz a legenda do mural).
+            shares: { spear: 0.49, sword: 0.49, heavy: 0.02 }
+        }
+    };
+    const TW_DEF_PSE_MODE_DEFAULT = 'completar';
+    const TW_DEF_PSE_MIX_DEFAULT = 'leca';
+    const TW_DEF_PSE_MODES = {
+        completar: { key: 'completar', label: 'Objetivo «Completar» (linha = meta por alvo)' },
+        enviar: { key: 'enviar', label: 'Objetivo «Enviar a Meta» (linha = só o que falta)' }
+    };
+    let defPseAiMix = (function () {
+        try {
+            const v = localStorage.getItem(DEF_PSE_AI_MIX_KEY);
+            return TW_DEF_PSE_MIXES[v] ? v : TW_DEF_PSE_MIX_DEFAULT;
+        } catch (_) { return TW_DEF_PSE_MIX_DEFAULT; }
+    })();
+    let defPseAiMode = (function () {
+        try {
+            const v = localStorage.getItem(DEF_PSE_AI_MODE_KEY);
+            return TW_DEF_PSE_MODES[v] ? v : TW_DEF_PSE_MODE_DEFAULT;
+        } catch (_) { return TW_DEF_PSE_MODE_DEFAULT; }
+    })();
+    function getDefPseAiMixKey() { return TW_DEF_PSE_MIXES[defPseAiMix] ? defPseAiMix : TW_DEF_PSE_MIX_DEFAULT; }
+    function getDefPseAiMix() { return TW_DEF_PSE_MIXES[getDefPseAiMixKey()]; }
+    function setDefPseAiMix(v) {
+        defPseAiMix = TW_DEF_PSE_MIXES[v] ? v : TW_DEF_PSE_MIX_DEFAULT;
+        try { localStorage.setItem(DEF_PSE_AI_MIX_KEY, defPseAiMix); } catch (_) {}
+    }
+    function getDefPseAiModeKey() { return TW_DEF_PSE_MODES[defPseAiMode] ? defPseAiMode : TW_DEF_PSE_MODE_DEFAULT; }
+    function setDefPseAiMode(v) {
+        defPseAiMode = TW_DEF_PSE_MODES[v] ? v : TW_DEF_PSE_MODE_DEFAULT;
+        try { localStorage.setItem(DEF_PSE_AI_MODE_KEY, defPseAiMode); } catch (_) {}
+    }
+
+    // Poder defensivo de 1 de POP numa dada mistura (as partes são de POP, não
+    // de unidades — a cavalaria pesada ocupa 6 de pop, logo entra a dividir por 6).
+    function computeDefenseMixPowerPerPop(shares, wallLevel, offSplit) {
+        const wf = getTwWallFactor(wallLevel);
+        const split = offSplit || { shareInf: 0.5, shareCav: 0.5, shareArch: 0 };
+        let perPop = 0;
+        Object.keys(shares || {}).forEach(k => {
+            const u = TW_UNITS[k];
+            const share = safeNumber(shares[k], 0);
+            if (!u || share <= 0) return;
+            const weighted = (u.defGen * split.shareInf) + (u.defCav * split.shareCav) + (u.defArch * split.shareArch);
+            perPop += (share / Math.max(1, u.pop)) * weighted * wf;
+        });
+        return perPop;
+    }
+
+    // Converte uma quantidade de POP na mistura para o nº de unidades de cada coluna
+    function buildDefenseMixArmyFromPop(shares, pop) {
+        const total = Math.max(0, safeNumber(pop, 0));
+        const army = {};
+        Object.keys(shares || {}).forEach(k => {
+            const u = TW_UNITS[k];
+            if (!u || safeNumber(shares[k], 0) <= 0) return;
+            const n = Math.round((total * shares[k]) / Math.max(1, u.pop));
+            if (n > 0) army[k] = n;
+        });
+        return army;
+    }
+
+    // Valor defensivo REAL do que já está na aldeia (em PODER, nunca em população)
+    function computeDefenseRawPower(army, offSplit, wallLevel) {
+        return computeTwDefensePower(normalizeTwArmy(army), offSplit, getTwWallFactor(wallLevel)).effective;
+    }
+
+    // Escala a mistura (unidades das colunas do PSE) até a SIMULAÇÃO garantir que a
+    // aldeia aguenta todas as waves. `garrison` = o que já está lá dentro (modo
+    // "só o que falta"); a null, mede-se a meta como guarnição completa.
+    // Sem isto a conversão por poder dava números bonitos no papel que depois não
+    // seguravam em jogo (a defesa é consumida wave a wave).
+    function scaleDefenseMixToSurvive(targetAnalysis, mix, popSeed, garrison, maxPop) {
+        const t = targetAnalysis || {};
+        const shares = (mix && mix.shares) || {};
+        const waves = Array.isArray(t.waves) ? t.waves : [];
+        const seed = Math.max(1, Math.round(safeNumber(popSeed, 0)));
+        // Teto opcional: nunca se pede mais pop do que aquilo que existe para enviar
+        const limit = maxPop === undefined ? Infinity : Math.max(seed, safeNumber(maxPop, seed));
+        const base = normalizeTwArmy(garrison || {});
+        // Cuidado: sem guarnição os campos são undefined — somar daria NaN e a
+        // simulação corria com a aldeia VAZIA (nunca confirmava nada).
+        const n = (v) => safeNumber(v, 0);
+        const withGarrison = (army) => normalizeTwArmy({
+            spear: n(base.spear) + n(army.spear),
+            sword: n(base.sword) + n(army.sword),
+            archer: n(base.archer) + n(army.archer),
+            heavy: n(base.heavy) + n(army.heavy),
+            knight: n(base.knight)
+        });
+
+        if (!waves.length) return { pop: seed, verified: false };
+
+        let pop = seed;
+        for (let i = 0; i < 12; i++) {
+            const army = buildDefenseMixArmyFromPop(shares, pop);
+            if (Object.keys(army).length) {
+                const sim = simulateSequentialWaves(withGarrison(army), waves, t.wallLevel, {});
+                if (sim.survived) return { pop: Math.round(pop), verified: true };
+            }
+            const next = Math.ceil(pop * 1.12) + 1;
+            if (next > limit) break; // já não há mais tropas para pedir
+            pop = next;
+        }
+        return { pop: Math.round(pop), verified: false };
+    }
+
+    // Quantidades (na ordem das colunas do PSE) que cada aldeia atacada precisa.
+    // O que sai daqui é o que o PLANO consegue mesmo cumprir: as ordens de apoio já
+    // saíram das aldeias LIVRES (com 20% de reserva em cada uma), já respeitaram a
+    // hora de chegada e já foram confirmadas por simulação. Nunca se exporta um
+    // pedido impossível — se não há cobertura, a aldeia vira desvio e não leva linha.
+    function buildDefenseSmartSupportTargets(targetAnalyses, plan) {
+        const mix = getDefPseAiMix();
+        const mode = getDefPseAiModeKey();
+        const columns = Array.isArray(mix.columns) ? mix.columns : Object.keys(mix.shares);
+        const summary = (plan && Array.isArray(plan.summary) && plan.summary.length) ? plan.summary : null;
+
+        const entries = summary
+            ? summary.filter(s => s && s.target).map(s => ({ t: s.target, decision: s.decision, orders: s.supportOrders || [] }))
+            : (Array.isArray(targetAnalyses) ? targetAnalyses : []).map(t => ({ t, decision: null, orders: null }));
+
+        const out = [];
+        entries.forEach(e => {
+            const t = e.t;
+            if (!t || !t.coords) return;
+            // Aldeia que se abandona (desvio/reconquista) não leva apoio: seria perdido.
+            if (e.decision === 'DODGE' || e.decision === 'RECONQUER') return;
+
+            const req = t.allWavesNeed;
+            if (!req || !Number.isFinite(req.pop) || req.pop <= 0) return;
+            const heaviest = t.heaviest;
+            if (!heaviest || !heaviest.attackerArmy) return;
+
+            const offSplit = computeTwOffenseSplit(heaviest.attackerArmy, heaviest.paladinWeapon);
+            const idealPerPop = computeBestDefensePerPop(t.wallLevel, offSplit);
+            const mixPerPop = computeDefenseMixPowerPerPop(mix.shares, t.wallLevel, offSplit);
+            if (!(mixPerPop > 0) || !(idealPerPop > 0)) return;
+
+            // O que já lá está (em poder) e o alvo recomendado, ambos em pop da mistura.
+            // goalMixPop é EXATAMENTE o "Precisas de X pop" do painel.
+            const currentMixPop = computeDefenseRawPower(t.current, offSplit, t.wallLevel) / mixPerPop;
+            const goalMixPop = (req.pop * idealPerPop) / mixPerPop;
+
+            // Quanto é que o plano consegue REALMENTE pôr lá dentro, em pop da mistura
+            // (as ordens já saíram das aldeias livres, com 20% de reserva e a horas).
+            let deliverableMixPop;
+            if (e.orders) {
+                const allocPop = e.orders.reduce((sum, o) => sum + safeNumber(o && o.pop, 0), 0);
+                deliverableMixPop = (allocPop * idealPerPop) / mixPerPop;
+            } else {
+                deliverableMixPop = Math.max(0, goalMixPop - currentMixPop);
+            }
+
+            let planPop, verified, gapPop, partial;
+            if (mode === 'enviar') {
+                // «Enviar a Meta» → quantidades a ENVIAR. Aqui sim o limite é o que o
+                // plano consegue mesmo mandar: nunca se manda o que não existe.
+                if (deliverableMixPop < 1) return;
+                const scaled = scaleDefenseMixToSurvive(t, mix, deliverableMixPop, t.current, deliverableMixPop);
+                planPop = scaled.pop;
+                verified = scaled.verified;
+                gapPop = planPop;
+                partial = (deliverableMixPop + 1) < Math.max(0, goalMixPop - currentMixPop);
+            } else {
+                // «Completar» → a META: a defesa TOTAL que a aldeia deve ter. Tem de ser
+                // igual ao que o painel te diz ("Precisas de X"), porque é o PSEvolution
+                // que decide como a distribuir pelas aldeias do grupo dele.
+                if (goalMixPop < 1) return;
+                const scaled = scaleDefenseMixToSurvive(t, mix, goalMixPop, null, getDefVillageTroopCapacity(t.village));
+                planPop = scaled.pop;
+                verified = scaled.verified;
+                gapPop = Math.max(0, planPop - currentMixPop);
+                if (gapPop < 1) return; // já chega ao alvo: não vale a pena mexer
+                // Cobertura insuficiente nas nossas aldeias livres → avisar (não cortar a meta)
+                partial = (deliverableMixPop + 1) < gapPop;
+            }
+
+            // NUNCA uma coluna a zero (o PSEvolution descartava o zero e deslocava as
+            // colunas — os arqueiros caíam na cavalaria pesada). Mínimo de 1 por coluna.
+            const army = buildDefenseMixArmyFromPop(mix.shares, planPop);
+            const values = columns.map(k => {
+                const n = Math.max(1, safeNumber(army[k], 0));
+                army[k] = n; // mantém o exército coerente com o que sai no texto
+                return n;
+            });
+            if (!values.some(v => v > 0)) return;
+
+            out.push({
+                coords: t.coords,
+                name: t.name,
+                keys: columns.slice(),
+                values,
+                army,
+                mode,
+                mixKey: mix.key,
+                verified,
+                partial,
+                // Quanto falta para cobrir o pedido com as aldeias livres
+                shortfall: Math.max(0, Math.round(gapPop - deliverableMixPop)),
+                deliverablePop: Math.round(deliverableMixPop),
+                gapPop: Math.round(gapPop),
+                targetPop: Math.round(planPop),
+                currentPop: Math.round(currentMixPop),
+                waves: (t.waves || []).length,
+                firstImpact: (t.waves && t.waves[0] && t.waves[0].impactMs) || 0
+            });
+        });
+
+        // Quem tem mais falta primeiro: é a ordem por que o agendador deve tratar
+        out.sort((a, b) => b.gapPop - a.gapPop);
+        return out;
+    }
+
+    // Texto pronto a colar em "Coordenadas dos Alvos" do Apoio Inteligente.
+    // Uma linha por alvo, sem comentários nem linhas vazias (para não partir o import).
+    function buildDefenseSmartSupportText(targetAnalyses, plan) {
+        const rows = buildDefenseSmartSupportTargets(targetAnalyses, plan);
+        if (!rows.length) return '';
+        return rows.map(r => `${r.coords} - ${r.values.join('/')}`).join('\n');
+    }
+
+    // Link para a Praca de Reunioes com DESTINO e TROPAS pre-selecionados.
+    // O jogo preenche os campos do formulario com os parametros de GET que tenham
+    // o MESMO NOME dos inputs: x, y (coordenadas) e spear, sword, archer, ... (tropas).
+    // (Confirmado em jogo: 'target_coord' NAO e um campo — nao preenchia o destino.)
+    function buildPlaceScreenUrl(originVillageId, targetCoords, army, extraParams) {
+        const m = String(targetCoords || '').match(/(\d{1,3})\|(\d{1,3})/);
+        let url = `https://${getDefenseGameHost()}/game.php?village=${originVillageId || ''}&screen=place`;
+        if (m) url += `&x=${m[1]}&y=${m[2]}`;
+        if (targetCoords) url += `&target_coord=${targetCoords}`;
+        if (extraParams) url += `&${extraParams}`;
+        const params = army ? buildDefenseTroopParams(army) : '';
+        if (params) url += `&${params}`;
+        return url;
+    }
+
+    function buildDefenseGameUrl(order, opts) {
+        if (!order) return '';
+        const o = opts || {};
+        return buildPlaceScreenUrl(order.fromId || '', order.toCoords, o.withTroops === false ? null : order.army);
+    }
+
+    // COMANDOS PARA O PS EVOLUTION (formato "plano russo": 1 linha por movimento)
+    // Nota: só linhas [*]. Nada de comentários nem linhas vazias, para o importador
+    // do agendador não tropeçar em linhas que não reconhece.
+    function buildDefensePsEvolutionCommands(plan, targetAnalyses, ctx) {
+        const rows = collectDefenseMoveRows(plan);
+        const model = getDefPseModel();
+        if (!rows.length) return '# Nada a mover: o valor da defesa que ja tens chegou ao alvo recomendado.';
+        const L = [];
+        rows.forEach((r, i) => {
+            const o = r.order || {};
+            const isDodge = o.type === 'dodge';
+            const tag = isDodge ? 'DESVIO' : 'APOIO';
+            // Coluna do modelo: o PS Evolution usa presets de tropas; se o utilizador
+            // não tiver nenhum definido, vão os parâmetros do jogo (o mesmo formato que
+            // o link usa, para o agendador poder ler as unidades).
+            const params = buildDefenseTroopParams(o.army);
+            const modelCell = model ? `${model} ${tag}` : `${tag} ${params}`;
+            const impact = o.impactMs ? ` impacto ${formatTwPlanDate(o.impactMs)}` : '';
+            L.push(`[*]${i + 1}. ${formatDefenseRussianStamp(o.departAtMs)} --- ${modelCell}[|]${formatDefenseRussianStamp(o.arriveAtMs)}[|] ${o.fromCoords} --> ${o.toCoords}${impact} [|][url=${buildDefenseGameUrl(o)}]Link[/url]`);
+        });
+        return L.join('\n');
+    }
+
+    // URLs de envio com as tropas já pré-preenchidas (1 link por comando)
+    function buildDefenseSendUrls(plan) {
+        const rows = collectDefenseMoveRows(plan);
+        if (!rows.length) return 'Nada a mover.';
+        const L = [];
+        rows.forEach((r, i) => {
+            const o = r.order || {};
+            L.push(`${i + 1}. ${r.kind} ${o.fromCoords} --> ${o.toCoords}`);
+            L.push(`   Tropas: ${twArmyLabel(o.army, { limit: 6 })}`);
+            L.push(`   Parametros: ${buildDefenseTroopParams(o.army)}`);
+            L.push(`   ENVIAR AS ${formatTwPlanDate(o.departAtMs)} (chega ${formatTwPlanDate(o.arriveAtMs)})`);
+            L.push(`   ${buildDefenseGameUrl(o)}`);
+        });
+        return L.join('\n');
+    }
+
+    // Explicação, em texto corrido, de COMO o plano foi calculado
+    function buildDefenseLogicText(targetAnalyses, ctx, movements, reserves) {
+        const L = [];
+        const list = Array.isArray(targetAnalyses) ? targetAnalyses : [];
+        const threats = (ctx && ctx.totalThreats) || 0;
+        const preset = TW_DEFENSE_PRESETS[defSafetyPreset] || TW_DEFENSE_PRESETS.safe;
+        const poolPop = twArmyPop((reserves && reserves.pool) || {});
+        const rows = collectDefenseMoveRows(movements);
+        const sends = rows.filter(r => r.kind === 'APOIO').length;
+        const dodges = rows.filter(r => r.kind === 'DESVIO').length;
+
+        L.push('LÓGICA DA DEFESA — como este plano foi calculado');
+        L.push('');
+        L.push(`1) O QUE VEM AÍ: ${threats} comando(s) inimigo(s) a caminho de ${list.length} aldeia(s) tua(s).`);
+        L.push('   A composição de cada ataque é reconstruída a partir dos pontos da aldeia de');
+        L.push('   origem (nuke ≈ 20k de pop ofensiva a partir dos 10k pontos) e do tipo de');
+        L.push('   comando: se vem com nobre, o 1.º é limpeza e os seguintes são trem de nobres.');
+        L.push('');
+        L.push('2) QUANTO VALE A TUA DEFESA (não é a população!).');
+        L.push('   Cada unidade tem defesa diferente contra infantaria / cavalaria / arqueiros.');
+        L.push('   5.000 cavaleiros pesados valem muito mais do que 5.000 lanceiros contra uma');
+        L.push('   nuke de cavalaria, apesar de gastarem a mesma população. Por isso o valor da');
+        L.push('   tua guarnição é calculado em PODER DEFENSIVO contra a composição real do');
+        L.push('   ataque e só depois convertido em "pop equivalente" da mistura ideal.');
+        L.push('');
+        L.push('3) MURALHA (o maior multiplicador de todos):');
+        L.push('   nível 0 = +0% ... nível 10 = +38% ... nível 20 = +107% de defesa.');
+        L.push('   O nível é lido do jogo, aldeia a aldeia. Se não for possível ler, usa-se o');
+        L.push('   valor que definiste à mão — confirma esse valor, porque uma muralha errada');
+        L.push('   estraga todas as contas.');
+        L.push('');
+        L.push('4) PALADINO E NOITE:');
+        L.push(`   Estilo do mundo: ${TW_PALADIN_STYLES[defPaladinStyle].label}; arma: ${getTwPaladinLabel(defPaladinWeapon)}.`);
+        L.push('   Ataques que caem entre as 00:00 e as 08:00 levam +100% de defesa (bónus noturno).');
+        L.push('');
+        L.push('5) SIMULAÇÃO WAVE A WAVE (é isto que decide):');
+        L.push('   A defesa é consumida wave a wave. Sobreviver à 1.ª não chega — se a 3.ª');
+        L.push('   chega depois de a defesa ter sido gasta, a aldeia cai.');
+        L.push('');
+        L.push(`6) ALVO = MÍNIMO × ${preset.factor} (${preset.short}).`);
+        L.push('   As baixas ABSOLUTAS são praticamente as mesmas, envies o mínimo ou o dobro.');
+        L.push('   Mas a PERCENTAGEM muda muito: com o mínimo perdes ~100% e a aldeia fica');
+        L.push('   vazia; com 1.5× perdes ~67% e ficas com guarnição para a wave seguinte.');
+        L.push('');
+        L.push('7) DECISÃO POR ALDEIA:');
+        L.push('   • SEGURA  → o valor da defesa que lá está já chega ao alvo. Não mover nada.');
+        L.push('   • REFORÇAR → há gap; enviam-se tropas das aldeias mais próximas, guardando');
+        L.push('                20% de reserva em cada dadora e chegando 90s antes do impacto.');
+        L.push('   • DESVIAR  → nenhuma combinação aguenta: tira as tropas para não as perder.');
+        L.push('   • RECONQUISTA → nem com a aldeia cheia de defesa dava (limite da fazenda);');
+        L.push('                bunkar era queimar tudo. Desvia e retoma depois com trem de nobres.');
+        L.push('');
+        L.push(`8) RESERVAS DISPONÍVEIS: ${Math.round(poolPop).toLocaleString('pt-PT')} pop em aldeias não atacadas.`);
+        L.push(`   Neste plano: ${sends} envio(s) de apoio e ${dodges} desvio(s).`);
+
+        if (list.length) {
+            L.push('');
+            L.push('--- ESTADO ALDEIA A ALDEIA ---');
+            list.forEach(t => {
+                const wallTxt = t.wallKnown ? `muralha ${t.wallLevel}` : `muralha ${t.wallLevel} (ASSUMIDA - confirma!)`;
+                const cur = Math.round(safeNumber(t.currentEquivPop, 0)).toLocaleString('pt-PT');
+                const pop = safeNumber(t.currentPop, 0).toLocaleString('pt-PT');
+                const target = (t.allWavesNeed && Number.isFinite(t.allWavesNeed.pop))
+                    ? Math.round(t.allWavesNeed.pop).toLocaleString('pt-PT')
+                    : '—';
+                const minT = (t.allWavesNeed && Number.isFinite(t.allWavesNeed.minPop))
+                    ? Math.round(t.allWavesNeed.minPop).toLocaleString('pt-PT')
+                    : '—';
+                const status = (t.sequential && t.sequential.survived)
+                    ? (safeNumber(t.allWavesGapPop, 0) > 0 ? 'AGUENTA mas abaixo do alvo -> engrossar' : 'SEGURA - nao mover')
+                    : 'VAI CAIR SEM APOIO';
+                L.push('');
+                L.push(`>>> ${t.name} (${t.coords}) — ${t.waves.length} ataque(s) • ${wallTxt}`);
+                L.push(`    ${status}`);
+                L.push(`    Defesa atual: ${pop} pop = ${cur} pop em QUALIDADE (contra esta composicao)`);
+                L.push(`    Minimo para aguentar: ${minT} pop | Alvo recomendado: ${target} pop`);
+            });
+        }
+        return L.join('\n');
+    }
+
+    // =========================================================================
     // RENDER: DEFESA IA COM SIMULAÇÃO DE COMBATE
     // =========================================================================
     // Estima um trem de nobres (muito menor que um nuke)
@@ -8546,6 +9131,7 @@
                 verdict: (s && s.verdict) ? s.verdict : buildDefenseVerdict(t),
                 reason: s ? s.reason : '',
                 currentPop: safeNumber(t.currentPop, 0),
+                currentEquivPop: safeNumber(t.currentEquivPop, 0),
                 requiredPop: (t.allWavesNeed && t.allWavesNeed.army)
                     ? safeNumber(t.allWavesNeed.pop, 0)
                     : (t.required ? safeNumber(t.required.pop, 0) : 0),
@@ -8583,7 +9169,10 @@
             if (!waves.length) return;
 
             const village = entry.village;
-            const wallLevel = village ? safeNumber(village.wall, 20) || 20 : 20;
+            // Muralha REAL da aldeia. Antes assumia-se sempre nível 20 (+107%), o que
+            // inflacionava a defesa e fazia parecer que aldeias fracas aguentavam.
+            const wallKnown = !!(village && Number.isFinite(village.wall));
+            const wallLevel = wallKnown ? village.wall : getDefFallbackWall();
 
             const current = {
                 spear: safeNumber(village && village.homeTroopsDict && village.homeTroopsDict.spear, 0),
@@ -8608,18 +9197,27 @@
             const required = needWall && needWall.mixed ? needWall.mixed : null;
             const allWavesNeed = computeRequiredDefenseForWaves({ heaviest, wallLevel, waves, current });
 
-            // Se aguentar TODAS as waves é impossível, usar o requisito da wave mais
-            // pesada como referência (nunca deixar o gap a 0 — isso diria "não mover").
+            // GAP MEDIDO EM PODER, NÃO EM POPULAÇÃO.
+            // Uma aldeia com 4.000 cavaleiros pesados está bem defendida contra
+            // infantaria mesmo sem lanceiros; comparar contagens unidade-a-unidade
+            // dava um falso "falta 8.000 lanceiros".
             const allWavesImpossible = !(allWavesNeed && allWavesNeed.army);
-            const baselineArmy = (allWavesNeed && allWavesNeed.army) ? allWavesNeed.army : required;
-            const baselinePop = (allWavesNeed && allWavesNeed.army)
+            const mixForGap = (allWavesNeed && allWavesNeed.army) ? allWavesNeed.army : required;
+            const mixForGapPop = (allWavesNeed && Number.isFinite(allWavesNeed.pop))
                 ? allWavesNeed.pop
                 : (required ? required.pop : 0);
-            const allWavesGap = baselineArmy
+            const currentEquivPop = (allWavesNeed && Number.isFinite(allWavesNeed.currentEquivPop))
+                ? allWavesNeed.currentEquivPop
+                : computeDefenseEquivalentPop(current, computeTwOffenseSplit(heaviest.attackerArmy, heaviest.paladinWeapon), wallLevel);
+            const needPopQuality = (allWavesNeed && Number.isFinite(allWavesNeed.gapPop))
+                ? allWavesNeed.gapPop
+                : (mixForGapPop > 0 ? Math.max(0, mixForGapPop - currentEquivPop) : 0);
+            const gapRatio = (mixForGap && mixForGapPop > 0) ? (needPopQuality / mixForGapPop) : 0;
+            const allWavesGap = (mixForGap && gapRatio > 0)
                 ? {
-                    spear: Math.max(0, baselineArmy.spear - current.spear),
-                    sword: Math.max(0, baselineArmy.sword - current.sword),
-                    archer: Math.max(0, baselineArmy.archer - current.archer)
+                    spear: Math.round(mixForGap.spear * gapRatio),
+                    sword: Math.round(mixForGap.sword * gapRatio),
+                    archer: Math.round(mixForGap.archer * gapRatio)
                 }
                 : { spear: 0, sword: 0, archer: 0 };
             const allWavesGapPop = allWavesGap.spear + allWavesGap.sword + allWavesGap.archer;
@@ -8639,12 +9237,14 @@
                 village,
                 name: village ? village.name : (entry.threats[0].targetName || entry.coords),
                 wallLevel,
+                wallKnown,
                 waves,
                 heaviest,
                 heaviestOff: Math.round(heaviestOff),
                 current,
                 currentPop: twArmyPop(current),
                 currentPower: Math.round(currentPower),
+                currentEquivPop: Math.round(currentEquivPop),
                 sequential,
                 needWall,
                 needNoWall,
@@ -8747,20 +9347,18 @@
                     </div>
                 `;
             } else if (a.support.length) {
-                steps = a.support.map((o, i) => `
-                    <div style="background:rgba(2,6,23,0.92); border-radius:8px; padding:12px; margin-top:10px;">
-                        <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:8px;">
-                            <div style="font-size:13px; color:#f8fafc; font-weight:700;">
-                                Passo ${i + 1} — envia de <b style="color:#38bdf8;">${escapeHtml(o.fromName)}</b> (${escapeHtml(o.fromCoords)})
-                                para <b style="color:#fbbf24;">${escapeHtml(a.name)}</b> (${escapeHtml(a.coords)})
+                steps = `
+                    <div style="background:rgba(2,6,23,0.92); border-radius:8px; padding:9px 11px; margin-top:9px;">
+                        <div style="font-size:10px; color:#94a3b8; font-weight:700; text-transform:uppercase; letter-spacing:0.04em; margin-bottom:5px;">Envios a fazer (lista completa nos comandos)</div>
+                        ${a.support.map(o => `
+                            <div style="display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap; padding:4px 0; border-top:1px solid rgba(148,163,184,0.15); font-size:11.5px;">
+                                <span style="color:#38bdf8; font-weight:700;">${escapeHtml(o.fromName)} (${escapeHtml(o.fromCoords)}) &rarr; ${escapeHtml(a.coords)}</span>
+                                <span style="color:#e2e8f0;">${escapeHtml(formatTroopListPlain(o.army))}</span>
+                                <span style="color:#fbbf24; font-weight:700;">enviar até ${formatTwPlanDate(o.departAtMs)}</span>
                             </div>
-                            <button class="tw-btn tw-btn-blue tw-def-copy-coord" data-coord="${escapeHtml(a.coords)}" style="padding:5px 10px; font-size:11px;">📋 Copiar destino</button>
-                        </div>
-                        <div style="font-size:13.5px; color:#e2e8f0; line-height:1.7;">${escapeHtml(formatTroopListPlain(o.army))}</div>
-                        <div style="margin-top:9px; font-size:13px; font-weight:bold; color:#fbbf24;">⏰ Envia ANTES das ${formatTwPlanDate(o.departAtMs)}</div>
-                        <div style="font-size:11.5px; color:#94a3b8; margin-top:4px;">Chega às ${formatTwPlanDate(o.arriveAtMs)} • o ataque chega às ${when}</div>
+                        `).join('')}
                     </div>
-                `).join('');
+                `;
             } else {
                 steps = '<div style="font-size:12.5px; color:#fca5a5; margin-top:8px;">Nenhuma tropa tua consegue chegar a tempo. Não há nada a fazer por esta aldeia — só reconstruir depois.</div>';
             }
@@ -8780,14 +9378,15 @@
                                <b>Bunkar seria perder tudo. O caminho é desviar e reconquistar.</b>`
                             : isDodge
                                 ? `Não há defesa que chegue para <b>${a.attacks}</b> ataque${a.attacks > 1 ? 's' : ''} seguidos. O melhor é <b style="color:#fb923c;">tirar as tuas tropas de lá</b> antes que as percas.`
-                                : `Tens <b>${a.currentPop.toLocaleString('pt-PT')}</b> de defesa em casa, precisas de <b style="color:#fbbf24;">${a.requiredPop.toLocaleString('pt-PT')}</b>.${a.missingPop > 0 ? ` Faltam <b style="color:#fca5a5;">${a.missingPop.toLocaleString('pt-PT')}</b>.` : ''}`}
+                                : `Tens <b>${a.currentPop.toLocaleString('pt-PT')}</b> pop de defesa — que valem <b style="color:#7dd3fc;">${Math.round(a.currentEquivPop).toLocaleString('pt-PT')}</b> contra esta composição. Precisas de <b style="color:#fbbf24;">${a.requiredPop.toLocaleString('pt-PT')}</b>.${a.missingPop > 0 ? ` Faltam <b style="color:#fca5a5;">${a.missingPop.toLocaleString('pt-PT')}</b>.` : ''}`}
                     </div>
                     ${(!isDodge && a.safetyFactor > 1 && a.minPop > 0 && a.minPop < a.requiredPop) ? `
                         <div style="margin-top:8px; padding:9px 11px; border-radius:7px; background:rgba(56,189,248,0.07); border:1px dashed rgba(56,189,248,0.35);">
                             <div style="font-size:11px; color:#7dd3fc; font-weight:700; text-transform:uppercase; letter-spacing:0.04em; margin-bottom:5px;">Porque ${a.safetyFactor}× e não só o mínimo</div>
                             <div style="font-size:12px; color:#cbd5e1; line-height:1.7;">
                                 • Com o <b>mínimo</b> (${a.minPop.toLocaleString('pt-PT')} pop) também seguravas, mas perdias <b style="color:#fca5a5;">quase todas as tropas</b> e a aldeia ficava vazia.<br>
-                                • Com <b>${a.safetyFactor}×</b> (${a.requiredPop.toLocaleString('pt-PT')} pop) as <b>baixas absolutas são as mesmas</b> — só que ficas com guarnição e margem para imprevistos.
+                                • Com <b>${a.safetyFactor}×</b> (${a.requiredPop.toLocaleString('pt-PT')} pop) as <b>baixas absolutas são as mesmas</b> — só que ficas com guarnição e margem para imprevistos.<br>
+                                • Estes números já contam a <b>qualidade</b> das tuas tropas: a guarnição vale <b style="color:#7dd3fc;">${Math.round(a.currentEquivPop).toLocaleString('pt-PT')}</b> pop contra esta composição de ataque (e não os ${a.currentPop.toLocaleString('pt-PT')} pop brutos).
                             </div>
                         </div>
                     ` : ''}
@@ -8881,7 +9480,7 @@
                         <div>
                             <div style="font-weight:bold; color:#f8fafc; font-size:13.5px;">${escapeHtml(t.name)} <span style="color:#64748b; font-weight:400; font-size:11px;">(${escapeHtml(t.coords)})</span></div>
                             <div style="font-size:10.5px; color:#94a3b8; margin-top:2px;">
-                                ${t.waves.length} ataque(s) • muralha <b style="color:#fbbf24;">nível ${t.wallLevel}</b>${t.hasNoble ? ' • <b style="color:#c084fc;">👑 nobres</b>' : ''} • atacante ${escapeHtml(t.playerName)}
+                                ${t.waves.length} ataque(s) • muralha <b style="color:#fbbf24;">nível ${t.wallLevel}</b>${t.wallKnown ? '' : ' <b style="color:#fca5a5;">⚠️ assumida</b>'}${t.hasNoble ? ' • <b style="color:#c084fc;">👑 nobres</b>' : ''} • atacante ${escapeHtml(t.playerName)}
                             </div>
                         </div>
                         <div style="display:flex; align-items:center; gap:7px;">
@@ -8906,6 +9505,7 @@
                         <div style="font-size:10px; color:#7dd3fc; font-weight:700; text-transform:uppercase; letter-spacing:0.04em; margin-bottom:4px;">🛡️ A tua defesa agora</div>
                         <div style="font-size:11px; color:#e2e8f0;">${escapeHtml(currentLabel)}</div>
                         <div style="font-size:10px; color:#94a3b8; margin-top:4px;">Poder defensivo efetivo: <b style="color:#7dd3fc;">${t.currentPower.toLocaleString('pt-PT')}</b> (muralha ${t.wallLevel} aplicada)</div>
+                        <div style="font-size:10px; color:#a5f3fc; margin-top:3px;">Vale <b>${(t.currentEquivPop || 0).toLocaleString('pt-PT')}</b> pop em qualidade contra esta composição (${t.currentPop.toLocaleString('pt-PT')} pop brutos)</div>
                         <div style="font-size:10px; color:#fbbf24; margin-top:3px;">Baixas previstas nas ${t.waves.length} wave(s): ${escapeHtml(lossLabel)}</div>
                     </div>
 
@@ -9014,9 +9614,162 @@
                 .join(' • ')
             : 'nenhuma';
 
+        // ===== LÓGICA + COMANDOS (o essencial: porquê e o que enviar) =====
+        // (calculado primeiro: as ajudas de cada formato usam o wallReadInfo)
+        const commandRows = collectDefenseMoveRows(movements);
+        const unknownWallCount = targetAnalyses.filter(t => !t.wallKnown).length;
+        const wallReadInfo = unknownWallCount === 0
+            ? `<b style="color:#34d399;">lida do jogo</b> em todas as aldeias`
+            : `<b style="color:#fbbf24;">não lida em ${unknownWallCount} aldeia(s)</b> — a usar nível ${getDefFallbackWall()}`;
+
+        const logicText = buildDefenseLogicText(targetAnalyses, ctx, movements, reserves);
+        const aiMixInfo = getDefPseAiMix();
+        const aiModeInfo = TW_DEF_PSE_MODES[getDefPseAiModeKey()];
+        const safetyInfo = TW_DEFENSE_PRESETS[defSafetyPreset] || TW_DEFENSE_PRESETS.safe;
+        const aiRows = [];
+        const exportFormats = {
+            pseai: {
+                key: 'pseai',
+                label: '🤝 Apoio Inteligente PSE (coordenada - quantidades)',
+                build: () => {
+                    const rows = buildDefenseSmartSupportTargets(targetAnalyses, movements);
+                    aiRows.length = 0;
+                    rows.forEach(r => aiRows.push(r));
+                    if (!rows.length) return '';
+                    return rows.map(r => `${r.coords} - ${r.values.join('/')}`).join('\n');
+                },
+                emptyHint: '<b style="color:#34d399;">✅ Nada a enviar.</b> Nenhuma aldeia precisa de reforço — as que vão cair devem ser <b>desviadas</b>, não reforçadas (não há nada para colar no PSEvolution).',
+                hint: `🤝 <b style="color:#a5f3fc;">Apoio Inteligente do PS Evolution</b> — cola isto em «Coordenadas dos Alvos» com <b>Coordenada + quantidades</b> escolhido. ` +
+                    `<b>Uma linha por aldeia atacada</b>: a <b>coordenada</b> + os totais na ordem das tuas colunas (<b>${escapeHtml(aiMixInfo.label)}</b>). ` +
+                    `<b>Escolhe a opção com a mesma ordem e o mesmo número de colunas que tens configuradas no PSE</b> (o número de valores tem de bater certo com o número de barras, e pela ordem certa). ` +
+                    `Nenhuma coluna sai a zero: o PSEvolution <b>descarta os zeros e desloca as colunas</b> (era isso que metia os arqueiros na cavalaria pesada). ` +
+                    `Objetivo no PSE: <b>${escapeHtml(aiModeInfo.label)}</b> — em «Completar» a linha é a <b>meta total</b>: o valor do «Precisas de X» do painel (a opção de 3 colunas L/Esp/Arq bate certo ao pop; a 4.ª coluna leva só um valor mínimo de cavalaria pesada para não haver zeros).`
+            },
+            psevo: {
+                key: 'psevo',
+                label: '📅 PS Evolution (plano russo)',
+                build: () => buildDefensePsEvolutionCommands(movements, targetAnalyses, ctx),
+                hint: `Cada linha = 1 comando. <b style="color:#94a3b8;">1.ª hora = quando enviar</b> (último momento seguro, 90s antes do impacto) • ` +
+                    `<b style="color:#94a3b8;">2.ª hora = quando chega</b>. Muralha: ${wallReadInfo}.` +
+                    `<br>O <b style="color:#a5f3fc;">link de cada comando abre o jogo com o destino e as tropas já preenchidos</b> — clica no Link e é só confirmar o envio.`
+            },
+            urls: {
+                key: 'urls',
+                label: '🔗 URLs de envio (tropas pré-preenchidas)',
+                build: () => buildDefenseSendUrls(movements),
+                hint: 'Um bloco por movimento, com as tropas de cada dadora e o link já com o destino (x/y) e as tropas pré-preenchidas.'
+            },
+            logic: {
+                key: 'logic',
+                label: '🧠 Explicação da lógica',
+                build: () => logicText,
+                hint: 'A explicação, passo a passo, de como este plano foi calculado.'
+            }
+        };
+        let defExportFormat = 'pseai';
+        try {
+            const savedFmt = localStorage.getItem('tw_def_export_format_v2');
+            if (savedFmt && exportFormats[savedFmt]) defExportFormat = savedFmt;
+        } catch (_) {}
+        const exportText = exportFormats[defExportFormat].build();
+
+        // Ajuda do formato + avisos de viabilidade (o PSEvolution não sabe quanto tens livre)
+        function hintForExport(key, text) {
+            const def = exportFormats[key] || exportFormats.pseai;
+            if (key !== 'pseai') return def.hint;
+
+            const abandoned = ((movements && movements.summary) || [])
+                .filter(s => s.decision === 'DODGE' || s.decision === 'RECONQUER').length;
+
+            if (String(text || '').trim() === '') {
+                if (abandoned > 0) {
+                    return `🚫 <b style="color:#fca5a5;">Nada para agendar.</b> ${abandoned} aldeia(s) não têm cobertura possível ` +
+                        `(nem com todas as tuas aldeias livres) — o que resta é <b>desviar</b> as tropas, não reforçar.`;
+                }
+                return def.emptyHint || def.hint;
+            }
+
+            const demand = aiRows.reduce((s, r) => s + safeNumber(r.gapPop, 0), 0);
+            const pool = (reserves && reserves.pool) || {};
+            // Só se pode mandar o que está em casa nas aldeias livres (a CP não entra nos apoios)
+            const usablePool = safeNumber(pool.spear, 0) + safeNumber(pool.sword, 0) + safeNumber(pool.archer, 0);
+            const partialRows = aiRows.filter(r => r.partial).length;
+            const shortfall = aiRows.reduce((s, r) => s + safeNumber(r.shortfall, 0), 0);
+            const unverified = aiRows.filter(r => !r.verified).length;
+
+            let info = '';
+            // 4 valores só funcionam se o PSE tiver a 4.ª coluna ativa: com 3 colunas
+            // o valor do arqueiro é simplesmente ignorado (defesa a menos, sem aviso).
+            if (aiRows.some(r => (r.keys || []).length > 3)) {
+                info += ` <b style="color:#fbbf24;">⚠ Só uses este layout de 4 colunas se no PSE aparecerem <b>4 barras</b> por comando.</b>` +
+                    ` Se aparecerem só 3, o valor do arqueiro é ignorado e a aldeia fica com <b>menos defesa do que precisa</b>` +
+                    ` — nesse caso muda para o layout de 3 colunas (esse é seguro em qualquer configuração).`;
+            }
+            info += `<br>📦 <b>Necessário: ${demand.toLocaleString('pt-PT')} pop</b> • ` +
+                `livre nas tuas aldeias não atacadas: <b>${usablePool.toLocaleString('pt-PT')} pop</b>`;
+
+            // Porque é que não se manda mais: a margem em uso e o teto físico de cada aldeia
+            const caps = ((movements && movements.summary) || [])
+                .map(s => getDefVillageTroopCapacity(s.target && s.target.village))
+                .filter(c => c > 0);
+            const capMin = caps.length ? Math.min.apply(null, caps) : 0;
+            info += `<br>🏰 Margem de defesa: <b>${escapeHtml(String(safetyInfo.short || ''))} ${escapeHtml(String(safetyInfo.factor))}×</b>`;
+            if (capMin > 0) {
+                info += ` • teto por aldeia (fazenda − edifícios): <b>${capMin.toLocaleString('pt-PT')} pop</b> — acima disto as tropas não ficam na aldeia`;
+            }
+            info += `. Enviar mais não aumenta as baixas absolutas — só reduz a % perdida. Altera em <b>Detalhes técnicos → Margem de defesa</b>.`;
+            if (unverified > 0) {
+                info += ` <b style="color:#fbbf24;">⚠ ${unverified} alvo(s) sem confirmação da simulação.</b>`;
+            }
+            if (partialRows > 0) {
+                info += ` <b style="color:#fbbf24;">⚠ ${partialRows} alvo(s) sem cobertura total nas tuas aldeias livres` +
+                    ` (faltam ${shortfall.toLocaleString('pt-PT')} pop) — pondera desviar esses.</b>`;
+            }
+            if (abandoned > 0) {
+                info += ` <b style="color:#fca5a5;">🚫 ${abandoned} aldeia(s) sem cobertura — desviar.</b>`;
+            }
+            return `${def.hint}${info}`;
+        }
+        const exportHint = hintForExport(defExportFormat, exportText);
+
+        const commandsBlock = `
+            <div style="border:1px solid #334155; border-radius:9px; background:rgba(2,6,23,0.65); padding:10px 12px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:7px;">
+                    <div style="font-size:12px; color:#7dd3fc; font-weight:800; text-transform:uppercase; letter-spacing:0.05em;">
+                        📋 Comandos para agendar (${commandRows.length})
+                    </div>
+                    <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
+                        <span style="font-size:9.5px; color:#94a3b8; text-transform:uppercase; letter-spacing:0.04em;" title="Nome do modelo (preset de tropas) configurado no PS Evolution. Deixa vazio para enviar as tropas explícitas.">Modelo PSE</span>
+                        <input type="text" id="tw-def-pse-model" value="${escapeHtml(getDefPseModel())}" placeholder="ex: BUNK — vazio = tropas exatas" spellcheck="false" style="font-size:10.5px; padding:4px 6px; width:180px; background:#020617; color:#e2e8f0; border:1px solid #334155; border-radius:4px;">
+                        <select id="tw-def-export-format" class="tw-select" style="font-size:10.5px; padding:4px 6px;">
+                            ${Object.keys(exportFormats).map(k => `<option value="${k}" ${defExportFormat === k ? 'selected' : ''}>${escapeHtml(exportFormats[k].label)}</option>`).join('')}
+                        </select>
+                        <select id="tw-def-pse-ai-mix" class="tw-select" style="font-size:10.5px; padding:4px 6px;" title="Ordem das colunas configuradas no Apoio Inteligente do PS Evolution (1 Lanceiro, 2 Espadachim, 3 Cav. Pesada...)">
+                            ${Object.keys(TW_DEF_PSE_MIXES).map(k => `<option value="${k}" ${getDefPseAiMixKey() === k ? 'selected' : ''}>Colunas: ${escapeHtml(TW_DEF_PSE_MIXES[k].label)}</option>`).join('')}
+                        </select>
+                        <select id="tw-def-pse-ai-mode" class="tw-select" style="font-size:10.5px; padding:4px 6px;" title="Objetivo configurado no Apoio Inteligente do PS Evolution">
+                            ${Object.keys(TW_DEF_PSE_MODES).map(k => `<option value="${k}" ${getDefPseAiModeKey() === k ? 'selected' : ''}>${escapeHtml(TW_DEF_PSE_MODES[k].label)}</option>`).join('')}
+                        </select>
+                        <button class="tw-btn tw-btn-blue" id="tw-def-copy-export" style="padding:5px 12px; font-size:11px; font-weight:bold;">📋 Copiar</button>
+                    </div>
+                </div>
+                <textarea id="tw-def-export-box" readonly spellcheck="false" style="width:100%; height:148px; background:#020617; color:#e2e8f0; border:1px solid #1e293b; border-radius:6px; padding:8px; font-family:Consolas,monospace; font-size:10.5px; line-height:1.55; resize:vertical;">${escapeHtml(exportText)}</textarea>
+                <div id="tw-def-export-hint" style="font-size:10px; color:#64748b; margin-top:5px; line-height:1.5;">${exportHint}</div>
+            </div>
+        `;
+
+        const logicBlock = `
+            <details style="border:1px solid #1e293b; border-radius:9px; background:rgba(15,23,42,0.5); padding:6px 10px;">
+                <summary style="cursor:pointer; font-size:11px; color:#7dd3fc; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; padding:5px 0;">🧠 Lógica da defesa — porque estes números</summary>
+                <pre style="white-space:pre-wrap; font-family:Consolas,monospace; font-size:10.5px; color:#cbd5e1; line-height:1.65; margin:8px 0 10px;">${escapeHtml(logicText)}</pre>
+            </details>
+        `;
+
         document.getElementById('tw-main-body').innerHTML = `
             <div class="tw-pane active" style="padding:8px; gap:9px; display:flex; flex-direction:column; min-height:0;">
                 ${summaryBar}
+                ${commandsBlock}
+                ${logicBlock}
                 <div style="padding:12px; overflow-y:auto; flex:1; min-height:170px; background:rgba(2,6,23,0.55); border:1px solid #1e293b; border-radius:9px;">
                     ${actionCards}
                 </div>
@@ -9063,6 +9816,7 @@
                         <div style="font-size:10px; color:#94a3b8; line-height:1.5;">
                             Stats oficiais das unidades • muralha por nível (4%→107%) • arma do paladino por estilo oficial • bónus noturno (+100% defesa) • simulação sequencial wave a wave.
                             <br><span style="color:#c084fc;">A usar agora: <b>${escapeHtml(getTwPaladinLabel(defPaladinWeapon))}</b> • estilo ${escapeHtml(TW_PALADIN_STYLES[defPaladinStyle].label)}</span>
+                            <br><span style="color:#7dd3fc;">🏰 Muralha: ${wallReadInfo}</span>
                         </div>
                     </div>
                     <div style="display:flex; gap:8px; align-items:flex-end; flex-wrap:wrap;">
@@ -9082,7 +9836,13 @@
                         <div style="display:flex; flex-direction:column; gap:2px;">
                             <span style="font-size:9px; color:#94a3b8; text-transform:uppercase; letter-spacing:0.04em;">Margem de defesa</span>
                             <select id="tw-def-safety" class="tw-select" style="font-size:10.5px; padding:4px 6px; min-width:250px;">
-                                ${['safe', 'min', 'strong'].map(k => `<option value="${k}" ${defSafetyPreset === k ? 'selected' : ''}>${escapeHtml(TW_DEFENSE_PRESETS[k].label)}</option>`).join('')}
+                                ${Object.keys(TW_DEFENSE_PRESETS).map(k => `<option value="${k}" ${defSafetyPreset === k ? 'selected' : ''}>${escapeHtml(TW_DEFENSE_PRESETS[k].label)}</option>`).join('')}
+                            </select>
+                        </div>
+                        <div style="display:flex; flex-direction:column; gap:2px;">
+                            <span style="font-size:9px; color:#94a3b8; text-transform:uppercase; letter-spacing:0.04em;" title="Muralha a usar quando o nível real não pode ser lido do jogo">Muralha (fallback)</span>
+                            <select id="tw-def-wall" class="tw-select" style="font-size:10.5px; padding:4px 6px; min-width:110px;">
+                                ${Array.from({ length: 21 }, (_, i) => 20 - i).map(l => `<option value="${l}" ${getDefFallbackWall() === l ? 'selected' : ''}>Nível ${l}</option>`).join('')}
                             </select>
                         </div>
                     </div>
@@ -9154,6 +9914,64 @@
             safetySel.onchange = (e) => {
                 setDefSafetyPreset(e.target.value);
                 renderDefensePlanner();
+            };
+        }
+
+        const wallSel = document.getElementById('tw-def-wall');
+        if (wallSel) {
+            wallSel.onchange = (e) => {
+                setDefFallbackWall(e.target.value);
+                renderDefensePlanner();
+            };
+        }
+
+        const exportSel = document.getElementById('tw-def-export-format');
+        const exportBox = document.getElementById('tw-def-export-box');
+        const hintBox = document.getElementById('tw-def-export-hint');
+        const applyExportFormat = (fmt) => {
+            const key = exportFormats[fmt] ? fmt : 'pseai';
+            try { localStorage.setItem('tw_def_export_format_v2', key); } catch (_) {}
+            if (exportSel) exportSel.value = key;
+            const text = exportFormats[key].build();
+            if (exportBox) exportBox.value = text;
+            if (hintBox) hintBox.innerHTML = hintForExport(key, text);
+            return key;
+        };
+        if (exportSel && exportBox) {
+            exportSel.onchange = (e) => applyExportFormat(e.target.value);
+        }
+
+        // Colunas e objetivo do Apoio Inteligente (só mudam o formato do PS Evolution)
+        const aiMixSel = document.getElementById('tw-def-pse-ai-mix');
+        if (aiMixSel) {
+            aiMixSel.onchange = (e) => {
+                setDefPseAiMix(e.target.value);
+                applyExportFormat('pseai');
+            };
+        }
+        const aiModeSel = document.getElementById('tw-def-pse-ai-mode');
+        if (aiModeSel) {
+            aiModeSel.onchange = (e) => {
+                setDefPseAiMode(e.target.value);
+                applyExportFormat('pseai');
+            };
+        }
+
+        const modelInput = document.getElementById('tw-def-pse-model');
+        if (modelInput && exportBox) {
+            const refresh = () => {
+                setDefPseModel(modelInput.value);
+                applyExportFormat('psevo');
+            };
+            modelInput.onchange = refresh;
+            modelInput.oninput = refresh;
+        }
+
+        const exportCopyBtn = document.getElementById('tw-def-copy-export');
+        if (exportCopyBtn && exportBox) {
+            exportCopyBtn.onclick = () => {
+                safeCopyText(exportBox.value || '');
+                showToast('📋 Comandos copiados — já podes agendar no PS Evolution!');
             };
         }
 
@@ -9723,7 +10541,9 @@
                 <td style="padding:3px 6px;"><b style="color:${cmd.actionType==='Support'?'#34d399':'#3fb950'};">${cmd.model}</b>${bldBadge} <span style="font-size:10px; color:#94a3b8;">(${cmd.info})</span>${actionShortcut}</td>
             </tr>`;
 
-            let u = `https://${location.host}/game.php?village=${cmd.originId}&screen=place&target_coord=${cmd.targetCoords}${cmd.building ? `&target_building=${cmd.building}` : ''}`;
+            // Mesmo esquema do módulo de Defesa IA: o destino vai em x/y (o
+            // 'target_coord' sozinho não preenche nada no formulário do jogo).
+            let u = buildPlaceScreenUrl(cmd.originId, cmd.targetCoords, null, cmd.building ? `target_building=${cmd.building}` : '');
             let bldStr = cmd.building ? `${cmd.building}[|]` : '';
             output += `[*]${i+1}. ${formatRussianDateTime(cmd.launchTime)} --- ${cmd.model}[|]${formatRussianDateTime(cmd.landTime)}[|] ${cmd.originCoords} --> ${cmd.targetCoords} [|]${bldStr}[url=${u}]Link[/url]\n`;
         });
@@ -10822,7 +11642,9 @@
                 <td style="padding:3px 6px;"><b style="color:${cmd.actionType==='Support'?'#34d399':'#3fb950'};">${cmd.model}</b>${bldBadge} <span style="font-size:10px; color:#94a3b8;">(${cmd.info})</span>${actionShortcut}</td>
             </tr>`;
 
-            let u = `https://${location.host}/game.php?village=${cmd.originId}&screen=place&target_coord=${cmd.targetCoords}${cmd.building ? `&target_building=${cmd.building}` : ''}`;
+            // Mesmo esquema do módulo de Defesa IA: o destino vai em x/y (o
+            // 'target_coord' sozinho não preenche nada no formulário do jogo).
+            let u = buildPlaceScreenUrl(cmd.originId, cmd.targetCoords, null, cmd.building ? `target_building=${cmd.building}` : '');
             let bldStr = cmd.building ? `${cmd.building}[|]` : '';
             output += `[*]${i+1}. ${formatRussianDateTime(cmd.launchTime)} --- ${cmd.model}[|]${formatRussianDateTime(cmd.landTime)}[|] ${cmd.originCoords} --> ${cmd.targetCoords} [|]${bldStr}[url=${u}]Link[/url]\n`;
         });
