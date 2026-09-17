@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW Tactical Command Suite
 // @namespace    https://tribalwars.com.pt/
-// @version      3.9.0
+// @version      3.10.0
 // @description  Suite militar avançada para Tribal Wars PT: Módulo Tático de Comandos com Radar Inimigo & Intel de Jogador (Pesquisa de Jogador com Autocomplete Instantâneo sem lag, Varredura Assíncrona com Rate-Limiting Seguro, Classificação Automática de Ameaças: 👑 Nobres, ⚔️ Nukes/Grande Escala, 🗡️ Fakes, 👁️ Espionagens e 🛡️ Apoios, Painéis Retráteis por Aldeia de Destino, Relógio Decrescente ao Vivo e Exportação BBCode), Deteção Inteligente de Ataques Inimigos a Chegar com Identificação Real do Jogador Atacante e Aldeia de Origem, Ataques & Retornos com filtros, agrupamento por alvos, ordenação interativa por clique nos cabeçalhos de coluna, exclusão opcional de micro-saques Modo Turbo para velocidade máxima, purga automática de comandos expirados e timers sincronizados com o servidor), Exclusão de Horário Noturno (Bónus Noturno) no Impacto e no Envio com horas configuráveis, Calculador Automático de Horário Mínimo de Impacto com Folga de Envio Configurável (1º Impacto e Cobertura Total de Alvos com ajuste instantâneo a 1 clique), identificação visual de Hoje/Amanhã na tabela, balanceamento round-robin de alvos, escalonamento sem colisão em repetições e Fakes Inteligentes 1% Dinâmico por Pontos (_60, _90, _115, _135), Escoltas Anti-Snipe de Precisão Cirúrgica a 40ms antes de cada Nobre (janela anti-snipe personalizável), Bate e Volta com folga configurável de regresso (padrão seguro de 10s para PSEvolution e bots), Rastreio em Tempo Real de Nobres a Caminho & em Retorno de Comandos + Treino na Academia, Deteção Rigorosa de 0 Nobres em Casa por Isolamento de Linhas HTML & Cruzamento de Comandos Ativos, Deduplicação Rigorosa de Nobres & Teto Físico de Tropas Fora, Sincronização Server-Live sem Cache, Validação Precisa de Envio & Horário Mínimo de Ataque à Prova de Falhas (⚡ com 5m folga, cálculo inteligente de nobres a regressar e seleção do Nuke Full mais perto), Suporte Automático a Modelos NT (NobreFull para NT Simples com Nuke no 1º Nobre, NT 33% para 3 nobres, NT 25% para 4 nobres), Bunkers Desligados por Default, Alvo Cats do Nuke Muralha por Default, Arsenal Tático de Fakes, UI de Limpezas/Nobres/Demolição, e Planeador Tático.
 // @author       Diogo & Antigravity
 // @match        https://*.tribalwars.com.pt/game.php*
@@ -12,7 +12,7 @@
 // ==/UserScript==
 
 (async function () {
-    const SCRIPT_VERSION = '3.9.0';
+    const SCRIPT_VERSION = '3.10.0';
 
     // Auto-selecionar alvo de catapulta na confirmação de ataque na Praça de Reunião se especificado no URL
     try {
@@ -7813,7 +7813,61 @@
         return `${String(Math.floor(s / 3600)).padStart(2, '0')}:${String(Math.floor((s % 3600) / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
     }
 
+    // =========================================================================
+    // MARGEM DE SEGURANÇA DA DEFESA
+    // =========================================================================
+    // IMPORTANTE: as baixas ABSOLUTAS do defensor são ≈ iguais à ofensiva que
+    // recebe, independentemente de quantas tropas envias. Mas a PERCENTAGEM
+    // perdida depende muito:
+    //   defesa = 1.0× o mínimo  -> perdes ~100% e a aldeia fica vazia
+    //   defesa = 1.5× o mínimo  -> perdes ~67% e ficas com guarnição
+    //   defesa = 2.0× o mínimo  -> perdes ~50% e ficas forte para a wave seguinte
+    // Ou seja: enviar mais NÃO aumenta as baixas absolutas, só te deixa melhor.
+    const TW_DEFENSE_PRESETS = {
+        min: { key: 'min', label: 'Mínimo — só para segurar (perdes quase tudo)', short: 'mínimo', factor: 1.0 },
+        safe: { key: 'safe', label: 'Seguro — +50% de margem (recomendado)', short: 'seguro', factor: 1.5 },
+        strong: { key: 'strong', label: 'Forte — +100% de margem (menos baixas)', short: 'forte', factor: 2.0 }
+    };
+
+    let defSafetyPreset = (function () {
+        try {
+            const v = localStorage.getItem('tw_def_safety_preset');
+            if (v && TW_DEFENSE_PRESETS[v]) return v;
+        } catch (_) {}
+        return 'safe';
+    })();
+
+    function setDefSafetyPreset(key) {
+        if (TW_DEFENSE_PRESETS[key]) {
+            defSafetyPreset = key;
+            try { localStorage.setItem('tw_def_safety_preset', key); } catch (_) {}
+        }
+    }
+
+    function getDefSafetyFactor() {
+        const p = TW_DEFENSE_PRESETS[defSafetyPreset] || TW_DEFENSE_PRESETS.safe;
+        return p.factor;
+    }
+
+    // Resultado esperado de um dado exército defensor contra as waves conhecidas
+    function computeDefenseOutcome(defenderArmy, waves, wallLevel) {
+        const army = normalizeTwArmy(defenderArmy);
+        const startPop = twArmyPop(army);
+        const sim = simulateSequentialWaves(army, waves || [], wallLevel, {});
+        const endPop = twArmyPop(sim.finalDefense);
+        const lossPct = startPop > 0 ? Math.round((1 - endPop / startPop) * 100) : 0;
+        return {
+            survived: sim.survived,
+            startPop,
+            endPop,
+            lostPop: Math.max(0, startPop - endPop),
+            lossPct,
+            sim
+        };
+    }
+
     // Defesa necessária para sobreviver a TODAS as waves (não só à primeira)
+    // Devolve tanto o MÍNIMO como o RECOMENDADO (com margem de segurança).
     function computeRequiredDefenseForWaves(targetAnalysis) {
         const t = targetAnalysis;
         if (!t || !t.heaviest || !Array.isArray(t.waves) || !t.waves.length) return null;
@@ -7824,34 +7878,100 @@
         if (Object.keys(currentArmy).length) {
             const alreadyHolds = simulateSequentialWaves(currentArmy, t.waves, t.wallLevel, {});
             if (alreadyHolds.survived) {
+                const outcome = computeDefenseOutcome(currentArmy, t.waves, t.wallLevel);
+                const curPop = twArmyPop(currentArmy);
+                const factor = getDefSafetyFactor();
+
+                // Aguenta mas perde quase tudo? Vale a pena reforçar: as baixas
+                // ABSOLUTAS são as mesmas, mas com margem a aldeia fica com guarnição.
+                if (outcome.lossPct >= 75 && factor > 1 && curPop > 0) {
+                    const boosted = {
+                        spear: Math.ceil(currentArmy.spear * factor) || 0,
+                        sword: Math.ceil(currentArmy.sword * factor) || 0,
+                        archer: Math.ceil(currentArmy.archer * factor) || 0
+                    };
+                    const boostedPop = boosted.spear + boosted.sword + boosted.archer;
+                    if (boostedPop > curPop) {
+                        return {
+                            army: boosted,
+                            pop: boostedPop,
+                            scale: factor, minScale: 1, factor,
+                            minArmy: currentArmy, minPop: curPop,
+                            minSim: alreadyHolds,
+                            sim: simulateSequentialWaves(boosted, t.waves, t.wallLevel, {}),
+                            alreadyHolds: false,
+                            topUpOnly: true,
+                            currentLossPct: outcome.lossPct
+                        };
+                    }
+                }
+
                 return {
                     army: currentArmy,
-                    pop: twArmyPop(currentArmy),
-                    scale: 0,
+                    pop: curPop,
+                    scale: 0, minScale: 0, factor: 1,
                     sim: alreadyHolds,
-                    alreadyHolds: true
+                    alreadyHolds: true,
+                    minArmy: currentArmy,
+                    minPop: curPop,
+                    currentLossPct: outcome.lossPct,
+                    currentOutcome: outcome
                 };
             }
         }
 
         const base = findMinDefenseToSurvive(t.heaviest.attackerArmy, t.wallLevel, { paladinWeapon: t.heaviest.paladinWeapon });
         if (!base || !base.mixed) return null;
-
         const mix = base.mixed;
+
+        // 2. Escala MÍNIMA que sobrevive a todas as waves
+        let minScale = null;
+        let minSim = null;
         let scale = 1;
-        for (let i = 0; i < 7; i++) {
+        for (let i = 0; i < 8; i++) {
             const cand = {
                 spear: Math.ceil(mix.spear * scale),
                 sword: Math.ceil(mix.sword * scale),
                 archer: Math.ceil(mix.archer * scale)
             };
             const sim = simulateSequentialWaves(cand, t.waves, t.wallLevel, {});
-            if (sim.survived) {
-                return { army: cand, pop: cand.spear + cand.sword + cand.archer, scale, sim, alreadyHolds: false };
-            }
+            if (sim.survived) { minScale = scale; minSim = sim; break; }
             scale *= 1.25;
         }
-        return { army: null, pop: Infinity, scale, sim: null, alreadyHolds: false };
+        if (minScale === null) {
+            return { army: null, pop: Infinity, scale, minScale: null, factor: 1, sim: null, alreadyHolds: false };
+        }
+
+        const minArmy = {
+            spear: Math.ceil(mix.spear * minScale),
+            sword: Math.ceil(mix.sword * minScale),
+            archer: Math.ceil(mix.archer * minScale)
+        };
+        const minPop = minArmy.spear + minArmy.sword + minArmy.archer;
+
+        // 3. Aplicar a margem de segurança escolhida
+        const factor = getDefSafetyFactor();
+        const finalScale = minScale * factor;
+        const army = {
+            spear: Math.ceil(mix.spear * finalScale),
+            sword: Math.ceil(mix.sword * finalScale),
+            archer: Math.ceil(mix.archer * finalScale)
+        };
+        const pop = army.spear + army.sword + army.archer;
+        const sim = simulateSequentialWaves(army, t.waves, t.wallLevel, {});
+
+        return {
+            army,
+            pop,
+            scale: finalScale,
+            minScale,
+            factor,
+            minArmy,
+            minPop,
+            minSim,
+            sim,
+            alreadyHolds: false
+        };
     }
 
     // =========================================================================
@@ -8012,13 +8132,16 @@
                 : { spear: 0, sword: 0, archer: 0 };
             const requiredPop = targetPop;
 
-            // Já aguenta sem reforço?
-            if (t.sequential.survived || (need.spear + need.sword + need.archer) <= 0) {
+            // Já aguenta sem reforço? (a menos que só valha a pena "engrossar" a defesa)
+            const needPopTotal = need.spear + need.sword + need.archer;
+            const isTopUp = !!(allWavesReq && allWavesReq.topUpOnly);
+            if (!isTopUp && (t.sequential.survived || needPopTotal <= 0)) {
                 summary.push({
                     target: t, label, decision: 'HOLD', supportOrders: [], dodgeOrder: null,
                     requiredPop: requiredPop === Infinity ? 0 : requiredPop,
                     currentPop: safeNumber(t.currentPop, 0),
                     missingAfter: 0,
+                    required: allWavesReq,
                     reason: 'Defesa atual aguenta todas as waves conhecidas. Não mover nada.'
                 });
                 return;
@@ -8427,6 +8550,10 @@
                     ? safeNumber(t.allWavesNeed.pop, 0)
                     : (t.required ? safeNumber(t.required.pop, 0) : 0),
                 missingPop: safeNumber(t.allWavesGapPop, 0),
+                minPop: (t.allWavesNeed && safeNumber(t.allWavesNeed.minPop, 0)) || 0,
+                minArmy: (t.allWavesNeed && t.allWavesNeed.minArmy) || null,
+                safetyFactor: (t.allWavesNeed && safeNumber(t.allWavesNeed.factor, 1)) || 1,
+                topUpOnly: !!(t.allWavesNeed && t.allWavesNeed.topUpOnly),
                 noAction: !!(t.sequential && t.sequential.survived) && support.length === 0 && !dodge
             };
         }).sort((a, b) => {
@@ -8655,6 +8782,15 @@
                                 ? `Não há defesa que chegue para <b>${a.attacks}</b> ataque${a.attacks > 1 ? 's' : ''} seguidos. O melhor é <b style="color:#fb923c;">tirar as tuas tropas de lá</b> antes que as percas.`
                                 : `Tens <b>${a.currentPop.toLocaleString('pt-PT')}</b> de defesa em casa, precisas de <b style="color:#fbbf24;">${a.requiredPop.toLocaleString('pt-PT')}</b>.${a.missingPop > 0 ? ` Faltam <b style="color:#fca5a5;">${a.missingPop.toLocaleString('pt-PT')}</b>.` : ''}`}
                     </div>
+                    ${(!isDodge && a.safetyFactor > 1 && a.minPop > 0 && a.minPop < a.requiredPop) ? `
+                        <div style="margin-top:8px; padding:9px 11px; border-radius:7px; background:rgba(56,189,248,0.07); border:1px dashed rgba(56,189,248,0.35);">
+                            <div style="font-size:11px; color:#7dd3fc; font-weight:700; text-transform:uppercase; letter-spacing:0.04em; margin-bottom:5px;">Porque ${a.safetyFactor}× e não só o mínimo</div>
+                            <div style="font-size:12px; color:#cbd5e1; line-height:1.7;">
+                                • Com o <b>mínimo</b> (${a.minPop.toLocaleString('pt-PT')} pop) também seguravas, mas perdias <b style="color:#fca5a5;">quase todas as tropas</b> e a aldeia ficava vazia.<br>
+                                • Com <b>${a.safetyFactor}×</b> (${a.requiredPop.toLocaleString('pt-PT')} pop) as <b>baixas absolutas são as mesmas</b> — só que ficas com guarnição e margem para imprevistos.
+                            </div>
+                        </div>
+                    ` : ''}
                     ${steps}
                     ${isReconquer ? `
                         <div style="margin-top:10px; padding:10px 12px; border-radius:7px; background:rgba(244,63,94,0.08); border:1px dashed rgba(244,63,94,0.45);">
@@ -8943,6 +9079,12 @@
                                 ${['old', 'new', 'none'].map(k => `<option value="${k}" ${defPaladinStyle === k ? 'selected' : ''}>${escapeHtml(TW_PALADIN_STYLES[k].label)}</option>`).join('')}
                             </select>
                         </div>
+                        <div style="display:flex; flex-direction:column; gap:2px;">
+                            <span style="font-size:9px; color:#94a3b8; text-transform:uppercase; letter-spacing:0.04em;">Margem de defesa</span>
+                            <select id="tw-def-safety" class="tw-select" style="font-size:10.5px; padding:4px 6px; min-width:250px;">
+                                ${['safe', 'min', 'strong'].map(k => `<option value="${k}" ${defSafetyPreset === k ? 'selected' : ''}>${escapeHtml(TW_DEFENSE_PRESETS[k].label)}</option>`).join('')}
+                            </select>
+                        </div>
                     </div>
                     <div style="display:flex; gap:6px; flex-wrap:wrap;">
                         <button class="tw-btn tw-btn-blue" id="tw-def-copy-advisory" style="padding:7px 12px; font-size:11px; font-weight:bold; white-space:nowrap;">📋 Texto</button>
@@ -9006,6 +9148,14 @@
                 }
             };
         });
+
+        const safetySel = document.getElementById('tw-def-safety');
+        if (safetySel) {
+            safetySel.onchange = (e) => {
+                setDefSafetyPreset(e.target.value);
+                renderDefensePlanner();
+            };
+        }
 
         const palWeaponSel = document.getElementById('tw-def-pal-weapon');
         if (palWeaponSel) {
